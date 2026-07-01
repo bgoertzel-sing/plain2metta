@@ -119,6 +119,60 @@ def _validate_object_facts(doc: SpecDocument) -> None:
     doc.objects.extend(unknown_predicate_questions)
 
 
+def _validate_validation_obligations(doc: SpecDocument) -> None:
+    """Validate obligation provenance and target links without recursion."""
+    original_obligations = list(doc.validation_obligations)
+    known_targets = (
+        {plain_file.id for plain_file in doc.files}
+        | {section.id for section in doc.sections}
+        | {item.id for item in doc.items}
+        | {span.id for span in doc.spans}
+        | {obj.id for obj in doc.objects}
+        | {obligation.id for obligation in original_obligations}
+        | {check.id for check in doc.checks}
+    )
+    known_spans = {span.id for span in doc.spans}
+    object_ids = {obj.id for obj in doc.objects}
+
+    def target_is_declared(target_id: str) -> bool:
+        if target_id in known_targets:
+            return True
+        if ":fact:" in target_id:
+            return target_id.split(":fact:", 1)[0] in object_ids
+        if ":" in target_id:
+            return target_id.split(":", 1)[0] in object_ids
+        return False
+
+    for original in original_obligations:
+        obligation = add_validation_obligation(
+            doc,
+            "obligation-has-source-provenance",
+            original.id,
+            "Validation obligations should cite a known source span, or remain Unknown when generated without a direct source slice.",
+            original.source_span_id,
+        )
+        if original.source_span_id is None:
+            add_check(doc, obligation, CheckStatus.UNKNOWN, "no source span declared")
+        elif original.source_span_id in known_spans:
+            add_check(doc, obligation, CheckStatus.PASS, f"source_span={original.source_span_id}")
+        else:
+            add_check(doc, obligation, CheckStatus.FAIL, f"missing source_span={original.source_span_id}")
+
+        obligation = add_validation_obligation(
+            doc,
+            "obligation-target-is-declared",
+            original.id,
+            "Validation obligation targets must be declared document entities, check IDs, obligation IDs, or supported object-scoped subtargets.",
+            original.source_span_id,
+        )
+        add_check(
+            doc,
+            obligation,
+            CheckStatus.PASS if target_is_declared(original.target_id) else CheckStatus.FAIL,
+            f"target={original.target_id}" if target_is_declared(original.target_id) else f"undeclared target={original.target_id}",
+        )
+
+
 def _validate_check_records(doc: SpecDocument) -> None:
     """Validate the validation layer itself without recursively judging new checks."""
     obligation_by_id = {obligation.id: obligation for obligation in doc.validation_obligations}
@@ -175,6 +229,7 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         add_check(doc, o, CheckStatus.PASS if ok else CheckStatus.FAIL, obj.source_span_id or "missing")
 
     _validate_object_facts(doc)
+    _validate_validation_obligations(doc)
     _validate_check_records(doc)
 
     if not doc.objects:

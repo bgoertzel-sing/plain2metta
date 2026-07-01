@@ -12,7 +12,7 @@ This repository currently contains two layers:
 - stable source IDs, SHA-256 file digests, sections, bullet items, and exact byte/line spans, including marker spans on continuation lines;
 - first-class validation-obligation and check records (`Pass`, `Fail`, `Unknown`);
 - scaffold fact-arity and declared-reference validation for supported predicates, with Unknown predicate checks turned into explicit profile questions;
-- validation-layer self-checks that ensure each check record cites an existing obligation and matches its declared property/target;
+- validation-layer self-checks that ensure validation obligations cite known source/target provenance, and each check record cites an existing obligation and matches its declared property/target;
 - conservative concept markers (`:Concept:`, `[def:Concept]`, `[ref:Concept]`, `[concept:Concept]`, and definition/glossary `Concept:` bullets);
 - shallow requirement/test coverage obligations with Pass/Unknown checks and missing-test questions;
 - PeTTa profile refusal records for `RawTextOnly`, unsupported semantic levels, unsupported predicates, and malformed fact arity;

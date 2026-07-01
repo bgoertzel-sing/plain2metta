@@ -79,8 +79,33 @@ class ValidationRecordTests(unittest.TestCase):
         self.assertIn(("UnsupportedFactPredicate", next(obj.id for obj in doc.objects if obj.role == Role.QUESTION_OBJECT), "InventedExecutable"), question_facts)
         self.assertTrue(any(fact[0] == "Blocks" and fact[2].startswith("vobl-") for fact in question_facts))
 
+    def test_validation_obligations_validate_source_and_target_provenance(self):
+        doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "obligations.plain")
+        self.assertTrue(
+            any(c.property == "obligation-has-source-provenance" and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "obligation-target-is-declared" and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+
+        bad = SpecDocument(
+            validation_obligations=[
+                ValidationObligation("vobl-bad", "synthetic-property", "missing-target", "bad provenance", "span-missing")
+            ]
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(bad)
+        self.assertTrue(
+            any(c.property == "obligation-has-source-provenance" and c.status == CheckStatus.FAIL and "span-missing" in c.evidence for c in bad.checks)
+        )
+        self.assertTrue(
+            any(c.property == "obligation-target-is-declared" and c.status == CheckStatus.FAIL and "missing-target" in c.evidence for c in bad.checks)
+        )
+
     def test_check_records_validate_their_obligation_links_and_targets(self):
         doc = SpecDocument(
+            objects=[SpecObject("target-a", Role.SOURCE_OBJECT, SemanticLevel.RAW_TEXT_ONLY, None)],
             validation_obligations=[
                 ValidationObligation("vobl-known", "example-property", "target-a", "synthetic obligation")
             ],
