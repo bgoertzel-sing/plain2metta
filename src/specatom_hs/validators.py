@@ -46,9 +46,58 @@ FACT_SCHEMAS = {
     "Covers": FactSchema(3, object_refs=(2,)),
     "MissingAcceptanceTest": FactSchema(3, object_refs=(2,)),
     "UnsupportedFactPredicate": FactSchema(3),
+    "UnsupportedSemanticLevel": FactSchema(3),
     "Blocks": FactSchema(3, obligation_refs=(2,)),
     "GeneratedFrom": FactSchema(3, object_refs=(2,)),
 }
+
+
+SUPPORTED_PETTA_REIFIED_LEVELS = {
+    SemanticLevel.TEMPLATE_PARSED,
+    SemanticLevel.ACTION_SCHEMA_PARSED,
+    SemanticLevel.PREDICATE_PARSED,
+    SemanticLevel.FORMALLY_TYPED,
+    SemanticLevel.BACKEND_LOWERED,
+    SemanticLevel.VERIFIED,
+}
+
+
+def _validate_petta_reified_profile_levels(doc: SpecDocument) -> None:
+    """Make PeTTa reified-profile semantic-level support explicit in validation."""
+    existing_ids = {obj.id for obj in doc.objects}
+    profile_questions: list[SpecObject] = []
+
+    for obj in list(doc.objects):
+        obligation = add_validation_obligation(
+            doc,
+            "object-supported-by-petta-reified-profile",
+            obj.id,
+            "The petta_reified_v0 profile exports only conservative semantic levels; unsupported objects require a refusal/question instead of emission.",
+            obj.source_span_id,
+        )
+        if obj.semantic_level in SUPPORTED_PETTA_REIFIED_LEVELS:
+            add_check(doc, obligation, CheckStatus.PASS, obj.semantic_level.value)
+            continue
+
+        add_check(doc, obligation, CheckStatus.UNKNOWN, f"unsupported semantic level for petta_reified_v0: {obj.semantic_level.value}")
+        qid = stable_id("question", "unsupported-petta-reified-level", obj.id, obj.semantic_level.value)
+        if qid not in existing_ids:
+            profile_questions.append(
+                SpecObject(
+                    qid,
+                    Role.QUESTION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    obj.source_span_id,
+                    facts=[
+                        ("UnsupportedSemanticLevel", qid, obj.semantic_level.value),
+                        ("QuestionText", qid, f"Should object '{obj.id}' be lifted above {obj.semantic_level.value} before petta_reified_v0 export, or refused?"),
+                        ("Blocks", qid, obligation.id),
+                    ],
+                )
+            )
+            existing_ids.add(qid)
+
+    doc.objects.extend(profile_questions)
 
 
 def _validate_object_facts(doc: SpecDocument) -> None:
@@ -228,6 +277,7 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         ok = obj.source_span_id in known_spans or any(f[0] == "GeneratedFrom" for f in obj.facts)
         add_check(doc, o, CheckStatus.PASS if ok else CheckStatus.FAIL, obj.source_span_id or "missing")
 
+    _validate_petta_reified_profile_levels(doc)
     _validate_object_facts(doc)
     _validate_validation_obligations(doc)
     _validate_check_records(doc)

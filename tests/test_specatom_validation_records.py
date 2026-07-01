@@ -79,6 +79,37 @@ class ValidationRecordTests(unittest.TestCase):
         self.assertIn(("UnsupportedFactPredicate", next(obj.id for obj in doc.objects if obj.role == Role.QUESTION_OBJECT), "InventedExecutable"), question_facts)
         self.assertTrue(any(fact[0] == "Blocks" and fact[2].startswith("vobl-") for fact in question_facts))
 
+    def test_petta_reified_profile_level_obligations_create_refusal_questions(self):
+        doc = SpecDocument(
+            objects=[
+                SpecObject("obj-raw", Role.SOURCE_OBJECT, SemanticLevel.RAW_TEXT_ONLY, None),
+                SpecObject("obj-template", Role.REQUIREMENT_OBJECT, SemanticLevel.TEMPLATE_PARSED, None),
+            ]
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+        self.assertTrue(
+            any(
+                c.property == "object-supported-by-petta-reified-profile"
+                and c.target_id == "obj-template"
+                and c.status == CheckStatus.PASS
+                for c in doc.checks
+            )
+        )
+        self.assertTrue(
+            any(
+                c.property == "object-supported-by-petta-reified-profile"
+                and c.target_id == "obj-raw"
+                and c.status == CheckStatus.UNKNOWN
+                and "RawTextOnly" in c.evidence
+                for c in doc.checks
+            )
+        )
+        question_facts = [fact for obj in doc.objects if obj.role == Role.QUESTION_OBJECT for fact in obj.facts]
+        self.assertTrue(any(fact[0] == "UnsupportedSemanticLevel" and fact[2] == "RawTextOnly" for fact in question_facts))
+        self.assertTrue(any(fact[0] == "Blocks" and fact[2].startswith("vobl-") for fact in question_facts))
+
     def test_validation_obligations_validate_source_and_target_provenance(self):
         doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "obligations.plain")
         self.assertTrue(
