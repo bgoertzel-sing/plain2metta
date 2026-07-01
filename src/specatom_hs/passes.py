@@ -100,13 +100,26 @@ def build_concept_table(doc: SpecDocument) -> SpecDocument:
             return item.span.end_byte
         raise ValueError(f"could not align raw index {raw_index} for item {item.id}")
 
+    def line_for_offset(file_id: str, byte_offset: int) -> int:
+        """Return a 1-based line number for a byte offset in the source text."""
+        return file_text[file_id].count("\n", 0, byte_offset) + 1
+
     def add_occurrence(item, name: str, kind: str, match_start: int, match_end: int) -> str:
         """Preserve an exact source span for one explicit concept marker."""
         start = raw_index_to_source_offset(item, match_start)
         end = raw_index_to_source_offset(item, match_end)
         span_id = stable_id("span", item.file_id, start, end)
         if span_id not in span_ids:
-            doc.spans.append(SourceSpan(span_id, item.file_id, start, end, item.span.start_line, item.span.end_line))
+            doc.spans.append(
+                SourceSpan(
+                    span_id,
+                    item.file_id,
+                    start,
+                    end,
+                    line_for_offset(item.file_id, start),
+                    line_for_offset(item.file_id, max(start, end - 1)),
+                )
+            )
             span_ids.add(span_id)
         return span_id
 

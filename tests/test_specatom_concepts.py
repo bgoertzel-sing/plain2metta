@@ -56,6 +56,27 @@ class ConceptPassTests(unittest.TestCase):
         self.assertEqual(file_text[user_span.start_byte:user_span.end_byte], ":User:")
         self.assertTrue(any(c.target_id == f"{user_refs[0].id}:User" and c.status == CheckStatus.UNKNOWN for c in doc.checks))
 
+    def test_continuation_line_concept_reference_has_exact_line_span(self):
+        doc = compile_source(
+            "***definitions***\n"
+            "- :Task: is work.\n"
+            "***requirements***\n"
+            "- The rule starts here\n"
+            "  and continues with [ref:Task].\n",
+            "continuation-concepts.plain",
+        )
+
+        refs = [obj for obj in doc.objects if obj.role == Role.CONCEPT_REFERENCE_OBJECT]
+        task_ref = next(
+            obj for obj in refs
+            if ("ConceptReference", obj.id, "Task") in obj.facts
+            and ("ConceptReferenceKind", obj.id, "reference") in obj.facts
+        )
+        span = {span.id: span for span in doc.spans}[task_ref.source_span_id]
+        self.assertEqual(doc.files[0].text[span.start_byte:span.end_byte], "[ref:Task]")
+        self.assertEqual(span.start_line, 5)
+        self.assertEqual(span.end_line, 5)
+
     def test_concept_aliases_and_bare_glossary_definitions_are_conservative(self):
         doc = compile_source(
             "***glossary***\n"
