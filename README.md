@@ -16,7 +16,7 @@ This repository currently contains two layers:
 - conservative concept markers (`:Concept:`, `[def:Concept]`, `[ref:Concept]`, `[concept:Concept]`, and definition/glossary `Concept:` bullets);
 - shallow requirement/test coverage obligations with Pass/Unknown checks and missing-test questions;
 - PeTTa profile refusal records for `RawTextOnly`, unsupported semantic levels, unsupported predicates, and malformed fact arity;
-- profile-filtered reified object facts plus validation obligations, rationales, check records, check-obligation links, and check evidence only when supported by `petta_reified_v0`.
+- profile-filtered source provenance manifest atoms, object facts, validation obligations, rationales, check records, check-obligation links, and check evidence only when supported by `petta_reified_v0`.
 
 ## What is intentionally not supported
 

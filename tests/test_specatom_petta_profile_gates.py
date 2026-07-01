@@ -55,6 +55,25 @@ class PettaProfileGateTests(unittest.TestCase):
         self.assertTrue(any(atom == f'(check-obligation {check.id} {obligation.id})' for atom in atoms))
         self.assertTrue(any(atom == f'(check-evidence {check.id} "not enough source evidence")' for atom in atoms))
 
+    def test_reified_projection_includes_source_provenance_manifest(self):
+        doc = compile_source("***definitions***\n- Task: tracked work.\n", "source_manifest.plain")
+        atoms, refusals = emit_reified_atoms(doc)
+
+        plain_file = doc.files[0]
+        section = doc.sections[0]
+        item = doc.items[0]
+        span = item.span
+        expected_manifest_atoms = {
+            f"(plain-file {plain_file.id} source_manifest.plain {plain_file.digest})",
+            f"(section {section.id} {plain_file.id} Definitions 1)",
+            f"(derived-from {section.id} {section.span.id})",
+            f'(plain-item {item.id} {section.id} none 1 "Task: tracked work.")',
+            f"(derived-from {item.id} {span.id})",
+            f"(source-span {span.id} {plain_file.id} {span.start_byte} {span.end_byte} {span.start_line} {span.end_line})",
+        }
+        self.assertTrue(expected_manifest_atoms.issubset(set(atoms)))
+        self.assertFalse(any(r.reason.startswith("unsupported-fact") for r in refusals))
+
 
 if __name__ == "__main__":
     unittest.main()

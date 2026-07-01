@@ -66,6 +66,16 @@ def _profile_fact_refusal(obj: SpecObject, fact: tuple) -> BackendRefusal | None
 def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusal]]:
     atoms = [_atom(["target-profile", "petta_reified_v0"])]
     refusals: list[BackendRefusal] = []
+    for plain_file in doc.files:
+        atoms.append(_atom(["plain-file", plain_file.id, plain_file.path, plain_file.digest]))
+    for span in doc.spans:
+        atoms.append(_atom(["source-span", span.id, span.file_id, span.start_byte, span.end_byte, span.start_line, span.end_line]))
+    for section in doc.sections:
+        atoms.append(_atom(["section", section.id, section.file_id, section.kind, section.ordinal]))
+        atoms.append(_atom(["derived-from", section.id, section.span.id]))
+    for item in doc.items:
+        atoms.append(_atom(["plain-item", item.id, item.section_id, item.parent_item_id or "none", item.ordinal, item.raw_text]))
+        atoms.append(_atom(["derived-from", item.id, item.span.id]))
     for obj in doc.objects:
         emitted = reified_atom_for_object(obj)
         if isinstance(emitted, BackendRefusal):
