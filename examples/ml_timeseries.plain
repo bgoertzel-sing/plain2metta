@@ -1,0 +1,9 @@
+***definitions***
+- :PriceObservation: is an observed market price at a timestamp.
+- :ReturnLabel24h: is the 24 hour future return after a prediction time.
+
+***functional specifications***
+- The experiment trains a model to predict :ReturnLabel24h: from price features.
+- The data is normalized and then split into train, validation, and test.
+- Hyperparameters are chosen by validation performance.
+- Final performance is reported on the test split.

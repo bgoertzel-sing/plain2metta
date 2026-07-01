@@ -1,0 +1,8 @@
+***definitions***
+- :Task: describes work a :User: wants to track.
+
+***functional specifications***
+- :User: should be able to add :Task:.
+
+***acceptance tests***
+- Given a valid :Task:, when :User: adds it, then it appears in the task list.

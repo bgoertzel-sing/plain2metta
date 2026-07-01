@@ -1,0 +1,12 @@
+***definitions***
+- :Task: describes an activity that needs to be done by :User:.
+  :Task: has the following attributes:
+  - Name - a short description of :Task:. This is required.
+  - Due Date - optional date by which :User: is supposed to complete :Task:.
+
+***functional specifications***
+- :User: should be able to add :Task:. Only valid :Task: items can be added.
+
+  ***acceptance tests***
+  - Given a valid :Task:, when :User: adds it, then it appears in the task list.
+  - Given an invalid :Task:, when :User: adds it, then the system rejects it.
