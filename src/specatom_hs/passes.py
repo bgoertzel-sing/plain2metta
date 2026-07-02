@@ -260,6 +260,15 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
     item_by_id = {item.id: item for item in doc.items}
     last_requirement_item_id: str | None = None
 
+    # Labels are document-scoped: explicit [covers:...] claims should resolve
+    # even when acceptance-test sections appear before the requirement section.
+    for item in doc.items:
+        if section_kind_by_id.get(item.section_id) in REQUIREMENT_SECTION_KINDS:
+            label_match = REQUIREMENT_LABEL_RE.search(item.raw_text)
+            if label_match:
+                label = _clean_requirement_label(label_match.group(1))
+                requirement_label_to_item_ids.setdefault(label, []).append(item.id)
+
     def nearest_requirement_parent(item_id: str | None) -> str | None:
         while item_id:
             if item_id in requirement_item_ids:
@@ -274,8 +283,6 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
             oid = stable_id("req", item.id)
             label_match = REQUIREMENT_LABEL_RE.search(item.raw_text)
             label = _clean_requirement_label(label_match.group(1)) if label_match else None
-            if label:
-                requirement_label_to_item_ids.setdefault(label, []).append(item.id)
             if oid not in existing_ids:
                 facts = [("Requirement", oid), ("SourceItem", oid, item.id), ("RequirementText", oid, item.raw_text)]
                 if label:

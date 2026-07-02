@@ -73,6 +73,25 @@ class RequirementCoverageTests(unittest.TestCase):
         }
         self.assertTrue(expected.issubset(set(atoms)))
 
+    def test_explicit_coverage_label_resolves_forward_requirement_section(self):
+        doc = compile_source(
+            "***acceptance tests***\n"
+            "- [covers:R1] Given a [ref:Task], when it is created, then it is visible.\n"
+            "***requirements***\n"
+            "- [id:R1] The [def:Task] must be visible after creation.\n",
+            "forward-coverage-label.plain",
+        )
+
+        req = next(obj for obj in doc.objects if obj.role == Role.REQUIREMENT_OBJECT)
+        test = next(obj for obj in doc.objects if obj.role == Role.VALIDATION_OBJECT)
+        self.assertIn(("Covers", test.id, req.id), test.facts)
+        self.assertFalse(
+            any(c.property == "coverage-claim-target-resolved" and c.target_id == f"{test.id}:R1" and c.status == CheckStatus.UNKNOWN for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "requirement-has-acceptance-test" and c.target_id == req.id and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+
     def test_orphan_acceptance_test_becomes_coverage_question_and_export_atom(self):
         doc = compile_source(
             "***acceptance tests***\n"
