@@ -73,6 +73,25 @@ class RequirementCoverageTests(unittest.TestCase):
         }
         self.assertTrue(expected.issubset(set(atoms)))
 
+    def test_orphan_acceptance_test_becomes_coverage_question_and_export_atom(self):
+        doc = compile_source(
+            "***acceptance tests***\n"
+            "- Given a task, when it is created, then it is visible.\n",
+            "orphan-test.plain",
+        )
+
+        test = next(obj for obj in doc.objects if obj.role == Role.VALIDATION_OBJECT)
+        self.assertTrue(
+            any(c.property == "acceptance-test-covers-requirement" and c.target_id == test.id and c.status == CheckStatus.UNKNOWN for c in doc.checks)
+        )
+        questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT]
+        question = next(obj for obj in questions if ("OrphanAcceptanceTest", obj.id, test.id) in obj.facts)
+        self.assertTrue(any(fact[0] == "Blocks" and fact[2].startswith("vobl-") for fact in question.facts))
+
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertIn(f"(OrphanAcceptanceTest {question.id} {test.id})", atoms)
+        self.assertFalse(any(r.reason.startswith("unsupported-fact-predicate:OrphanAcceptanceTest") for r in refusals))
+
     def test_unresolved_explicit_coverage_label_becomes_question(self):
         doc = compile_source(
             "***requirements***\n"

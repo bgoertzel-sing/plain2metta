@@ -256,6 +256,7 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
     covered_requirement_item_ids: set[str] = set()
     requirement_label_to_item_ids: dict[str, list[str]] = {}
     pending_coverage_claims: list[tuple[str, str, str, str]] = []
+    test_coverage_targets: dict[str, tuple[str, str, bool]] = {}
     item_by_id = {item.id: item for item in doc.items}
     last_requirement_item_id: str | None = None
 
@@ -302,6 +303,7 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
             for target_item_id in dict.fromkeys(target_item_ids):
                 facts.append(("Covers", oid, stable_id("req", target_item_id)))
                 covered_requirement_item_ids.add(target_item_id)
+            test_coverage_targets[oid] = (item.span.id, item.raw_text, bool(target_item_ids))
             if oid not in existing_ids:
                 doc.objects.append(SpecObject(oid, Role.VALIDATION_OBJECT, SemanticLevel.TEMPLATE_PARSED, item.span.id, facts=facts))
                 existing_ids.add(oid)
@@ -364,6 +366,35 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
                 )
             )
             existing_ids.add(qid)
+
+    for test_id, (span_id, raw_text, has_target) in sorted(test_coverage_targets.items()):
+        obligation = add_validation_obligation(
+            doc,
+            "acceptance-test-covers-requirement",
+            test_id,
+            "Every acceptance test should be linked to at least one requirement by nesting, proximity, or explicit coverage label.",
+            span_id,
+        )
+        if has_target:
+            add_check(doc, obligation, CheckStatus.PASS, "acceptance test has a requirement coverage target")
+        else:
+            add_check(doc, obligation, CheckStatus.UNKNOWN, "no requirement coverage target found")
+            qid = stable_id("question", "orphan-acceptance-test", test_id)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[
+                            ("OrphanAcceptanceTest", qid, test_id),
+                            ("QuestionText", qid, f"Which requirement is covered by acceptance test '{raw_text}'?"),
+                            ("Blocks", qid, obligation.id),
+                        ],
+                    )
+                )
+                existing_ids.add(qid)
 
     for item_id in sorted(requirement_item_ids):
         item = item_by_id[item_id]

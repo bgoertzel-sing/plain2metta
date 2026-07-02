@@ -47,6 +47,7 @@ FACT_SCHEMAS = {
     "CoverageClaim": FactSchema(3),
     "Covers": FactSchema(3, object_refs=(2,)),
     "MissingAcceptanceTest": FactSchema(3, object_refs=(2,)),
+    "OrphanAcceptanceTest": FactSchema(3, object_refs=(2,)),
     "MissingCoverageTarget": FactSchema(3),
     "AmbiguousCoverageTarget": FactSchema(3),
     "DuplicateRequirementLabel": FactSchema(3),
