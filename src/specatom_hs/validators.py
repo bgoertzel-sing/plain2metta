@@ -27,13 +27,14 @@ class FactSchema:
     object_refs: tuple[int, ...] = ()
     item_refs: tuple[int, ...] = ()
     obligation_refs: tuple[int, ...] = ()
+    subject_pos: int | None = 1
 
 
 FACT_SCHEMAS = {
     "RawText": FactSchema(3),
     "SourceItem": FactSchema(3, item_refs=(2,)),
     "ConceptName": FactSchema(3),
-    "ConceptStatus": FactSchema(3),
+    "ConceptStatus": FactSchema(3, subject_pos=None),
     "UnresolvedConcept": FactSchema(3),
     "QuestionText": FactSchema(3),
     "ConceptReference": FactSchema(3),
@@ -151,6 +152,21 @@ def _validate_object_facts(doc: SpecDocument) -> None:
                 add_check(doc, arity_obligation, CheckStatus.FAIL, f"expected arity {schema.arity}; got {len(fact)}")
                 continue
             add_check(doc, arity_obligation, CheckStatus.PASS, f"arity={len(fact)}")
+
+            subject_obligation = add_validation_obligation(
+                doc,
+                "fact-subject-matches-object",
+                target,
+                "Object-scoped facts must name their owning SpecObject as subject before profile export.",
+                obj.source_span_id,
+            )
+            subject_mismatch = schema.subject_pos is not None and str(fact[schema.subject_pos]) != obj.id
+            add_check(
+                doc,
+                subject_obligation,
+                CheckStatus.FAIL if subject_mismatch else CheckStatus.PASS,
+                f"subject@{schema.subject_pos}={fact[schema.subject_pos]} object={obj.id}" if subject_mismatch else "fact subject matches owning object or is predicate-scoped",
+            )
 
             ref_obligation = add_validation_obligation(
                 doc,

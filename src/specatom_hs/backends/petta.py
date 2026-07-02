@@ -60,6 +60,8 @@ def _profile_fact_refusal(obj: SpecObject, fact: tuple) -> BackendRefusal | None
         return BackendRefusal("petta_reified_v0", f"unsupported-fact-predicate:{predicate}", obj.id, obj.semantic_level.value)
     if len(fact) != schema.arity:
         return BackendRefusal("petta_reified_v0", f"unsupported-fact-arity:{predicate}:expected-{schema.arity}:got-{len(fact)}", obj.id, obj.semantic_level.value)
+    if schema.subject_pos is not None and str(fact[schema.subject_pos]) != obj.id:
+        return BackendRefusal("petta_reified_v0", f"fact-subject-mismatch:{predicate}:expected-{obj.id}:got-{fact[schema.subject_pos]}", obj.id, obj.semantic_level.value)
     return None
 
 

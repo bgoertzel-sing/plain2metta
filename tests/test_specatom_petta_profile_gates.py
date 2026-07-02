@@ -35,16 +35,19 @@ class PettaProfileGateTests(unittest.TestCase):
         self.assertEqual(len(refusals), 1)
         self.assertEqual(refusals[0].reason, "unsupported-semantic-level-for-reified-emission")
 
-    def test_reified_profile_filters_unknown_and_malformed_object_facts(self):
+    def test_reified_profile_filters_unknown_malformed_and_wrong_subject_facts(self):
         good = SpecObject("obj-good", Role.REQUIREMENT_OBJECT, SemanticLevel.TEMPLATE_PARSED, "span-1", facts=[("Requirement", "obj-good")])
         unknown = SpecObject("obj-unknown", Role.REQUIREMENT_OBJECT, SemanticLevel.TEMPLATE_PARSED, "span-1", facts=[("InventedExecutable", "obj-unknown", "run")])
         malformed = SpecObject("obj-bad", Role.VALIDATION_OBJECT, SemanticLevel.TEMPLATE_PARSED, "span-1", facts=[("Covers", "obj-bad")])
-        atoms, refusals = emit_reified_atoms(SpecDocument(objects=[good, unknown, malformed]))
+        wrong_subject = SpecObject("obj-owner", Role.REQUIREMENT_OBJECT, SemanticLevel.TEMPLATE_PARSED, "span-1", facts=[("RequirementText", "obj-other", "text")])
+        atoms, refusals = emit_reified_atoms(SpecDocument(objects=[good, unknown, malformed, wrong_subject]))
         self.assertIn("(Requirement obj-good)", atoms)
         self.assertNotIn("(InventedExecutable obj-unknown run)", atoms)
         self.assertNotIn("(Covers obj-bad)", atoms)
+        self.assertNotIn("(RequirementText obj-other text)", atoms)
         self.assertTrue(any(r.reason == "unsupported-fact-predicate:InventedExecutable" for r in refusals))
         self.assertTrue(any(r.reason == "unsupported-fact-arity:Covers:expected-3:got-2" for r in refusals))
+        self.assertTrue(any(r.reason == "fact-subject-mismatch:RequirementText:expected-obj-owner:got-obj-other" for r in refusals))
 
     def test_reified_validation_records_preserve_rationale_and_check_evidence(self):
         doc = compile_source("***definitions***\n- :Task: is work.\n", "validation.plain")

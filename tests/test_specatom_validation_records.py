@@ -35,7 +35,7 @@ class ValidationRecordTests(unittest.TestCase):
         self.assertTrue(any(c.property == "fact-has-supported-arity" and c.status == CheckStatus.PASS for c in doc.checks))
         self.assertTrue(any(c.property == "fact-references-known-targets" and c.status == CheckStatus.PASS for c in doc.checks))
 
-    def test_fact_validator_fails_bad_arity_and_dangling_reference(self):
+    def test_fact_validator_fails_bad_arity_dangling_reference_and_subject_mismatch(self):
         doc = SpecDocument(
             objects=[
                 SpecObject(
@@ -43,7 +43,7 @@ class ValidationRecordTests(unittest.TestCase):
                     Role.VALIDATION_OBJECT,
                     SemanticLevel.TEMPLATE_PARSED,
                     None,
-                    facts=[("Covers", "obj-bad"), ("Covers", "obj-bad", "missing-req")],
+                    facts=[("Covers", "obj-bad"), ("Covers", "other-test", "missing-req")],
                 )
             ]
         )
@@ -55,6 +55,9 @@ class ValidationRecordTests(unittest.TestCase):
         )
         self.assertTrue(
             any(c.property == "fact-references-known-targets" and c.status == CheckStatus.FAIL and "missing-req" in c.evidence for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "fact-subject-matches-object" and c.status == CheckStatus.FAIL and "other-test" in c.evidence for c in doc.checks)
         )
 
     def test_unknown_fact_predicate_creates_profile_question(self):
