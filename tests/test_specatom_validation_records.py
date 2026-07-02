@@ -148,6 +148,7 @@ class ValidationRecordTests(unittest.TestCase):
                 CheckRecord("chk-mismatch", "vobl-known", "example-property", "target-b", CheckStatus.PASS, "bad target"),
                 CheckRecord("chk-missing", "vobl-missing", "example-property", "target-a", CheckStatus.UNKNOWN, "missing link"),
                 CheckRecord("chk-bad-status", "vobl-known", "example-property", "target-a", "Definitely", "bad status"),
+                CheckRecord("chk-empty-evidence", "vobl-known", "example-property", "target-a", CheckStatus.FAIL, "   "),
             ],
         )
         from specatom_hs.validators import validate_document
@@ -164,6 +165,12 @@ class ValidationRecordTests(unittest.TestCase):
         )
         self.assertTrue(
             any(c.property == "check-status-is-known" and c.target_id == "chk-bad-status" and c.status == CheckStatus.FAIL and "Definitely" in c.evidence for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "check-has-evidence" and c.target_id == "chk-good" and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "check-has-evidence" and c.target_id == "chk-empty-evidence" and c.status == CheckStatus.FAIL and "empty" in c.evidence for c in doc.checks)
         )
 
 

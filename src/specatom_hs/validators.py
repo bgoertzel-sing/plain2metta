@@ -268,6 +268,21 @@ def _validate_check_records(doc: SpecDocument) -> None:
 
         obligation = add_validation_obligation(
             doc,
+            "check-has-evidence",
+            check.id,
+            "Every check record should preserve a non-empty evidence string so Pass/Fail/Unknown statuses remain auditable.",
+            source_span_id,
+        )
+        evidence_text = str(check.evidence).strip()
+        add_check(
+            doc,
+            obligation,
+            CheckStatus.PASS if evidence_text else CheckStatus.FAIL,
+            "evidence present" if evidence_text else "empty check evidence",
+        )
+
+        obligation = add_validation_obligation(
+            doc,
             "check-links-known-obligation",
             check.id,
             "Every check record must cite an existing validation obligation.",
