@@ -45,6 +45,49 @@ class RequirementCoverageTests(unittest.TestCase):
         questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT]
         self.assertTrue(any(("MissingAcceptanceTest", q.id, req.id) in q.facts for q in questions))
 
+    def test_explicit_coverage_labels_override_proximity_and_export_ground_truth(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R1] The [def:Task] must be visible after creation.\n"
+            "- [id:R2] The task list must support archival.\n"
+            "***acceptance tests***\n"
+            "- [covers:R1] Given a [ref:Task], when it is created, then it is visible.\n",
+            "explicit-coverage.plain",
+        )
+
+        labelled = {
+            next(fact[2] for fact in obj.facts if fact[0] == "RequirementLabel"): obj
+            for obj in doc.objects
+            if obj.role == Role.REQUIREMENT_OBJECT
+        }
+        test = next(obj for obj in doc.objects if obj.role == Role.VALIDATION_OBJECT)
+        self.assertIn(("CoverageClaim", test.id, "R1"), test.facts)
+        self.assertIn(("Covers", test.id, labelled["R1"].id), test.facts)
+        self.assertNotIn(("Covers", test.id, labelled["R2"].id), test.facts)
+
+        atoms, _ = emit_reified_atoms(doc)
+        expected = {
+            f"(RequirementLabel {labelled['R1'].id} R1)",
+            f"(CoverageClaim {test.id} R1)",
+            f"(Covers {test.id} {labelled['R1'].id})",
+        }
+        self.assertTrue(expected.issubset(set(atoms)))
+
+    def test_unresolved_explicit_coverage_label_becomes_question(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R1] The [def:Task] must be visible after creation.\n"
+            "***acceptance tests***\n"
+            "- [covers:R404] Given a [ref:Task], when it is created, then it is visible.\n",
+            "missing-coverage-label.plain",
+        )
+
+        self.assertTrue(
+            any(c.property == "coverage-claim-target-resolved" and c.status == CheckStatus.UNKNOWN for c in doc.checks)
+        )
+        questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT]
+        self.assertTrue(any(("MissingCoverageTarget", q.id, "R404") in q.facts for q in questions))
+
 
 if __name__ == "__main__":
     unittest.main()
