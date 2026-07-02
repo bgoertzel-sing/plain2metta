@@ -7,6 +7,11 @@ from dataclasses import dataclass
 from .schema import CheckRecord, CheckStatus, Role, SemanticLevel, SpecDocument, SpecObject, ValidationObligation, stable_id
 
 
+def _line_for_offset(text: str, offset: int) -> int:
+    """Return the 1-based line number containing ``offset`` in ``text``."""
+    return text.count("\n", 0, offset) + 1
+
+
 def add_validation_obligation(doc: SpecDocument, property: str, target_id: str, rationale: str, source_span_id: str | None = None) -> ValidationObligation:
     obl = ValidationObligation(stable_id("vobl", property, target_id), property, target_id, rationale, source_span_id)
     if obl not in doc.validation_obligations:
@@ -67,6 +72,52 @@ SUPPORTED_PETTA_REIFIED_LEVELS = {
     SemanticLevel.BACKEND_LOWERED,
     SemanticLevel.VERIFIED,
 }
+
+
+def _validate_source_spans(doc: SpecDocument) -> None:
+    """Check source-span file links, byte bounds, and line numbers."""
+    files_by_id = {plain_file.id: plain_file for plain_file in doc.files}
+
+    for span in doc.spans:
+        bounds_obligation = add_validation_obligation(
+            doc,
+            "source-span-within-file-bounds",
+            span.id,
+            "Every SourceSpan must cite an indexed file and a non-empty byte range within that file.",
+            span.id,
+        )
+        plain_file = files_by_id.get(span.file_id)
+        if plain_file is None:
+            add_check(doc, bounds_obligation, CheckStatus.FAIL, f"missing file_id={span.file_id}")
+            continue
+        file_length = len(plain_file.text)
+        in_bounds = 0 <= span.start_byte < span.end_byte <= file_length
+        add_check(
+            doc,
+            bounds_obligation,
+            CheckStatus.PASS if in_bounds else CheckStatus.FAIL,
+            f"bytes={span.start_byte}:{span.end_byte} file_length={file_length}",
+        )
+
+        line_obligation = add_validation_obligation(
+            doc,
+            "source-span-lines-match-byte-offsets",
+            span.id,
+            "SourceSpan line numbers should match the source byte offsets they summarize.",
+            span.id,
+        )
+        if not in_bounds:
+            add_check(doc, line_obligation, CheckStatus.FAIL, "line check skipped because byte range is outside file bounds")
+            continue
+        expected_start = _line_for_offset(plain_file.text, span.start_byte)
+        expected_end = _line_for_offset(plain_file.text, span.end_byte - 1)
+        lines_match = span.start_line == expected_start and span.end_line == expected_end and span.start_line <= span.end_line
+        add_check(
+            doc,
+            line_obligation,
+            CheckStatus.PASS if lines_match else CheckStatus.FAIL,
+            f"lines={span.start_line}:{span.end_line} expected={expected_start}:{expected_end}",
+        )
 
 
 def _validate_petta_reified_profile_levels(doc: SpecDocument) -> None:
@@ -315,6 +366,8 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     known_sections = {s.id for s in doc.sections}
     known_spans = {s.id for s in doc.spans}
     known_levels = {level for level in SemanticLevel}
+
+    _validate_source_spans(doc)
 
     for item in doc.items:
         o = add_validation_obligation(doc, "item-has-section", item.id, "Every indexed item must belong to an indexed section.", item.span.id)

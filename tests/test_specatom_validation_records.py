@@ -1,7 +1,7 @@
 import unittest
 
 from specatom_hs.passes import compile_source
-from specatom_hs.schema import CheckRecord, CheckStatus, Role, SemanticLevel, SpecDocument, SpecObject, ValidationObligation
+from specatom_hs.schema import CheckRecord, CheckStatus, PlainFile, Role, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation
 from specatom_hs.validators import add_check, add_validation_obligation
 
 
@@ -112,6 +112,36 @@ class ValidationRecordTests(unittest.TestCase):
         question_facts = [fact for obj in doc.objects if obj.role == Role.QUESTION_OBJECT for fact in obj.facts]
         self.assertTrue(any(fact[0] == "UnsupportedSemanticLevel" and fact[2] == "RawTextOnly" for fact in question_facts))
         self.assertTrue(any(fact[0] == "Blocks" and fact[2].startswith("vobl-") for fact in question_facts))
+
+    def test_source_span_validator_checks_bounds_and_line_numbers(self):
+        doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "spans.plain")
+        self.assertTrue(
+            any(c.property == "source-span-within-file-bounds" and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "source-span-lines-match-byte-offsets" and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+
+        bad = SpecDocument(
+            files=[PlainFile("file-1", "bad.plain", "sha256:test", "first\nsecond\n")],
+            spans=[
+                SourceSpan("span-oob", "file-1", 0, 999, 1, 1),
+                SourceSpan("span-bad-line", "file-1", 6, 12, 1, 1),
+                SourceSpan("span-missing-file", "file-missing", 0, 1, 1, 1),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(bad)
+        self.assertTrue(
+            any(c.property == "source-span-within-file-bounds" and c.target_id == "span-oob" and c.status == CheckStatus.FAIL for c in bad.checks)
+        )
+        self.assertTrue(
+            any(c.property == "source-span-lines-match-byte-offsets" and c.target_id == "span-bad-line" and c.status == CheckStatus.FAIL and "expected=2:2" in c.evidence for c in bad.checks)
+        )
+        self.assertTrue(
+            any(c.property == "source-span-within-file-bounds" and c.target_id == "span-missing-file" and c.status == CheckStatus.FAIL and "file-missing" in c.evidence for c in bad.checks)
+        )
 
     def test_validation_obligations_validate_source_and_target_provenance(self):
         doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "obligations.plain")
