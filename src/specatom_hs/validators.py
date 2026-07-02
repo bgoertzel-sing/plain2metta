@@ -386,6 +386,8 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     known_files = {f.id for f in doc.files}
     known_sections = {s.id for s in doc.sections}
     known_spans = {s.id for s in doc.spans}
+    sections_by_id = {s.id: s for s in doc.sections}
+    spans_by_id = {s.id: s for s in doc.spans}
     known_levels = {level for level in SemanticLevel}
 
     _validate_plain_files(doc)
@@ -396,14 +398,39 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         add_check(doc, o, CheckStatus.PASS if section.file_id in known_files else CheckStatus.FAIL, f"file={section.file_id}")
         o = add_validation_obligation(doc, "section-has-source-span", section.id, "Every indexed section must have an exact source span.", section.span.id)
         add_check(doc, o, CheckStatus.PASS if section.span.id in known_spans else CheckStatus.FAIL, f"span={section.span.id}")
+        o = add_validation_obligation(doc, "section-span-file-matches-section-file", section.id, "A section source span must cite the same PlainFile as the section record.", section.span.id)
+        add_check(
+            doc,
+            o,
+            CheckStatus.PASS if section.span.file_id == section.file_id else CheckStatus.FAIL,
+            f"section.file_id={section.file_id} span.file_id={section.span.file_id}",
+        )
 
     for item in doc.items:
         o = add_validation_obligation(doc, "item-file-is-indexed", item.id, "Every indexed item must belong to an indexed PlainFile.", item.span.id)
         add_check(doc, o, CheckStatus.PASS if item.file_id in known_files else CheckStatus.FAIL, f"file={item.file_id}")
         o = add_validation_obligation(doc, "item-has-section", item.id, "Every indexed item must belong to an indexed section.", item.span.id)
         add_check(doc, o, CheckStatus.PASS if item.section_id in known_sections else CheckStatus.FAIL, f"section={item.section_id}")
+        o = add_validation_obligation(doc, "item-file-matches-section-file", item.id, "An item must cite the same PlainFile as its containing section.", item.span.id)
+        section = sections_by_id.get(item.section_id)
+        section_file_matches = section is not None and item.file_id == section.file_id
+        add_check(
+            doc,
+            o,
+            CheckStatus.PASS if section_file_matches else CheckStatus.FAIL,
+            f"item.file_id={item.file_id} section.file_id={section.file_id}" if section else f"missing section={item.section_id}",
+        )
         o = add_validation_obligation(doc, "item-has-source-span", item.id, "Every indexed item must have an exact source span.", item.span.id)
         add_check(doc, o, CheckStatus.PASS if item.span.id in known_spans else CheckStatus.FAIL, f"span={item.span.id}")
+        o = add_validation_obligation(doc, "item-span-file-matches-item-file", item.id, "An item source span must cite the same PlainFile as the item record.", item.span.id)
+        span = spans_by_id.get(item.span.id)
+        span_file_matches = span is not None and span.file_id == item.file_id
+        add_check(
+            doc,
+            o,
+            CheckStatus.PASS if span_file_matches else CheckStatus.FAIL,
+            f"item.file_id={item.file_id} span.file_id={span.file_id}" if span else f"missing span={item.span.id}",
+        )
 
     for obj in doc.objects:
         o = add_validation_obligation(doc, "object-has-known-semantic-level", obj.id, "Backend gates depend on explicit semantic levels.", obj.source_span_id)

@@ -172,7 +172,16 @@ class ValidationRecordTests(unittest.TestCase):
             any(c.property == "section-has-source-span" and c.status == CheckStatus.PASS for c in doc.checks)
         )
         self.assertTrue(
+            any(c.property == "section-span-file-matches-section-file" and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+        self.assertTrue(
             any(c.property == "item-file-is-indexed" and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "item-file-matches-section-file" and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "item-span-file-matches-item-file" and c.status == CheckStatus.PASS for c in doc.checks)
         )
 
         span = SourceSpan("span-1", "file-1", 0, 4, 1, 1)
@@ -190,6 +199,42 @@ class ValidationRecordTests(unittest.TestCase):
         )
         self.assertTrue(
             any(c.property == "item-file-is-indexed" and c.target_id == "item-bad" and c.status == CheckStatus.FAIL and "file-missing" in c.evidence for c in bad.checks)
+        )
+        self.assertTrue(
+            any(
+                c.property == "section-span-file-matches-section-file"
+                and c.target_id == "section-bad"
+                and c.status == CheckStatus.FAIL
+                and "span.file_id=file-1" in c.evidence
+                for c in bad.checks
+            )
+        )
+        self.assertTrue(
+            any(
+                c.property == "item-span-file-matches-item-file"
+                and c.target_id == "item-bad"
+                and c.status == CheckStatus.FAIL
+                and "span.file_id=file-1" in c.evidence
+                for c in bad.checks
+            )
+        )
+
+        section = Section("section-1", "file-1", "Good", "Good", 1, span)
+        mismatched = SpecDocument(
+            files=[PlainFile("file-1", "bad.plain", "sha256:test", "text")],
+            spans=[span],
+            sections=[section],
+            items=[PlainItem("item-mismatched", "file-other", "section-1", None, 1, 0, "text", span)],
+        )
+        validate_document(mismatched)
+        self.assertTrue(
+            any(
+                c.property == "item-file-matches-section-file"
+                and c.target_id == "item-mismatched"
+                and c.status == CheckStatus.FAIL
+                and "section.file_id=file-1" in c.evidence
+                for c in mismatched.checks
+            )
         )
 
     def test_validation_obligations_validate_source_and_target_provenance(self):
