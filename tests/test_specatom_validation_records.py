@@ -1,7 +1,7 @@
 import unittest
 
 from specatom_hs.passes import compile_source
-from specatom_hs.schema import CheckRecord, CheckStatus, PlainFile, Role, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation
+from specatom_hs.schema import CheckRecord, CheckStatus, PlainFile, PlainItem, Role, Section, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation
 from specatom_hs.validators import add_check, add_validation_obligation
 
 
@@ -161,6 +161,35 @@ class ValidationRecordTests(unittest.TestCase):
         )
         self.assertTrue(
             any(c.property == "source-span-within-file-bounds" and c.target_id == "span-missing-file" and c.status == CheckStatus.FAIL and "file-missing" in c.evidence for c in bad.checks)
+        )
+
+    def test_section_and_item_file_provenance_is_validated(self):
+        doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "file-links.plain")
+        self.assertTrue(
+            any(c.property == "section-file-is-indexed" and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "section-has-source-span" and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "item-file-is-indexed" and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+
+        span = SourceSpan("span-1", "file-1", 0, 4, 1, 1)
+        bad = SpecDocument(
+            files=[PlainFile("file-1", "bad.plain", "sha256:test", "text")],
+            spans=[span],
+            sections=[Section("section-bad", "file-missing", "Bad", "Bad", 1, span)],
+            items=[PlainItem("item-bad", "file-missing", "section-bad", None, 1, 0, "text", span)],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(bad)
+        self.assertTrue(
+            any(c.property == "section-file-is-indexed" and c.target_id == "section-bad" and c.status == CheckStatus.FAIL and "file-missing" in c.evidence for c in bad.checks)
+        )
+        self.assertTrue(
+            any(c.property == "item-file-is-indexed" and c.target_id == "item-bad" and c.status == CheckStatus.FAIL and "file-missing" in c.evidence for c in bad.checks)
         )
 
     def test_validation_obligations_validate_source_and_target_provenance(self):

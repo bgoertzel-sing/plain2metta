@@ -383,6 +383,7 @@ def _validate_check_records(doc: SpecDocument) -> None:
 
 def validate_document(doc: SpecDocument) -> SpecDocument:
     """Populate first crisp validation records in-place and return ``doc``."""
+    known_files = {f.id for f in doc.files}
     known_sections = {s.id for s in doc.sections}
     known_spans = {s.id for s in doc.spans}
     known_levels = {level for level in SemanticLevel}
@@ -390,7 +391,15 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     _validate_plain_files(doc)
     _validate_source_spans(doc)
 
+    for section in doc.sections:
+        o = add_validation_obligation(doc, "section-file-is-indexed", section.id, "Every indexed section must belong to an indexed PlainFile.", section.span.id)
+        add_check(doc, o, CheckStatus.PASS if section.file_id in known_files else CheckStatus.FAIL, f"file={section.file_id}")
+        o = add_validation_obligation(doc, "section-has-source-span", section.id, "Every indexed section must have an exact source span.", section.span.id)
+        add_check(doc, o, CheckStatus.PASS if section.span.id in known_spans else CheckStatus.FAIL, f"span={section.span.id}")
+
     for item in doc.items:
+        o = add_validation_obligation(doc, "item-file-is-indexed", item.id, "Every indexed item must belong to an indexed PlainFile.", item.span.id)
+        add_check(doc, o, CheckStatus.PASS if item.file_id in known_files else CheckStatus.FAIL, f"file={item.file_id}")
         o = add_validation_obligation(doc, "item-has-section", item.id, "Every indexed item must belong to an indexed section.", item.span.id)
         add_check(doc, o, CheckStatus.PASS if item.section_id in known_sections else CheckStatus.FAIL, f"section={item.section_id}")
         o = add_validation_obligation(doc, "item-has-source-span", item.id, "Every indexed item must have an exact source span.", item.span.id)
