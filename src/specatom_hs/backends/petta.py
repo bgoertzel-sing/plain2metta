@@ -98,7 +98,8 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
         if obligation.source_span_id:
             atoms.append(_atom(["derived-from", obligation.id, obligation.source_span_id]))
     for check in doc.checks:
-        atoms.append(_atom(["check", check.id, check.property, check.target_id, check.status.value]))
+        status_value = check.status.value if hasattr(check.status, "value") else str(check.status)
+        atoms.append(_atom(["check", check.id, check.property, check.target_id, status_value]))
         atoms.append(_atom(["check-obligation", check.id, check.obligation_id]))
         atoms.append(_atom(["check-evidence", check.id, check.evidence]))
     return atoms, refusals

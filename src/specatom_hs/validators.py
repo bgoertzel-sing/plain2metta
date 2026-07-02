@@ -253,6 +253,21 @@ def _validate_check_records(doc: SpecDocument) -> None:
         source_span_id = obligation_by_id[check.obligation_id].source_span_id if check.obligation_id in obligation_by_id else None
         obligation = add_validation_obligation(
             doc,
+            "check-status-is-known",
+            check.id,
+            "Every check record status must be one of the declared SpecAtom-HS check statuses before backend export.",
+            source_span_id,
+        )
+        status_value = check.status.value if isinstance(check.status, CheckStatus) else str(check.status)
+        add_check(
+            doc,
+            obligation,
+            CheckStatus.PASS if isinstance(check.status, CheckStatus) else CheckStatus.FAIL,
+            f"status={status_value}",
+        )
+
+        obligation = add_validation_obligation(
+            doc,
             "check-links-known-obligation",
             check.id,
             "Every check record must cite an existing validation obligation.",

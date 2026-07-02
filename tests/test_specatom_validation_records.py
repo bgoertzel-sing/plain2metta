@@ -137,7 +137,7 @@ class ValidationRecordTests(unittest.TestCase):
             any(c.property == "obligation-target-is-declared" and c.status == CheckStatus.FAIL and "missing-target" in c.evidence for c in bad.checks)
         )
 
-    def test_check_records_validate_their_obligation_links_and_targets(self):
+    def test_check_records_validate_their_obligation_links_targets_and_statuses(self):
         doc = SpecDocument(
             objects=[SpecObject("target-a", Role.SOURCE_OBJECT, SemanticLevel.RAW_TEXT_ONLY, None)],
             validation_obligations=[
@@ -147,6 +147,7 @@ class ValidationRecordTests(unittest.TestCase):
                 CheckRecord("chk-good", "vobl-known", "example-property", "target-a", CheckStatus.PASS, "synthetic pass"),
                 CheckRecord("chk-mismatch", "vobl-known", "example-property", "target-b", CheckStatus.PASS, "bad target"),
                 CheckRecord("chk-missing", "vobl-missing", "example-property", "target-a", CheckStatus.UNKNOWN, "missing link"),
+                CheckRecord("chk-bad-status", "vobl-known", "example-property", "target-a", "Definitely", "bad status"),
             ],
         )
         from specatom_hs.validators import validate_document
@@ -160,6 +161,9 @@ class ValidationRecordTests(unittest.TestCase):
         )
         self.assertTrue(
             any(c.property == "check-links-known-obligation" and c.target_id == "chk-missing" and c.status == CheckStatus.FAIL and "vobl-missing" in c.evidence for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "check-status-is-known" and c.target_id == "chk-bad-status" and c.status == CheckStatus.FAIL and "Definitely" in c.evidence for c in doc.checks)
         )
 
 
