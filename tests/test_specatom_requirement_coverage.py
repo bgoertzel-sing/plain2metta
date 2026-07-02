@@ -88,6 +88,30 @@ class RequirementCoverageTests(unittest.TestCase):
         questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT]
         self.assertTrue(any(("MissingCoverageTarget", q.id, "R404") in q.facts for q in questions))
 
+    def test_duplicate_requirement_label_blocks_explicit_coverage_resolution(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R1] The [def:Task] must be visible after creation.\n"
+            "- [id:R1] The task list must support archival.\n"
+            "***acceptance tests***\n"
+            "- [covers:R1] Given a [ref:Task], when it is created, then it is visible.\n",
+            "duplicate-coverage-label.plain",
+        )
+
+        labelled_requirements = [obj for obj in doc.objects if obj.role == Role.REQUIREMENT_OBJECT]
+        test = next(obj for obj in doc.objects if obj.role == Role.VALIDATION_OBJECT)
+        for req in labelled_requirements:
+            self.assertNotIn(("Covers", test.id, req.id), test.facts)
+        self.assertTrue(
+            any(c.property == "requirement-label-is-unique" and c.status == CheckStatus.UNKNOWN for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "coverage-claim-target-resolved" and c.status == CheckStatus.UNKNOWN and "multiple" in c.evidence for c in doc.checks)
+        )
+        questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT]
+        self.assertTrue(any(("DuplicateRequirementLabel", q.id, "R1") in q.facts for q in questions))
+        self.assertTrue(any(("AmbiguousCoverageTarget", q.id, "R1") in q.facts for q in questions))
+
 
 if __name__ == "__main__":
     unittest.main()

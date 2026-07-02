@@ -254,8 +254,8 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
     existing_ids = {obj.id for obj in doc.objects}
     requirement_item_ids: set[str] = set()
     covered_requirement_item_ids: set[str] = set()
-    requirement_label_to_item_id: dict[str, str] = {}
-    pending_coverage_claims: list[tuple[str, str, str]] = []
+    requirement_label_to_item_ids: dict[str, list[str]] = {}
+    pending_coverage_claims: list[tuple[str, str, str, str]] = []
     item_by_id = {item.id: item for item in doc.items}
     last_requirement_item_id: str | None = None
 
@@ -274,7 +274,7 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
             label_match = REQUIREMENT_LABEL_RE.search(item.raw_text)
             label = _clean_requirement_label(label_match.group(1)) if label_match else None
             if label:
-                requirement_label_to_item_id.setdefault(label, item.id)
+                requirement_label_to_item_ids.setdefault(label, []).append(item.id)
             if oid not in existing_ids:
                 facts = [("Requirement", oid), ("SourceItem", oid, item.id), ("RequirementText", oid, item.raw_text)]
                 if label:
@@ -284,15 +284,21 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
         elif section_kind_by_id.get(item.section_id) in ACCEPTANCE_SECTION_KINDS or item.raw_text.lower().startswith("acceptance:"):
             oid = stable_id("test", item.id)
             explicit_labels = [_clean_requirement_label(match.group(1)) for match in COVERAGE_CLAIM_RE.finditer(item.raw_text)]
-            target_item_ids = [requirement_label_to_item_id[label] for label in explicit_labels if label in requirement_label_to_item_id]
-            if not target_item_ids:
+            target_item_ids: list[str] = []
+            for label in explicit_labels:
+                labelled_targets = requirement_label_to_item_ids.get(label, [])
+                if len(labelled_targets) == 1:
+                    target_item_ids.append(labelled_targets[0])
+                elif len(labelled_targets) > 1:
+                    pending_coverage_claims.append((oid, item.span.id, label, "ambiguous"))
+                else:
+                    pending_coverage_claims.append((oid, item.span.id, label, "missing"))
+            if not target_item_ids and not explicit_labels:
                 implicit_target = nearest_requirement_parent(item.parent_item_id) or last_requirement_item_id
                 target_item_ids = [implicit_target] if implicit_target else []
             facts = [("TestCase", oid), ("TestKind", oid, "Acceptance"), ("SourceItem", oid, item.id)]
             for label in explicit_labels:
                 facts.append(("CoverageClaim", oid, label))
-                if label not in requirement_label_to_item_id:
-                    pending_coverage_claims.append((oid, item.span.id, label))
             for target_item_id in dict.fromkeys(target_item_ids):
                 facts.append(("Covers", oid, stable_id("req", target_item_id)))
                 covered_requirement_item_ids.add(target_item_id)
@@ -300,16 +306,49 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
                 doc.objects.append(SpecObject(oid, Role.VALIDATION_OBJECT, SemanticLevel.TEMPLATE_PARSED, item.span.id, facts=facts))
                 existing_ids.add(oid)
 
-    for test_id, span_id, label in pending_coverage_claims:
+    for label, labelled_item_ids in sorted(requirement_label_to_item_ids.items()):
+        if len(labelled_item_ids) <= 1:
+            continue
+        for item_id in labelled_item_ids:
+            item = item_by_id[item_id]
+            req_id = stable_id("req", item_id)
+            obligation = add_validation_obligation(
+                doc,
+                "requirement-label-is-unique",
+                f"{req_id}:{label}",
+                "Requirement labels used by explicit coverage claims must be unique before coverage can be resolved.",
+                item.span.id,
+            )
+            add_check(doc, obligation, CheckStatus.UNKNOWN, f"duplicate requirement label {label}")
+            qid = stable_id("question", "duplicate-requirement-label", req_id, label)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        item.span.id,
+                        facts=[
+                            ("DuplicateRequirementLabel", qid, label),
+                            ("QuestionText", qid, f"Rename or disambiguate duplicate requirement label '{label}'."),
+                            ("Blocks", qid, obligation.id),
+                        ],
+                    )
+                )
+                existing_ids.add(qid)
+
+    for test_id, span_id, label, reason in pending_coverage_claims:
         obligation = add_validation_obligation(
             doc,
             "coverage-claim-target-resolved",
             f"{test_id}:{label}",
-            "Explicit coverage claims must name a declared requirement label instead of falling back to proximity.",
+            "Explicit coverage claims must name exactly one declared requirement label instead of falling back to proximity.",
             span_id,
         )
-        add_check(doc, obligation, CheckStatus.UNKNOWN, f"no requirement label found for {label}")
-        qid = stable_id("question", "missing-coverage-target", test_id, label)
+        evidence = f"no requirement label found for {label}" if reason == "missing" else f"multiple requirements share label {label}"
+        add_check(doc, obligation, CheckStatus.UNKNOWN, evidence)
+        fact_name = "MissingCoverageTarget" if reason == "missing" else "AmbiguousCoverageTarget"
+        qid = stable_id("question", reason + "-coverage-target", test_id, label)
         if qid not in existing_ids:
             doc.objects.append(
                 SpecObject(
@@ -318,8 +357,8 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
                     SemanticLevel.TEMPLATE_PARSED,
                     span_id,
                     facts=[
-                        ("MissingCoverageTarget", qid, label),
-                        ("QuestionText", qid, f"Which requirement is named by coverage label '{label}'?"),
+                        (fact_name, qid, label),
+                        ("QuestionText", qid, f"Which unique requirement is named by coverage label '{label}'?"),
                         ("Blocks", qid, obligation.id),
                     ],
                 )

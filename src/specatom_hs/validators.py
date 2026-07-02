@@ -48,6 +48,8 @@ FACT_SCHEMAS = {
     "Covers": FactSchema(3, object_refs=(2,)),
     "MissingAcceptanceTest": FactSchema(3, object_refs=(2,)),
     "MissingCoverageTarget": FactSchema(3),
+    "AmbiguousCoverageTarget": FactSchema(3),
+    "DuplicateRequirementLabel": FactSchema(3),
     "UnsupportedFactPredicate": FactSchema(3),
     "UnsupportedSemanticLevel": FactSchema(3),
     "Blocks": FactSchema(3, obligation_refs=(2,)),
