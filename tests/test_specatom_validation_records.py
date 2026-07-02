@@ -113,6 +113,26 @@ class ValidationRecordTests(unittest.TestCase):
         self.assertTrue(any(fact[0] == "UnsupportedSemanticLevel" and fact[2] == "RawTextOnly" for fact in question_facts))
         self.assertTrue(any(fact[0] == "Blocks" and fact[2].startswith("vobl-") for fact in question_facts))
 
+    def test_plain_file_digest_validation_recomputes_preserved_source_text(self):
+        doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "digest.plain")
+        self.assertTrue(
+            any(c.property == "plain-file-digest-matches-content" and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+
+        bad = SpecDocument(files=[PlainFile("file-1", "bad.plain", "sha256:not-the-content", "preserved text\n")])
+        from specatom_hs.validators import validate_document
+
+        validate_document(bad)
+        self.assertTrue(
+            any(
+                c.property == "plain-file-digest-matches-content"
+                and c.target_id == "file-1"
+                and c.status == CheckStatus.FAIL
+                and "sha256:not-the-content" in c.evidence
+                for c in bad.checks
+            )
+        )
+
     def test_source_span_validator_checks_bounds_and_line_numbers(self):
         doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "spans.plain")
         self.assertTrue(

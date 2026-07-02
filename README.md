@@ -10,7 +10,7 @@ This repository currently contains two layers:
 ## What is intentionally supported
 
 - stable source IDs, SHA-256 file digests, sections, bullet items, and exact byte/line spans, including marker spans on continuation lines;
-- source-span validation obligations for indexed-file byte bounds and byte-offset-derived line numbers;
+- source-file/source-span validation obligations for reproducible file digests, indexed-file byte bounds, and byte-offset-derived line numbers;
 - first-class validation-obligation and check records (`Pass`, `Fail`, `Unknown`);
 - scaffold fact-arity, object-subject, and declared-reference validation for supported predicates, with Unknown predicate checks turned into explicit profile questions;
 - PeTTa reified-profile semantic-level validation, turning unsupported levels such as `RawTextOnly` into explicit blocking questions before backend export;

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from hashlib import sha256
 
 from .schema import CheckRecord, CheckStatus, Role, SemanticLevel, SpecDocument, SpecObject, ValidationObligation, stable_id
 
@@ -72,6 +73,25 @@ SUPPORTED_PETTA_REIFIED_LEVELS = {
     SemanticLevel.BACKEND_LOWERED,
     SemanticLevel.VERIFIED,
 }
+
+
+def _validate_plain_files(doc: SpecDocument) -> None:
+    """Check indexed file digests against the preserved source text."""
+    for plain_file in doc.files:
+        obligation = add_validation_obligation(
+            doc,
+            "plain-file-digest-matches-content",
+            plain_file.id,
+            "Every PlainFile digest must be reproducible from the preserved UTF-8 source text.",
+            None,
+        )
+        expected = "sha256:" + sha256(plain_file.text.encode("utf-8")).hexdigest()
+        add_check(
+            doc,
+            obligation,
+            CheckStatus.PASS if plain_file.digest == expected else CheckStatus.FAIL,
+            f"digest={plain_file.digest} expected={expected}",
+        )
 
 
 def _validate_source_spans(doc: SpecDocument) -> None:
@@ -367,6 +387,7 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     known_spans = {s.id for s in doc.spans}
     known_levels = {level for level in SemanticLevel}
 
+    _validate_plain_files(doc)
     _validate_source_spans(doc)
 
     for item in doc.items:
