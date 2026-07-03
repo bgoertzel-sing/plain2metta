@@ -268,6 +268,20 @@ ML_FEATURE_AVAILABILITY_RE = re.compile(
     r"as[- ]of|point[- ]in[- ]time|lagged|historical|prior to prediction|no future (?:data|values|features?))\b",
     re.IGNORECASE,
 )
+SECURITY_PRIVACY_RE = re.compile(
+    r"\b(secret|api[- ]?key|token|password|credential|pii|personal data|email address|phone number|"
+    r"privacy|encrypt|auth(?:entication|orization)?|access|permission|admin|role|delete|drop|erase|purge|"
+    r"force[- ]?push|destructive)\b",
+    re.IGNORECASE,
+)
+SECRET_SIGNAL_RE = re.compile(r"\b(secret|api[- ]?key|token|password|credential)\b", re.IGNORECASE)
+SECRET_HANDLING_RE = re.compile(r"\b(secret manager|vault|environment variable|env var|redacted|not hard[- ]?coded|no plaintext|encrypted at rest)\b", re.IGNORECASE)
+PII_SIGNAL_RE = re.compile(r"\b(pii|personal data|email address|phone number|user data|privacy)\b", re.IGNORECASE)
+PII_HANDLING_RE = re.compile(r"\b(consent|minimi[sz]ation|retention|anonymi[sz]e|pseudonymi[sz]e|encrypt(?:ed|ion)?|delete on request|privacy review)\b", re.IGNORECASE)
+ACCESS_SIGNAL_RE = re.compile(r"\b(auth(?:entication|orization)?|access|permission|admin|role|login|rbac)\b", re.IGNORECASE)
+ACCESS_BOUNDARY_RE = re.compile(r"\b(role[- ]based|rbac|least privilege|permission check|authorize|authz|access control|admin[- ]only|deny by default)\b", re.IGNORECASE)
+DESTRUCTIVE_ACTION_RE = re.compile(r"\b(delete|drop|erase|purge|force[- ]?push|destructive|wipe)\b", re.IGNORECASE)
+DESTRUCTIVE_SAFETY_RE = re.compile(r"\b(confirm(?:ation)?|dry[- ]run|backup|rollback|undo|soft delete|trash|audit log|approval)\b", re.IGNORECASE)
 
 
 def _clean_requirement_label(label: str) -> str:
@@ -468,6 +482,106 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
     return doc
 
 
+def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
+    """Add conservative security/privacy obligation scaffolding.
+
+    This pass is intentionally keyword-level. It does not infer a threat model or
+    approve operational behavior; when a spec mentions secrets, PII, access
+    control, or destructive actions without matching safety evidence, it creates
+    Unknown checks plus blocking questions.
+    """
+    candidate_items = [item for item in doc.items if SECURITY_PRIVACY_RE.search(item.raw_text)]
+    if not candidate_items:
+        return doc
+
+    existing_ids = {obj.id for obj in doc.objects}
+    first_span_id = candidate_items[0].span.id
+    review_id = stable_id("secpriv", doc.files[0].id if doc.files else "document")
+    all_text = "\n".join(item.raw_text for item in doc.items)
+
+    if review_id not in existing_ids:
+        doc.objects.append(
+            SpecObject(
+                review_id,
+                Role.VALIDATION_OBJECT,
+                SemanticLevel.TEMPLATE_PARSED,
+                first_span_id,
+                facts=[("SecurityPrivacyReview", review_id), ("SecurityPrivacySignal", review_id, "security-privacy-keywords")],
+            )
+        )
+        existing_ids.add(review_id)
+
+    def check_property(property: str, rationale: str, needed: bool, passing: bool, pass_evidence: str, unknown_evidence: str, question_text: str) -> None:
+        obligation = add_validation_obligation(doc, property, review_id, rationale, first_span_id)
+        if not needed:
+            add_check(doc, obligation, CheckStatus.PASS, "no triggering signal found in source text")
+            return
+        if passing:
+            add_check(doc, obligation, CheckStatus.PASS, pass_evidence)
+            return
+        add_check(doc, obligation, CheckStatus.UNKNOWN, unknown_evidence)
+        qid = stable_id("question", "security-privacy", property, review_id)
+        if qid not in existing_ids:
+            doc.objects.append(
+                SpecObject(
+                    qid,
+                    Role.QUESTION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    first_span_id,
+                    facts=[
+                        ("MissingSecurityPrivacyEvidence", qid, property),
+                        ("QuestionText", qid, question_text),
+                        ("Blocks", qid, obligation.id),
+                    ],
+                )
+            )
+            existing_ids.add(qid)
+
+    secret_signal = bool(SECRET_SIGNAL_RE.search(all_text))
+    pii_signal = bool(PII_SIGNAL_RE.search(all_text))
+    access_signal = bool(ACCESS_SIGNAL_RE.search(all_text))
+    destructive_signal = bool(DESTRUCTIVE_ACTION_RE.search(all_text))
+
+    check_property(
+        "security-secrets-handling-reviewed",
+        "Specs that mention secrets, tokens, passwords, or credentials should state how they are stored/redacted instead of hard-coded or exposed.",
+        secret_signal,
+        bool(SECRET_HANDLING_RE.search(all_text)),
+        "secret-handling evidence found in source text",
+        "secret/credential wording lacks storage, redaction, or no-hardcoding evidence",
+        "How are secrets, tokens, passwords, or credentials stored, redacted, and kept out of source/plaintext?",
+    )
+    check_property(
+        "privacy-pii-handling-reviewed",
+        "Specs that mention PII or user personal data should preserve privacy evidence such as consent, minimization, retention, anonymization, or encryption.",
+        pii_signal,
+        bool(PII_HANDLING_RE.search(all_text)),
+        "PII/privacy-handling evidence found in source text",
+        "PII/privacy wording lacks consent, minimization, retention, anonymization, or encryption evidence",
+        "What privacy controls govern PII/personal data collection, retention, access, deletion, and protection?",
+    )
+    check_property(
+        "security-access-boundary-declared",
+        "Specs that mention authentication, authorization, roles, admins, or permissions should declare an access-control boundary.",
+        access_signal,
+        bool(ACCESS_BOUNDARY_RE.search(all_text)),
+        "access-boundary evidence found in source text",
+        "access/auth/role wording lacks a declared permission or boundary rule",
+        "Which roles or permissions may perform the protected action, and what is denied by default?",
+    )
+    check_property(
+        "security-destructive-action-safety-reviewed",
+        "Specs that mention destructive actions should state safety mechanisms such as confirmation, dry-run, backup, rollback, soft-delete, audit log, or approval.",
+        destructive_signal,
+        bool(DESTRUCTIVE_SAFETY_RE.search(all_text)),
+        "destructive-action safety evidence found in source text",
+        "destructive-action wording lacks confirmation, dry-run, backup, rollback, audit, or approval evidence",
+        "What safety mechanism prevents accidental or unauthorized destructive action?",
+    )
+    return doc
+
+
+
 def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
     """Add conservative ML/time-series methodology obligations.
 
@@ -660,6 +774,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
+    PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),
     PassSpec("validate-document", "Emit first validation obligations/check records.", validate_document),
 ]

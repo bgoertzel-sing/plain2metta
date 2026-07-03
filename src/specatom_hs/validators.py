@@ -70,6 +70,9 @@ FACT_SCHEMAS = {
     "MLTimeSeriesExperiment": FactSchema(2),
     "MethodologySignal": FactSchema(3),
     "MissingMethodologyEvidence": FactSchema(3),
+    "SecurityPrivacyReview": FactSchema(2),
+    "SecurityPrivacySignal": FactSchema(3),
+    "MissingSecurityPrivacyEvidence": FactSchema(3),
     "Blocks": FactSchema(3, obligation_refs=(2,)),
     "GeneratedFrom": FactSchema(3, object_refs=(2,)),
 }
