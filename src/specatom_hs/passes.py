@@ -243,6 +243,10 @@ REQUIREMENT_LABEL_RE = re.compile(r"\[(?:id|req|requirement-id):\s*([^\]]+)\]", 
 COVERAGE_CLAIM_RE = re.compile(r"\[(?:covers|covers-requirement):\s*([^\]]+)\]", re.IGNORECASE)
 ML_EXPERIMENT_RE = re.compile(r"\b(train|model|predict|forecast|time[- ]?series|validation|test split)\b", re.IGNORECASE)
 ML_METRIC_RE = re.compile(r"\b(metric|accuracy|auc|f1|precision|recall|mae|mse|rmse|mape|loss)\b", re.IGNORECASE)
+ML_REGRESSION_METRIC_RE = re.compile(r"\b(mae|mse|rmse|mape|mean absolute error|mean squared error|root mean squared error)\b", re.IGNORECASE)
+ML_CLASSIFICATION_METRIC_RE = re.compile(r"\b(accuracy|auc|f1|precision|recall)\b", re.IGNORECASE)
+ML_CLASSIFICATION_TASK_RE = re.compile(r"\b(classif|class label|binary label|positive class|negative class|category|categories)\b", re.IGNORECASE)
+ML_FORECAST_TASK_RE = re.compile(r"\b(forecast|predict|prediction|time[- ]?series|return|demand|price|value|quantity|amount)\b", re.IGNORECASE)
 ML_HORIZON_RE = re.compile(r"\b(horizon|frequency|cadence|\d+\s*(?:minute|hour|day|week|month)s?|\d+\s*(?:m|h|d|w))\b", re.IGNORECASE)
 ML_REPRO_RE = re.compile(r"\b(seed|random state|reproduc|version|commit|environment|dataset snapshot)\b", re.IGNORECASE)
 ML_TRAIN_ONLY_PREPROCESS_RE = re.compile(r"\b(train(?:ing)?[- ]only|fit(?:ted)? on train|fit preprocessing on train)\b", re.IGNORECASE)
@@ -508,13 +512,34 @@ def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
             )
             existing_ids.add(qid)
 
+    metric_declared = bool(ML_METRIC_RE.search(all_text))
     check_property(
         "ml-evaluation-metric-declared",
         "ML/time-series experiments should declare the evaluation metric used for validation/test claims.",
-        bool(ML_METRIC_RE.search(all_text)),
+        metric_declared,
         "metric-like term found in source text",
         "no evaluation metric term found",
         "Which evaluation metric will be used for validation and final test reporting?",
+    )
+    classification_metric = bool(ML_CLASSIFICATION_METRIC_RE.search(all_text))
+    regression_metric = bool(ML_REGRESSION_METRIC_RE.search(all_text))
+    classification_task = bool(ML_CLASSIFICATION_TASK_RE.search(all_text))
+    forecast_task = bool(ML_FORECAST_TASK_RE.search(all_text))
+    metric_task_appropriate = (
+        metric_declared
+        and (
+            regression_metric
+            or (classification_metric and classification_task)
+            or (not classification_metric and not forecast_task)
+        )
+    )
+    check_property(
+        "ml-metric-task-appropriateness-reviewed",
+        "Declared metrics should be reviewed for fit to the stated ML/time-series task before validation claims are trusted.",
+        metric_task_appropriate,
+        "declared metric appears compatible with the task wording at keyword level",
+        "metric declaration is missing or classification-style metric appears on forecast/regression-like wording without task justification",
+        "Is the declared metric appropriate for the prediction target and task type, or is a task-specific justification needed?",
     )
     check_property(
         "ml-horizon-or-frequency-declared",

@@ -25,6 +25,7 @@ class MLMethodologyValidationTests(unittest.TestCase):
         )
         for property_name in {
             "ml-evaluation-metric-declared",
+            "ml-metric-task-appropriateness-reviewed",
             "ml-reproducibility-evidence-declared",
             "ml-preprocessing-fit-scope-declared",
             "ml-preprocessing-order-reviewed",
@@ -55,6 +56,7 @@ class MLMethodologyValidationTests(unittest.TestCase):
         for property_name in {
             "ml-evaluation-metric-declared",
             "ml-horizon-or-frequency-declared",
+            "ml-metric-task-appropriateness-reviewed",
             "ml-reproducibility-evidence-declared",
             "ml-preprocessing-fit-scope-declared",
             "ml-preprocessing-order-reviewed",
@@ -63,6 +65,25 @@ class MLMethodologyValidationTests(unittest.TestCase):
             "ml-uncertainty-reporting-declared",
         }:
             self.assertTrue(any(c.property == property_name and c.status == CheckStatus.PASS for c in doc.checks), property_name)
+
+    def test_forecast_with_classification_metric_gets_metric_appropriateness_question(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Train a time-series model to forecast next-day demand.\n"
+            "- Report accuracy on the test split with seed 123 and a naive baseline.\n",
+            "ml-metric-appropriateness.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "ml-metric-task-appropriateness-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertIn("classification-style metric", check.evidence)
+        self.assertTrue(
+            any(
+                ("MissingMethodologyEvidence", obj.id, "ml-metric-task-appropriateness-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
 
     def test_preprocess_then_split_gets_explicit_leakage_review_question(self):
         doc = compile_source(
