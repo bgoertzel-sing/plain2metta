@@ -249,6 +249,11 @@ ML_TRAIN_ONLY_PREPROCESS_RE = re.compile(r"\b(train(?:ing)?[- ]only|fit(?:ted)? 
 ML_PREPROCESS_BEFORE_SPLIT_RE = re.compile(r"\b(normaliz|standardiz|scal|preprocess)[^.\n;]*\bthen\b[^.\n;]*\bsplit\b", re.IGNORECASE)
 ML_BASELINE_RE = re.compile(r"\b(baseline|benchmark|naive|persistence|last[- ]value|ablation|compare(?:d)? against)\b", re.IGNORECASE)
 ML_UNCERTAINTY_RE = re.compile(r"\b(confidence intervals?|error bars?|uncertainty|standard deviation|std\.?|bootstrap|variance)\b", re.IGNORECASE)
+ML_FUTURE_LABEL_LEAKAGE_RE = re.compile(
+    r"\b(?:future|label|target)[^.;\n]{0,60}\b(?:features?|inputs?|predictors?|covariates?)\b|"
+    r"\b(?:features?|inputs?|predictors?|covariates?)[^.;\n]{0,60}\b(?:future|label|target)\b",
+    re.IGNORECASE,
+)
 
 
 def _clean_requirement_label(label: str) -> str:
@@ -456,7 +461,8 @@ def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
     by explicit words and then requires reviewable evidence for common Appendix
     N/P methodology hazards: metric declaration, horizon/frequency declaration,
     reproducibility evidence, train-only preprocessing fit scope, leakage-prone
-    preprocessing order, baseline comparison, and uncertainty/error-bar reporting.
+    preprocessing order, explicit future/label leakage wording, baseline
+    comparison, and uncertainty/error-bar reporting.
     """
     candidate_items = [item for item in doc.items if ML_EXPERIMENT_RE.search(item.raw_text)]
     if not candidate_items:
@@ -545,6 +551,15 @@ def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
         "no explicit preprocess-then-split leakage pattern found, or train-only fit scope is declared",
         "preprocess-then-split wording may leak validation/test information into fitted transforms",
         "Does the preprocessing order avoid fitting transforms on validation/test or future data before the split?",
+    )
+    future_label_leakage = bool(ML_FUTURE_LABEL_LEAKAGE_RE.search(all_text))
+    check_property(
+        "ml-future-label-leakage-reviewed",
+        "ML/time-series feature specifications should not use future values, labels, or targets as model inputs unless a review explains why this is not leakage.",
+        not future_label_leakage,
+        "no explicit future/label-as-feature leakage pattern found",
+        "future/label/target wording appears in a feature/input context",
+        "Do any features, inputs, predictors, or covariates include future values, labels, or targets unavailable at prediction time?",
     )
     check_property(
         "ml-baseline-comparison-declared",

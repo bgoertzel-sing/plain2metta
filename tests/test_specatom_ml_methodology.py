@@ -58,6 +58,7 @@ class MLMethodologyValidationTests(unittest.TestCase):
             "ml-reproducibility-evidence-declared",
             "ml-preprocessing-fit-scope-declared",
             "ml-preprocessing-order-reviewed",
+            "ml-future-label-leakage-reviewed",
             "ml-baseline-comparison-declared",
             "ml-uncertainty-reporting-declared",
         }:
@@ -77,6 +78,25 @@ class MLMethodologyValidationTests(unittest.TestCase):
         self.assertTrue(
             any(
                 ("MissingMethodologyEvidence", obj.id, "ml-preprocessing-order-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+
+    def test_future_label_feature_wording_gets_leakage_review_question(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Train a time-series model to forecast next-day demand.\n"
+            "- Use current sales plus the future demand target label as model features.\n",
+            "ml-future-label-leakage.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "ml-future-label-leakage-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertIn("feature/input", check.evidence)
+        self.assertTrue(
+            any(
+                ("MissingMethodologyEvidence", obj.id, "ml-future-label-leakage-reviewed") in obj.facts
                 and any(fact == ("Blocks", obj.id, check.obligation_id) for fact in obj.facts)
                 for obj in doc.objects
             )
