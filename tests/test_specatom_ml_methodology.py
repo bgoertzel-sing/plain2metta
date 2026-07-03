@@ -33,6 +33,7 @@ class MLMethodologyValidationTests(unittest.TestCase):
             "ml-uncertainty-reporting-declared",
         }:
             self.assertTrue(any(c.property == property_name and c.target_id == experiment.id and c.status == CheckStatus.UNKNOWN for c in doc.checks))
+        self.assertTrue(any(c.property == "ml-temporal-split-order-reviewed" and c.target_id == experiment.id and c.status == CheckStatus.PASS for c in doc.checks))
 
         questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT]
         self.assertTrue(any(("MissingMethodologyEvidence", q.id, "ml-preprocessing-fit-scope-declared") in q.facts for q in questions))
@@ -61,6 +62,7 @@ class MLMethodologyValidationTests(unittest.TestCase):
             "ml-preprocessing-fit-scope-declared",
             "ml-preprocessing-order-reviewed",
             "ml-future-label-leakage-reviewed",
+            "ml-temporal-split-order-reviewed",
             "ml-baseline-comparison-declared",
             "ml-uncertainty-reporting-declared",
         }:
@@ -122,6 +124,35 @@ class MLMethodologyValidationTests(unittest.TestCase):
                 for obj in doc.objects
             )
         )
+
+    def test_random_time_series_split_gets_temporal_order_review_question(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Train a time-series model to forecast next-day demand.\n"
+            "- Randomly split rows into train, validation, and test sets before reporting RMSE.\n",
+            "ml-temporal-split.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "ml-temporal-split-order-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertIn("random/shuffled split", check.evidence)
+        self.assertTrue(
+            any(
+                ("MissingMethodologyEvidence", obj.id, "ml-temporal-split-order-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+
+    def test_chronological_split_passes_temporal_order_review(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Train a time-series model to forecast next-day demand.\n"
+            "- Use a chronological train validation test split and report RMSE.\n",
+            "ml-temporal-split-pass.plain",
+        )
+
+        self.assertTrue(any(c.property == "ml-temporal-split-order-reviewed" and c.status == CheckStatus.PASS for c in doc.checks))
 
 
 if __name__ == "__main__":

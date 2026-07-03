@@ -251,6 +251,8 @@ ML_HORIZON_RE = re.compile(r"\b(horizon|frequency|cadence|\d+\s*(?:minute|hour|d
 ML_REPRO_RE = re.compile(r"\b(seed|random state|reproduc|version|commit|environment|dataset snapshot)\b", re.IGNORECASE)
 ML_TRAIN_ONLY_PREPROCESS_RE = re.compile(r"\b(train(?:ing)?[- ]only|fit(?:ted)? on train|fit preprocessing on train)\b", re.IGNORECASE)
 ML_PREPROCESS_BEFORE_SPLIT_RE = re.compile(r"\b(normaliz|standardiz|scal|preprocess)[^.\n;]*\bthen\b[^.\n;]*\bsplit\b", re.IGNORECASE)
+ML_TEMPORAL_SPLIT_RE = re.compile(r"\b(chronological|temporal|time[- ]ordered|walk[- ]forward|rolling[- ]origin|forward[- ]chaining|backtest|out[- ]of[- ]time)\b", re.IGNORECASE)
+ML_RANDOM_SPLIT_RE = re.compile(r"\b(random(?:ly)? split|shuffle(?:d)? split|shuffle(?:d)? before split|stratified split|k[- ]fold|cross[- ]validation)\b", re.IGNORECASE)
 ML_BASELINE_RE = re.compile(r"\b(baseline|benchmark|naive|persistence|last[- ]value|ablation|compare(?:d)? against)\b", re.IGNORECASE)
 ML_UNCERTAINTY_RE = re.compile(r"\b(confidence intervals?|error bars?|uncertainty|standard deviation|std\.?|bootstrap|variance)\b", re.IGNORECASE)
 ML_FUTURE_LABEL_LEAKAGE_RE = re.compile(
@@ -465,8 +467,8 @@ def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
     by explicit words and then requires reviewable evidence for common Appendix
     N/P methodology hazards: metric declaration, horizon/frequency declaration,
     reproducibility evidence, train-only preprocessing fit scope, leakage-prone
-    preprocessing order, explicit future/label leakage wording, baseline
-    comparison, and uncertainty/error-bar reporting.
+    preprocessing order, explicit future/label leakage wording, temporal split
+    order, baseline comparison, and uncertainty/error-bar reporting.
     """
     candidate_items = [item for item in doc.items if ML_EXPERIMENT_RE.search(item.raw_text)]
     if not candidate_items:
@@ -585,6 +587,16 @@ def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
         "no explicit future/label-as-feature leakage pattern found",
         "future/label/target wording appears in a feature/input context",
         "Do any features, inputs, predictors, or covariates include future values, labels, or targets unavailable at prediction time?",
+    )
+    temporal_split_declared = bool(ML_TEMPORAL_SPLIT_RE.search(all_text))
+    random_split_declared = bool(ML_RANDOM_SPLIT_RE.search(all_text))
+    check_property(
+        "ml-temporal-split-order-reviewed",
+        "Time-series validation should preserve temporal ordering for train/validation/test splits or explicitly justify any random/shuffled cross-validation scheme.",
+        temporal_split_declared or not random_split_declared,
+        "temporal split/order evidence found, or no explicit random/shuffled split wording found",
+        "random/shuffled split wording appears without chronological, walk-forward, or out-of-time split evidence",
+        "Does the train/validation/test split preserve temporal order, or is a random/shuffled split justified for this time-series task?",
     )
     check_property(
         "ml-baseline-comparison-declared",
