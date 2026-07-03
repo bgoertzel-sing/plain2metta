@@ -262,6 +262,12 @@ ML_FUTURE_LABEL_LEAKAGE_RE = re.compile(
     r"\b(?:features?|inputs?|predictors?|covariates?)[^.;\n]{0,60}\b(?:future|label|target)\b",
     re.IGNORECASE,
 )
+ML_FEATURE_INPUT_RE = re.compile(r"\b(features?|inputs?|predictors?|covariates?)\b", re.IGNORECASE)
+ML_FEATURE_AVAILABILITY_RE = re.compile(
+    r"\b(available at prediction time|available before prediction|known before prediction|known at prediction time|"
+    r"as[- ]of|point[- ]in[- ]time|lagged|historical|prior to prediction|no future (?:data|values|features?))\b",
+    re.IGNORECASE,
+)
 
 
 def _clean_requirement_label(label: str) -> str:
@@ -590,6 +596,16 @@ def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
         "no explicit future/label-as-feature leakage pattern found",
         "future/label/target wording appears in a feature/input context",
         "Do any features, inputs, predictors, or covariates include future values, labels, or targets unavailable at prediction time?",
+    )
+    feature_inputs_declared = bool(ML_FEATURE_INPUT_RE.search(all_text))
+    feature_availability_declared = bool(ML_FEATURE_AVAILABILITY_RE.search(all_text))
+    check_property(
+        "ml-feature-availability-reviewed",
+        "ML/time-series input features should state whether they are available at prediction time, using point-in-time, lagged, historical, or equivalent evidence.",
+        not feature_inputs_declared or (feature_availability_declared and not future_label_leakage),
+        "feature availability is reviewed or no explicit feature/input list is present",
+        "feature/input wording lacks point-in-time availability evidence" if not future_label_leakage else "feature/input wording also triggers future/label leakage review",
+        "Which declared features, inputs, predictors, or covariates are available at prediction time, and are they point-in-time/lagged as needed?",
     )
     temporal_split_declared = bool(ML_TEMPORAL_SPLIT_RE.search(all_text))
     random_split_declared = bool(ML_RANDOM_SPLIT_RE.search(all_text))

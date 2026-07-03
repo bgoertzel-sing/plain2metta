@@ -30,6 +30,7 @@ class MLMethodologyValidationTests(unittest.TestCase):
             "ml-preprocessing-fit-scope-declared",
             "ml-preprocessing-order-reviewed",
             "ml-baseline-comparison-declared",
+            "ml-feature-availability-reviewed",
             "ml-baseline-comparator-named",
             "ml-uncertainty-reporting-declared",
             "ml-uncertainty-method-named",
@@ -64,6 +65,7 @@ class MLMethodologyValidationTests(unittest.TestCase):
             "ml-preprocessing-fit-scope-declared",
             "ml-preprocessing-order-reviewed",
             "ml-future-label-leakage-reviewed",
+            "ml-feature-availability-reviewed",
             "ml-temporal-split-order-reviewed",
             "ml-baseline-comparison-declared",
             "ml-baseline-comparator-named",
@@ -128,6 +130,35 @@ class MLMethodologyValidationTests(unittest.TestCase):
                 for obj in doc.objects
             )
         )
+
+    def test_feature_inputs_need_point_in_time_availability_review(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Train a time-series model to forecast next-day demand.\n"
+            "- Use sales, price, and weather inputs as model features.\n",
+            "ml-feature-availability.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "ml-feature-availability-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertIn("point-in-time availability", check.evidence)
+        self.assertTrue(
+            any(
+                ("MissingMethodologyEvidence", obj.id, "ml-feature-availability-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+
+    def test_lagged_feature_inputs_pass_availability_review(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Train a time-series model to forecast next-day demand.\n"
+            "- Use lagged historical sales features available at prediction time.\n",
+            "ml-feature-availability-pass.plain",
+        )
+
+        self.assertTrue(any(c.property == "ml-feature-availability-reviewed" and c.status == CheckStatus.PASS for c in doc.checks))
 
     def test_random_time_series_split_gets_temporal_order_review_question(self):
         doc = compile_source(
