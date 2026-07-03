@@ -455,8 +455,8 @@ def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
     This pass does not infer model semantics. It only recognizes an ML-ish source
     by explicit words and then requires reviewable evidence for common Appendix
     N/P methodology hazards: metric declaration, horizon/frequency declaration,
-    reproducibility evidence, train-only preprocessing fit scope, baseline
-    comparison, and uncertainty/error-bar reporting.
+    reproducibility evidence, train-only preprocessing fit scope, leakage-prone
+    preprocessing order, baseline comparison, and uncertainty/error-bar reporting.
     """
     candidate_items = [item for item in doc.items if ML_EXPERIMENT_RE.search(item.raw_text)]
     if not candidate_items:
@@ -527,14 +527,24 @@ def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
         "What seed, code/data version, or environment record makes this experiment reproducible?",
     )
 
-    preprocessing_requires_review = bool(ML_PREPROCESS_BEFORE_SPLIT_RE.search(all_text)) or ("normaliz" in all_text.lower() and "split" in all_text.lower())
+    train_only_preprocessing = bool(ML_TRAIN_ONLY_PREPROCESS_RE.search(all_text))
+    preprocessing_before_split = bool(ML_PREPROCESS_BEFORE_SPLIT_RE.search(all_text))
+    preprocessing_requires_review = preprocessing_before_split or ("normaliz" in all_text.lower() and "split" in all_text.lower())
     check_property(
         "ml-preprocessing-fit-scope-declared",
         "Preprocessing for time-series ML should state whether fitted transforms are learned on train-only data to avoid leakage.",
-        bool(ML_TRAIN_ONLY_PREPROCESS_RE.search(all_text)),
+        train_only_preprocessing,
         "train-only preprocessing fit scope found in source text",
         "preprocessing/split wording lacks train-only fit-scope evidence" if preprocessing_requires_review else "no train-only preprocessing fit-scope evidence found",
         "Are normalization/preprocessing parameters fit on training data only, before validation/test evaluation?",
+    )
+    check_property(
+        "ml-preprocessing-order-reviewed",
+        "Specs that normalize/scale/preprocess before splitting data should be reviewed for train/test leakage before validation claims are trusted.",
+        not preprocessing_before_split or train_only_preprocessing,
+        "no explicit preprocess-then-split leakage pattern found, or train-only fit scope is declared",
+        "preprocess-then-split wording may leak validation/test information into fitted transforms",
+        "Does the preprocessing order avoid fitting transforms on validation/test or future data before the split?",
     )
     check_property(
         "ml-baseline-comparison-declared",
