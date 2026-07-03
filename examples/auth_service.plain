@@ -1,0 +1,20 @@
+***definitions***
+- :User: is a person or service account allowed to authenticate with the product.
+- :Session: is a server-side record proving that a :User: has recently authenticated.
+- :AuthToken: is a signed bearer credential bound to one :Session:.
+- :PasswordHasher: is provided by [external:argon2id] and stores password verifiers.
+- LoginPolicy: describes lockout limits, retry windows, and allowed identity providers.
+
+***functional specifications***
+- [id:AUTH-1] The service shall authenticate a :User: with email and password, then create a :Session: and issue an :AuthToken:.
+- [id:AUTH-2] The service shall reject login attempts when :PasswordHasher: verification fails or LoginPolicy lockout is active.
+- [id:AUTH-2] The service shall refresh an :AuthToken: only when the existing :Session: is valid.
+- [id:AUTH-3] The service shall revoke all :Session: records for a :User: after password reset.
+- [id:AUTH-4] The service shall send risk notifications to :AuditSink: after suspicious login attempts.
+
+***acceptance tests***
+- [covers:AUTH-1] Given a known :User: with a correct password, when the login endpoint is called, then the response contains an :AuthToken: and a :Session: exists.
+- [covers:AUTH-2] Given an invalid password, when the login endpoint is called, then no :Session: is created.
+- [covers:AUTH-2] Given an expired :AuthToken:, when refresh is requested, then the service returns a reauthentication error.
+- [covers:AUTH-99] Given a disabled identity provider, when a :User: tries to login, then the request is rejected.
+- Given a support operator requests an audit export, then the export includes recent authentication events.

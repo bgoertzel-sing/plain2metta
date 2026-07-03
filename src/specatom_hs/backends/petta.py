@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Iterable
 
 from ..schema import SemanticLevel, SpecDocument, SpecObject
@@ -103,6 +104,44 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
         atoms.append(_atom(["check-obligation", check.id, check.obligation_id]))
         atoms.append(_atom(["check-evidence", check.id, check.evidence]))
     return atoms, refusals
+
+
+def emit_reified_atoms_grouped(doc: SpecDocument) -> tuple[list[str], list[BackendRefusal]]:
+    """Emit PeTTa reified atoms with comment separators for easier inspection.
+
+    The underlying atom/refusal generation is delegated to ``emit_reified_atoms``
+    so the existing backend behavior remains the source of truth.
+    """
+    atoms, refusals = emit_reified_atoms(doc)
+
+    grouped: list[str] = []
+
+    def add_section(title: str, selected: list[str]) -> None:
+        grouped.append(f";;; {title}")
+        grouped.extend(selected)
+
+    source_prefixes = ("(target-profile", "(plain-file", "(source-span")
+    section_prefixes = ("(section", "(plain-item", "(derived-from")
+    object_prefixes = tuple(
+        prefix
+        for prefix in {atom.split(" ", 1)[0] for atom in atoms}
+        if prefix not in {"(target-profile", "(plain-file", "(source-span", "(section", "(plain-item", "(derived-from", "(validation-obligation", "(validation-rationale", "(check", "(check-obligation", "(check-evidence"}
+    )
+    validation_prefixes = ("(validation-obligation", "(validation-rationale", "(check", "(check-obligation", "(check-evidence")
+
+    add_section("Source Files", [atom for atom in atoms if atom.startswith(source_prefixes)])
+    add_section("Sections", [atom for atom in atoms if atom.startswith(section_prefixes)])
+    add_section("Objects", [atom for atom in atoms if atom.startswith(object_prefixes)])
+    add_section("Validation", [atom for atom in atoms if atom.startswith(validation_prefixes)])
+    add_section("Refusals", [f"; refused: {refusal.reason} {refusal.object_id or ''}".rstrip() for refusal in refusals])
+
+    return grouped, refusals
+
+
+def emit_metta_file(doc: SpecDocument, path: str) -> None:
+    """Write grouped PeTTa/MeTTa atoms to ``path``."""
+    atoms, _ = emit_reified_atoms_grouped(doc)
+    Path(path).write_text("\n".join(atoms) + "\n", encoding="utf-8")
 
 
 def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRefusal]:

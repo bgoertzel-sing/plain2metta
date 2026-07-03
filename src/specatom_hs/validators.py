@@ -14,15 +14,22 @@ def _line_for_offset(text: str, offset: int) -> int:
 
 
 def add_validation_obligation(doc: SpecDocument, property: str, target_id: str, rationale: str, source_span_id: str | None = None) -> ValidationObligation:
+    """Append a validation obligation once, keyed by stable ID.
+
+    Some larger examples create many structurally similar records. Comparing whole
+    dataclasses repeatedly makes validation noticeably slow, so duplicate checks
+    use the deterministic ID that already defines obligation identity.
+    """
     obl = ValidationObligation(stable_id("vobl", property, target_id), property, target_id, rationale, source_span_id)
-    if obl not in doc.validation_obligations:
+    if all(existing.id != obl.id for existing in doc.validation_obligations):
         doc.validation_obligations.append(obl)
     return obl
 
 
 def add_check(doc: SpecDocument, obligation: ValidationObligation, status: CheckStatus, evidence: str) -> CheckRecord:
+    """Append a check record once, keyed by stable ID."""
     check = CheckRecord(stable_id("chk", obligation.id, status.value, evidence), obligation.id, obligation.property, obligation.target_id, status, evidence)
-    if check not in doc.checks:
+    if all(existing.id != check.id for existing in doc.checks):
         doc.checks.append(check)
     return check
 
@@ -60,6 +67,9 @@ FACT_SCHEMAS = {
     "DuplicateRequirementLabel": FactSchema(3),
     "UnsupportedFactPredicate": FactSchema(3),
     "UnsupportedSemanticLevel": FactSchema(3),
+    "MLTimeSeriesExperiment": FactSchema(2),
+    "MethodologySignal": FactSchema(3),
+    "MissingMethodologyEvidence": FactSchema(3),
     "Blocks": FactSchema(3, obligation_refs=(2,)),
     "GeneratedFrom": FactSchema(3, object_refs=(2,)),
 }
@@ -261,6 +271,45 @@ def _validate_object_facts(doc: SpecDocument) -> None:
     doc.objects.extend(unknown_predicate_questions)
 
 
+def _validate_question_objects(doc: SpecDocument) -> None:
+    """Ensure human-review questions are actionable and tied to blockers."""
+    known_obligations = {obligation.id for obligation in doc.validation_obligations}
+
+    for obj in doc.objects:
+        if obj.role != Role.QUESTION_OBJECT:
+            continue
+        question_texts = [str(fact[2]).strip() for fact in obj.facts if len(fact) == 3 and fact[0] == "QuestionText"]
+        text_obligation = add_validation_obligation(
+            doc,
+            "question-has-review-text",
+            obj.id,
+            "QuestionObject records must preserve a non-empty human-review prompt instead of only a machine tag.",
+            obj.source_span_id,
+        )
+        add_check(
+            doc,
+            text_obligation,
+            CheckStatus.PASS if any(question_texts) else CheckStatus.FAIL,
+            "question text present" if any(question_texts) else "missing non-empty QuestionText fact",
+        )
+
+        block_targets = [str(fact[2]) for fact in obj.facts if len(fact) == 3 and fact[0] == "Blocks"]
+        known_block_targets = [target for target in block_targets if target in known_obligations]
+        block_obligation = add_validation_obligation(
+            doc,
+            "question-blocks-validation-obligation",
+            obj.id,
+            "QuestionObject records should identify the validation obligation they block so Unknown diagnostics are reviewable.",
+            obj.source_span_id,
+        )
+        if known_block_targets:
+            add_check(doc, block_obligation, CheckStatus.PASS, "blocks=" + ",".join(sorted(known_block_targets)))
+        elif block_targets:
+            add_check(doc, block_obligation, CheckStatus.FAIL, "Blocks facts cite unknown obligations: " + ",".join(sorted(block_targets)))
+        else:
+            add_check(doc, block_obligation, CheckStatus.FAIL, "missing Blocks fact")
+
+
 def _validate_validation_obligations(doc: SpecDocument) -> None:
     """Validate obligation provenance and target links without recursion."""
     original_obligations = list(doc.validation_obligations)
@@ -441,6 +490,7 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
 
     _validate_petta_reified_profile_levels(doc)
     _validate_object_facts(doc)
+    _validate_question_objects(doc)
     _validate_validation_obligations(doc)
     _validate_check_records(doc)
 

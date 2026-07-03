@@ -229,6 +229,11 @@ def build_concept_table(doc: SpecDocument) -> SpecDocument:
                 add_check(doc, obligation, CheckStatus.PASS, status)
             else:
                 add_check(doc, obligation, CheckStatus.UNKNOWN, "no local definition or external link found")
+                qid = stable_id("question", "unresolved-concept", name, definitions.get(name) or sorted(references.get(name, {span_id}))[0])
+                question = next((obj for obj in doc.objects if obj.id == qid), None)
+                block_fact = ("Blocks", qid, obligation.id)
+                if question is not None and block_fact not in question.facts:
+                    question.facts.append(block_fact)
     return doc
 
 
@@ -236,6 +241,14 @@ REQUIREMENT_SECTION_KINDS = {"Requirements", "FunctionalSpecifications", "Implem
 ACCEPTANCE_SECTION_KINDS = {"AcceptanceTests", "Tests"}
 REQUIREMENT_LABEL_RE = re.compile(r"\[(?:id|req|requirement-id):\s*([^\]]+)\]", re.IGNORECASE)
 COVERAGE_CLAIM_RE = re.compile(r"\[(?:covers|covers-requirement):\s*([^\]]+)\]", re.IGNORECASE)
+ML_EXPERIMENT_RE = re.compile(r"\b(train|model|predict|forecast|time[- ]?series|validation|test split)\b", re.IGNORECASE)
+ML_METRIC_RE = re.compile(r"\b(metric|accuracy|auc|f1|precision|recall|mae|mse|rmse|mape|loss)\b", re.IGNORECASE)
+ML_HORIZON_RE = re.compile(r"\b(horizon|frequency|cadence|\d+\s*(?:minute|hour|day|week|month)s?|\d+\s*(?:m|h|d|w))\b", re.IGNORECASE)
+ML_REPRO_RE = re.compile(r"\b(seed|random state|reproduc|version|commit|environment|dataset snapshot)\b", re.IGNORECASE)
+ML_TRAIN_ONLY_PREPROCESS_RE = re.compile(r"\b(train(?:ing)?[- ]only|fit(?:ted)? on train|fit preprocessing on train)\b", re.IGNORECASE)
+ML_PREPROCESS_BEFORE_SPLIT_RE = re.compile(r"\b(normaliz|standardiz|scal|preprocess)[^.\n;]*\bthen\b[^.\n;]*\bsplit\b", re.IGNORECASE)
+ML_BASELINE_RE = re.compile(r"\b(baseline|benchmark|naive|persistence|last[- ]value|ablation|compare(?:d)? against)\b", re.IGNORECASE)
+ML_UNCERTAINTY_RE = re.compile(r"\b(confidence intervals?|error bars?|uncertainty|standard deviation|std\.?|bootstrap|variance)\b", re.IGNORECASE)
 
 
 def _clean_requirement_label(label: str) -> str:
@@ -436,10 +449,117 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
     return doc
 
 
+def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
+    """Add conservative ML/time-series methodology obligations.
+
+    This pass does not infer model semantics. It only recognizes an ML-ish source
+    by explicit words and then requires reviewable evidence for common Appendix
+    N/P methodology hazards: metric declaration, horizon/frequency declaration,
+    reproducibility evidence, train-only preprocessing fit scope, baseline
+    comparison, and uncertainty/error-bar reporting.
+    """
+    candidate_items = [item for item in doc.items if ML_EXPERIMENT_RE.search(item.raw_text)]
+    if not candidate_items:
+        return doc
+
+    existing_ids = {obj.id for obj in doc.objects}
+    first_span_id = candidate_items[0].span.id
+    experiment_id = stable_id("ml-exp", doc.files[0].id if doc.files else "document")
+    all_text = "\n".join(item.raw_text for item in doc.items)
+
+    if experiment_id not in existing_ids:
+        doc.objects.append(
+            SpecObject(
+                experiment_id,
+                Role.VALIDATION_OBJECT,
+                SemanticLevel.TEMPLATE_PARSED,
+                first_span_id,
+                facts=[("MLTimeSeriesExperiment", experiment_id), ("MethodologySignal", experiment_id, "ml-time-series-keywords")],
+            )
+        )
+        existing_ids.add(experiment_id)
+
+    def check_property(property: str, rationale: str, passing: bool, pass_evidence: str, unknown_evidence: str, question_text: str) -> None:
+        obligation = add_validation_obligation(doc, property, experiment_id, rationale, first_span_id)
+        if passing:
+            add_check(doc, obligation, CheckStatus.PASS, pass_evidence)
+            return
+        add_check(doc, obligation, CheckStatus.UNKNOWN, unknown_evidence)
+        qid = stable_id("question", "ml-methodology", property, experiment_id)
+        if qid not in existing_ids:
+            doc.objects.append(
+                SpecObject(
+                    qid,
+                    Role.QUESTION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    first_span_id,
+                    facts=[
+                        ("MissingMethodologyEvidence", qid, property),
+                        ("QuestionText", qid, question_text),
+                        ("Blocks", qid, obligation.id),
+                    ],
+                )
+            )
+            existing_ids.add(qid)
+
+    check_property(
+        "ml-evaluation-metric-declared",
+        "ML/time-series experiments should declare the evaluation metric used for validation/test claims.",
+        bool(ML_METRIC_RE.search(all_text)),
+        "metric-like term found in source text",
+        "no evaluation metric term found",
+        "Which evaluation metric will be used for validation and final test reporting?",
+    )
+    check_property(
+        "ml-horizon-or-frequency-declared",
+        "Time-series prediction specs should declare a prediction horizon or data frequency before validation claims are trusted.",
+        bool(ML_HORIZON_RE.search(all_text)),
+        "horizon/frequency-like term found in source text",
+        "no horizon or frequency term found",
+        "What prediction horizon or data frequency anchors this time-series experiment?",
+    )
+    check_property(
+        "ml-reproducibility-evidence-declared",
+        "Methodology validation should preserve reproducibility evidence such as seeds, versions, commits, or dataset snapshots.",
+        bool(ML_REPRO_RE.search(all_text)),
+        "reproducibility-like term found in source text",
+        "no reproducibility evidence term found",
+        "What seed, code/data version, or environment record makes this experiment reproducible?",
+    )
+
+    preprocessing_requires_review = bool(ML_PREPROCESS_BEFORE_SPLIT_RE.search(all_text)) or ("normaliz" in all_text.lower() and "split" in all_text.lower())
+    check_property(
+        "ml-preprocessing-fit-scope-declared",
+        "Preprocessing for time-series ML should state whether fitted transforms are learned on train-only data to avoid leakage.",
+        bool(ML_TRAIN_ONLY_PREPROCESS_RE.search(all_text)),
+        "train-only preprocessing fit scope found in source text",
+        "preprocessing/split wording lacks train-only fit-scope evidence" if preprocessing_requires_review else "no train-only preprocessing fit-scope evidence found",
+        "Are normalization/preprocessing parameters fit on training data only, before validation/test evaluation?",
+    )
+    check_property(
+        "ml-baseline-comparison-declared",
+        "ML/time-series validation should name a baseline, benchmark, or ablation comparator before performance claims are trusted.",
+        bool(ML_BASELINE_RE.search(all_text)),
+        "baseline/comparator-like term found in source text",
+        "no baseline or comparator term found",
+        "What baseline, benchmark, or ablation comparator will contextualize this model's reported performance?",
+    )
+    check_property(
+        "ml-uncertainty-reporting-declared",
+        "ML/time-series validation should declare uncertainty reporting such as confidence intervals, error bars, or bootstrap variance where possible.",
+        bool(ML_UNCERTAINTY_RE.search(all_text)),
+        "uncertainty/error-bar-like term found in source text",
+        "no uncertainty or error-bar reporting term found",
+        "Will final metrics include confidence intervals, error bars, bootstrap variance, or another uncertainty report?",
+    )
+    return doc
+
+
 PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
+    PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),
     PassSpec("validate-document", "Emit first validation obligations/check records.", validate_document),
 ]
 

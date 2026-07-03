@@ -261,6 +261,37 @@ class ValidationRecordTests(unittest.TestCase):
             any(c.property == "obligation-target-is-declared" and c.status == CheckStatus.FAIL and "missing-target" in c.evidence for c in bad.checks)
         )
 
+    def test_question_objects_validate_review_text_and_blocked_obligations(self):
+        doc = compile_source("***requirements***\n- The system mentions [ref:GhostConcept].\n", "question-links.plain")
+        unresolved_questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT and any(fact[0] == "UnresolvedConcept" for fact in obj.facts)]
+        self.assertTrue(unresolved_questions)
+        self.assertTrue(any(fact[0] == "Blocks" and fact[2].startswith("vobl-") for fact in unresolved_questions[0].facts))
+        self.assertTrue(
+            any(c.property == "question-has-review-text" and c.target_id == unresolved_questions[0].id and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+        self.assertTrue(
+            any(c.property == "question-blocks-validation-obligation" and c.target_id == unresolved_questions[0].id and c.status == CheckStatus.PASS for c in doc.checks)
+        )
+
+        bad = SpecDocument(
+            objects=[
+                SpecObject("question-empty", Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, None, facts=[("QuestionText", "question-empty", "   ")]),
+                SpecObject("question-dangling", Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, None, facts=[("QuestionText", "question-dangling", "Review me."), ("Blocks", "question-dangling", "vobl-missing")]),
+            ]
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(bad)
+        self.assertTrue(
+            any(c.property == "question-has-review-text" and c.target_id == "question-empty" and c.status == CheckStatus.FAIL for c in bad.checks)
+        )
+        self.assertTrue(
+            any(c.property == "question-blocks-validation-obligation" and c.target_id == "question-empty" and c.status == CheckStatus.FAIL and "missing Blocks" in c.evidence for c in bad.checks)
+        )
+        self.assertTrue(
+            any(c.property == "question-blocks-validation-obligation" and c.target_id == "question-dangling" and c.status == CheckStatus.FAIL and "vobl-missing" in c.evidence for c in bad.checks)
+        )
+
     def test_check_records_validate_their_obligation_links_targets_and_statuses(self):
         doc = SpecDocument(
             objects=[SpecObject("target-a", Role.SOURCE_OBJECT, SemanticLevel.RAW_TEXT_ONLY, None)],
