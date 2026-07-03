@@ -279,6 +279,10 @@ SECRET_HANDLING_RE = re.compile(r"\b(secret manager|vault|environment variable|e
 SECRET_LOGGING_RE = re.compile(r"\b(redacted from logs?|log redaction|not logged|never logged|no logs?|masked in logs?|scrubbed from logs?)\b", re.IGNORECASE)
 PII_SIGNAL_RE = re.compile(r"\b(pii|personal data|email address|phone number|user data|privacy)\b", re.IGNORECASE)
 PII_HANDLING_RE = re.compile(r"\b(consent|minimi[sz]ation|retention|anonymi[sz]e|pseudonymi[sz]e|encrypt(?:ed|ion)?|delete on request|privacy review)\b", re.IGNORECASE)
+DATA_CLASSIFICATION_RE = re.compile(
+    r"\b(data classification|classified as|classification label|sensitivity label|confidential|restricted|public data|internal data|regulated data)\b",
+    re.IGNORECASE,
+)
 ACCESS_SIGNAL_RE = re.compile(r"\b(auth(?:entication|orization)?|access|permission|admin|role|login|rbac)\b", re.IGNORECASE)
 ACCESS_BOUNDARY_RE = re.compile(r"\b(role[- ]based|rbac|least privilege|permission check|authorize|authz|access control|admin[- ]only|deny by default)\b", re.IGNORECASE)
 DESTRUCTIVE_ACTION_RE = re.compile(r"\b(delete|drop|erase|purge|force[- ]?push|destructive|wipe)\b", re.IGNORECASE)
@@ -569,6 +573,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "PII/privacy-handling evidence found in source text",
         "PII/privacy wording lacks consent, minimization, retention, anonymization, or encryption evidence",
         "What privacy controls govern PII/personal data collection, retention, access, deletion, and protection?",
+    )
+    check_property(
+        "privacy-data-classification-declared",
+        "Specs that mention PII or personal data should declare a data/sensitivity classification before downstream policy or access claims are trusted.",
+        pii_signal,
+        bool(DATA_CLASSIFICATION_RE.search(all_text)),
+        "data-classification evidence found in source text",
+        "PII/privacy wording lacks an explicit data or sensitivity classification",
+        "What data classification or sensitivity label applies to the personal data in this spec?",
     )
     check_property(
         "security-access-boundary-declared",

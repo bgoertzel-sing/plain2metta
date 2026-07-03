@@ -21,6 +21,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "security-secrets-handling-reviewed",
             "security-secret-log-exposure-reviewed",
             "privacy-pii-handling-reviewed",
+            "privacy-data-classification-declared",
             "security-access-boundary-declared",
             "security-destructive-action-safety-reviewed",
         }:
@@ -45,7 +46,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
         doc = compile_source(
             "***functional specifications***\n"
             "- Store API tokens in a secret manager; tokens are redacted from logs and not hard-coded.\n"
-            "- Collect user email address with consent, data minimization, retention limits, and encryption.\n"
+            "- Collect user email address classified as restricted data with consent, data minimization, retention limits, and encryption.\n"
             "- Use RBAC least privilege access control for admin-only account records.\n"
             "- Delete records only after confirmation with audit log and rollback backup.\n",
             "security-privacy-pass.plain",
@@ -55,6 +56,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "security-secrets-handling-reviewed",
             "security-secret-log-exposure-reviewed",
             "privacy-pii-handling-reviewed",
+            "privacy-data-classification-declared",
             "security-access-boundary-declared",
             "security-destructive-action-safety-reviewed",
         }:
