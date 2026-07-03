@@ -276,6 +276,7 @@ SECURITY_PRIVACY_RE = re.compile(
 )
 SECRET_SIGNAL_RE = re.compile(r"\b(secret|api[- ]?key|token|password|credential)\b", re.IGNORECASE)
 SECRET_HANDLING_RE = re.compile(r"\b(secret manager|vault|environment variable|env var|redacted|not hard[- ]?coded|no plaintext|encrypted at rest)\b", re.IGNORECASE)
+SECRET_LOGGING_RE = re.compile(r"\b(redacted from logs?|log redaction|not logged|never logged|no logs?|masked in logs?|scrubbed from logs?)\b", re.IGNORECASE)
 PII_SIGNAL_RE = re.compile(r"\b(pii|personal data|email address|phone number|user data|privacy)\b", re.IGNORECASE)
 PII_HANDLING_RE = re.compile(r"\b(consent|minimi[sz]ation|retention|anonymi[sz]e|pseudonymi[sz]e|encrypt(?:ed|ion)?|delete on request|privacy review)\b", re.IGNORECASE)
 ACCESS_SIGNAL_RE = re.compile(r"\b(auth(?:entication|orization)?|access|permission|admin|role|login|rbac)\b", re.IGNORECASE)
@@ -550,6 +551,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "secret-handling evidence found in source text",
         "secret/credential wording lacks storage, redaction, or no-hardcoding evidence",
         "How are secrets, tokens, passwords, or credentials stored, redacted, and kept out of source/plaintext?",
+    )
+    check_property(
+        "security-secret-log-exposure-reviewed",
+        "Specs that mention secrets, tokens, passwords, or credentials should state whether those values are redacted, masked, or excluded from logs.",
+        secret_signal,
+        bool(SECRET_LOGGING_RE.search(all_text)),
+        "secret log-exposure evidence found in source text",
+        "secret/credential wording lacks redaction, masking, or no-logging evidence",
+        "How are secrets, tokens, passwords, or credentials kept out of logs and diagnostics?",
     )
     check_property(
         "privacy-pii-handling-reviewed",

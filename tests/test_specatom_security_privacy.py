@@ -19,6 +19,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
         review = next(obj for obj in doc.objects if ("SecurityPrivacyReview", obj.id) in obj.facts)
         for property_name in {
             "security-secrets-handling-reviewed",
+            "security-secret-log-exposure-reviewed",
             "privacy-pii-handling-reviewed",
             "security-access-boundary-declared",
             "security-destructive-action-safety-reviewed",
@@ -52,6 +53,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
 
         for property_name in {
             "security-secrets-handling-reviewed",
+            "security-secret-log-exposure-reviewed",
             "privacy-pii-handling-reviewed",
             "security-access-boundary-declared",
             "security-destructive-action-safety-reviewed",
