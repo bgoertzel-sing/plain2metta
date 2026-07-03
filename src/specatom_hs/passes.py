@@ -254,7 +254,9 @@ ML_PREPROCESS_BEFORE_SPLIT_RE = re.compile(r"\b(normaliz|standardiz|scal|preproc
 ML_TEMPORAL_SPLIT_RE = re.compile(r"\b(chronological|temporal|time[- ]ordered|walk[- ]forward|rolling[- ]origin|forward[- ]chaining|backtest|out[- ]of[- ]time)\b", re.IGNORECASE)
 ML_RANDOM_SPLIT_RE = re.compile(r"\b(random(?:ly)? split|shuffle(?:d)? split|shuffle(?:d)? before split|stratified split|k[- ]fold|cross[- ]validation)\b", re.IGNORECASE)
 ML_BASELINE_RE = re.compile(r"\b(baseline|benchmark|naive|persistence|last[- ]value|ablation|compare(?:d)? against)\b", re.IGNORECASE)
+ML_NAMED_BASELINE_RE = re.compile(r"\b(benchmark|naive|persistence|last[- ]value|ablation|compare(?:d)? against\s+[^.;\n]+)\b", re.IGNORECASE)
 ML_UNCERTAINTY_RE = re.compile(r"\b(confidence intervals?|error bars?|uncertainty|standard deviation|std\.?|bootstrap|variance)\b", re.IGNORECASE)
+ML_NAMED_UNCERTAINTY_RE = re.compile(r"\b(confidence intervals?|error bars?|standard deviation|std\.?|bootstrap|variance)\b", re.IGNORECASE)
 ML_FUTURE_LABEL_LEAKAGE_RE = re.compile(
     r"\b(?:future|label|target)[^.;\n]{0,60}\b(?:features?|inputs?|predictors?|covariates?)\b|"
     r"\b(?:features?|inputs?|predictors?|covariates?)[^.;\n]{0,60}\b(?:future|label|target)\b",
@@ -468,7 +470,8 @@ def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
     N/P methodology hazards: metric declaration, horizon/frequency declaration,
     reproducibility evidence, train-only preprocessing fit scope, leakage-prone
     preprocessing order, explicit future/label leakage wording, temporal split
-    order, baseline comparison, and uncertainty/error-bar reporting.
+    order, baseline comparison, named comparator review, uncertainty/error-bar
+    reporting, and named uncertainty method review.
     """
     candidate_items = [item for item in doc.items if ML_EXPERIMENT_RE.search(item.raw_text)]
     if not candidate_items:
@@ -598,21 +601,41 @@ def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
         "random/shuffled split wording appears without chronological, walk-forward, or out-of-time split evidence",
         "Does the train/validation/test split preserve temporal order, or is a random/shuffled split justified for this time-series task?",
     )
+    baseline_declared = bool(ML_BASELINE_RE.search(all_text))
+    named_baseline_declared = bool(ML_NAMED_BASELINE_RE.search(all_text))
     check_property(
         "ml-baseline-comparison-declared",
         "ML/time-series validation should name a baseline, benchmark, or ablation comparator before performance claims are trusted.",
-        bool(ML_BASELINE_RE.search(all_text)),
+        baseline_declared,
         "baseline/comparator-like term found in source text",
         "no baseline or comparator term found",
         "What baseline, benchmark, or ablation comparator will contextualize this model's reported performance?",
     )
     check_property(
+        "ml-baseline-comparator-named",
+        "A generic baseline mention should identify the comparator family or reference system before performance claims are trusted.",
+        named_baseline_declared,
+        "specific comparator-like term found in source text",
+        "baseline mentioned without a named comparator family such as naive, persistence, benchmark, or ablation" if baseline_declared else "no baseline comparator term found",
+        "Which concrete comparator family or reference system is the baseline?",
+    )
+    uncertainty_declared = bool(ML_UNCERTAINTY_RE.search(all_text))
+    named_uncertainty_declared = bool(ML_NAMED_UNCERTAINTY_RE.search(all_text))
+    check_property(
         "ml-uncertainty-reporting-declared",
         "ML/time-series validation should declare uncertainty reporting such as confidence intervals, error bars, or bootstrap variance where possible.",
-        bool(ML_UNCERTAINTY_RE.search(all_text)),
+        uncertainty_declared,
         "uncertainty/error-bar-like term found in source text",
         "no uncertainty or error-bar reporting term found",
         "Will final metrics include confidence intervals, error bars, bootstrap variance, or another uncertainty report?",
+    )
+    check_property(
+        "ml-uncertainty-method-named",
+        "A generic uncertainty mention should identify the reporting method before validation claims are trusted.",
+        named_uncertainty_declared,
+        "specific uncertainty reporting method found in source text",
+        "uncertainty mentioned without a named method such as confidence intervals, error bars, bootstrap, standard deviation, or variance" if uncertainty_declared else "no uncertainty reporting method found",
+        "Which uncertainty reporting method will accompany the final metric?",
     )
     return doc
 

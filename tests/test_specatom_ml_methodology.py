@@ -30,7 +30,9 @@ class MLMethodologyValidationTests(unittest.TestCase):
             "ml-preprocessing-fit-scope-declared",
             "ml-preprocessing-order-reviewed",
             "ml-baseline-comparison-declared",
+            "ml-baseline-comparator-named",
             "ml-uncertainty-reporting-declared",
+            "ml-uncertainty-method-named",
         }:
             self.assertTrue(any(c.property == property_name and c.target_id == experiment.id and c.status == CheckStatus.UNKNOWN for c in doc.checks))
         self.assertTrue(any(c.property == "ml-temporal-split-order-reviewed" and c.target_id == experiment.id and c.status == CheckStatus.PASS for c in doc.checks))
@@ -64,7 +66,9 @@ class MLMethodologyValidationTests(unittest.TestCase):
             "ml-future-label-leakage-reviewed",
             "ml-temporal-split-order-reviewed",
             "ml-baseline-comparison-declared",
+            "ml-baseline-comparator-named",
             "ml-uncertainty-reporting-declared",
+            "ml-uncertainty-method-named",
         }:
             self.assertTrue(any(c.property == property_name and c.status == CheckStatus.PASS for c in doc.checks), property_name)
 
@@ -153,6 +157,31 @@ class MLMethodologyValidationTests(unittest.TestCase):
         )
 
         self.assertTrue(any(c.property == "ml-temporal-split-order-reviewed" and c.status == CheckStatus.PASS for c in doc.checks))
+
+    def test_generic_baseline_and_uncertainty_mentions_need_named_details(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Train a time-series model to forecast next-day demand.\n"
+            "- Report RMSE against a baseline with uncertainty and seed 123.\n",
+            "ml-generic-baseline-uncertainty.plain",
+        )
+
+        self.assertTrue(any(c.property == "ml-baseline-comparison-declared" and c.status == CheckStatus.PASS for c in doc.checks))
+        baseline_check = next(c for c in doc.checks if c.property == "ml-baseline-comparator-named")
+        self.assertEqual(baseline_check.status, CheckStatus.UNKNOWN)
+        self.assertIn("without a named comparator", baseline_check.evidence)
+        self.assertTrue(any(c.property == "ml-uncertainty-reporting-declared" and c.status == CheckStatus.PASS for c in doc.checks))
+        uncertainty_check = next(c for c in doc.checks if c.property == "ml-uncertainty-method-named")
+        self.assertEqual(uncertainty_check.status, CheckStatus.UNKNOWN)
+        self.assertIn("without a named method", uncertainty_check.evidence)
+        for check in {baseline_check, uncertainty_check}:
+            self.assertTrue(
+                any(
+                    ("MissingMethodologyEvidence", obj.id, check.property) in obj.facts
+                    and any(fact == ("Blocks", obj.id, check.obligation_id) for fact in obj.facts)
+                    for obj in doc.objects
+                )
+            )
 
 
 if __name__ == "__main__":
