@@ -22,6 +22,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "security-secret-log-exposure-reviewed",
             "privacy-pii-handling-reviewed",
             "privacy-data-classification-declared",
+            "privacy-retention-deletion-reviewed",
             "security-access-boundary-declared",
             "security-privilege-escalation-reviewed",
             "security-destructive-action-safety-reviewed",
@@ -43,6 +44,24 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
         self.assertTrue(any(atom.startswith("(MissingSecurityPrivacyEvidence") for atom in atoms))
         self.assertFalse(any("MissingSecurityPrivacyEvidence" in refusal.reason for refusal in refusals))
 
+    def test_pii_encryption_without_retention_or_deletion_stays_unknown(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Collect user email address classified as restricted data with consent and encryption.\n",
+            "privacy-retention-gap.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "privacy-retention-deletion-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertTrue(
+            any(
+                ("MissingSecurityPrivacyEvidence", obj.id, "privacy-retention-deletion-reviewed") in obj.facts
+                and ("Blocks", obj.id, check.obligation_id) in obj.facts
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            )
+        )
+
     def test_explicit_security_privacy_controls_pass_keyword_review(self):
         doc = compile_source(
             "***functional specifications***\n"
@@ -58,6 +77,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "security-secret-log-exposure-reviewed",
             "privacy-pii-handling-reviewed",
             "privacy-data-classification-declared",
+            "privacy-retention-deletion-reviewed",
             "security-access-boundary-declared",
             "security-privilege-escalation-reviewed",
             "security-destructive-action-safety-reviewed",
