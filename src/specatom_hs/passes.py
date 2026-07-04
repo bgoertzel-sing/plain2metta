@@ -284,6 +284,15 @@ DATA_CLASSIFICATION_RE = re.compile(
     r"\b(data classification|classified as|classification label|sensitivity label|confidential|restricted|public data|internal data|regulated data)\b",
     re.IGNORECASE,
 )
+PII_LOCATION_SIGNAL_RE = re.compile(
+    r"\b(region|country|jurisdiction|residen(?:cy|ce)|location|cross[- ]border|international|eu|gdpr|ccpa|hipaa)\b",
+    re.IGNORECASE,
+)
+PII_LOCATION_POLICY_RE = re.compile(
+    r"\b(data residen(?:cy|ce)|regional storage|same[- ]region|allowed regions?|approved regions?|jurisdiction policy|"
+    r"cross[- ]border transfer review|gdpr|ccpa|hipaa|standard contractual clauses|sccs)\b",
+    re.IGNORECASE,
+)
 ACCESS_SIGNAL_RE = re.compile(r"\b(auth(?:entication|orization)?|access|permission|admin|role|login|rbac)\b", re.IGNORECASE)
 ACCESS_BOUNDARY_RE = re.compile(r"\b(role[- ]based|rbac|least privilege|permission check|authorize|authz|access control|admin[- ]only|deny by default)\b", re.IGNORECASE)
 PRIVILEGE_ESCALATION_REVIEW_RE = re.compile(
@@ -596,6 +605,16 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "PII retention/deletion evidence found in source text",
         "PII/privacy wording lacks retention, deletion, erasure, expiry, or minimization evidence",
         "What retention period, deletion/erasure behavior, or minimization rule governs the personal data?",
+    )
+    location_signal = bool(PII_LOCATION_SIGNAL_RE.search(all_text))
+    check_property(
+        "privacy-data-residency-reviewed",
+        "Specs that mention PII/personal data together with region, country, jurisdiction, residency, or cross-border wording should state a data-residency or transfer policy before downstream compliance claims are trusted.",
+        pii_signal and location_signal,
+        bool(PII_LOCATION_POLICY_RE.search(all_text)),
+        "PII data-residency/transfer policy evidence found in source text",
+        "PII/privacy wording mentions location, region, country, jurisdiction, or cross-border context without residency/transfer policy evidence",
+        "What data-residency, regional storage, jurisdiction, or cross-border transfer policy governs the personal data?",
     )
     check_property(
         "security-access-boundary-declared",

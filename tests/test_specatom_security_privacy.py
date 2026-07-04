@@ -62,11 +62,29 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             )
         )
 
+    def test_pii_region_without_residency_policy_stays_unknown(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Collect user email address classified as restricted data with consent, retention limits, and encryption for EU region users.\n",
+            "privacy-residency-gap.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "privacy-data-residency-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertTrue(
+            any(
+                ("MissingSecurityPrivacyEvidence", obj.id, "privacy-data-residency-reviewed") in obj.facts
+                and ("Blocks", obj.id, check.obligation_id) in obj.facts
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            )
+        )
+
     def test_explicit_security_privacy_controls_pass_keyword_review(self):
         doc = compile_source(
             "***functional specifications***\n"
             "- Store API tokens in a secret manager; tokens are redacted from logs and not hard-coded.\n"
-            "- Collect user email address classified as restricted data with consent, data minimization, retention limits, and encryption.\n"
+            "- Collect user email address classified as restricted data with consent, data minimization, retention limits, encryption, and EU data residency.\n"
             "- Use RBAC least privilege access control for admin-only account records.\n"
             "- Delete records only after confirmation with audit log and rollback backup.\n",
             "security-privacy-pass.plain",
@@ -78,6 +96,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "privacy-pii-handling-reviewed",
             "privacy-data-classification-declared",
             "privacy-retention-deletion-reviewed",
+            "privacy-data-residency-reviewed",
             "security-access-boundary-declared",
             "security-privilege-escalation-reviewed",
             "security-destructive-action-safety-reviewed",
