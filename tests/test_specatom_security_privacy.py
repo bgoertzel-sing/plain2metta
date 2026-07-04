@@ -80,11 +80,29 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             )
         )
 
+    def test_pii_third_party_sharing_without_processor_policy_stays_unknown(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Share user email address classified as restricted data with consent, retention limits, and encryption to a vendor analytics service.\n",
+            "privacy-third-party-gap.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "privacy-third-party-sharing-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertTrue(
+            any(
+                ("MissingSecurityPrivacyEvidence", obj.id, "privacy-third-party-sharing-reviewed") in obj.facts
+                and ("Blocks", obj.id, check.obligation_id) in obj.facts
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            )
+        )
+
     def test_explicit_security_privacy_controls_pass_keyword_review(self):
         doc = compile_source(
             "***functional specifications***\n"
             "- Store API tokens in a secret manager; tokens are redacted from logs and not hard-coded.\n"
-            "- Collect user email address classified as restricted data with consent, data minimization, retention limits, encryption, and EU data residency.\n"
+            "- Collect user email address classified as restricted data with consent, data minimization, retention limits, encryption, EU data residency, and vendor review under a DPA.\n"
             "- Use RBAC least privilege access control for admin-only account records.\n"
             "- Delete records only after confirmation with audit log and rollback backup.\n",
             "security-privacy-pass.plain",
@@ -97,6 +115,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "privacy-data-classification-declared",
             "privacy-retention-deletion-reviewed",
             "privacy-data-residency-reviewed",
+            "privacy-third-party-sharing-reviewed",
             "security-access-boundary-declared",
             "security-privilege-escalation-reviewed",
             "security-destructive-action-safety-reviewed",

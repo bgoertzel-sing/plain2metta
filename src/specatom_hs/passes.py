@@ -293,6 +293,15 @@ PII_LOCATION_POLICY_RE = re.compile(
     r"cross[- ]border transfer review|gdpr|ccpa|hipaa|standard contractual clauses|sccs)\b",
     re.IGNORECASE,
 )
+PII_THIRD_PARTY_SIGNAL_RE = re.compile(
+    r"\b(third[- ]party|vendor|processor|subprocessor|partner|external service|share(?:d|s)? with|send(?:s)? to|export(?:s|ed)? to|upload(?:s|ed)? to)\b",
+    re.IGNORECASE,
+)
+PII_THIRD_PARTY_POLICY_RE = re.compile(
+    r"\b(data processing agreement|dpa|processor agreement|vendor review|third[- ]party review|subprocessor list|"
+    r"approved vendor|data sharing agreement|purpose limitation|onward transfer|contractual controls?)\b",
+    re.IGNORECASE,
+)
 ACCESS_SIGNAL_RE = re.compile(r"\b(auth(?:entication|orization)?|access|permission|admin|role|login|rbac)\b", re.IGNORECASE)
 ACCESS_BOUNDARY_RE = re.compile(r"\b(role[- ]based|rbac|least privilege|permission check|authorize|authz|access control|admin[- ]only|deny by default)\b", re.IGNORECASE)
 PRIVILEGE_ESCALATION_REVIEW_RE = re.compile(
@@ -615,6 +624,16 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "PII data-residency/transfer policy evidence found in source text",
         "PII/privacy wording mentions location, region, country, jurisdiction, or cross-border context without residency/transfer policy evidence",
         "What data-residency, regional storage, jurisdiction, or cross-border transfer policy governs the personal data?",
+    )
+    third_party_signal = bool(PII_THIRD_PARTY_SIGNAL_RE.search(all_text))
+    check_property(
+        "privacy-third-party-sharing-reviewed",
+        "Specs that mention PII/personal data together with vendors, processors, partners, external services, exports, uploads, or sharing should state third-party data-sharing policy evidence before downstream privacy claims are trusted.",
+        pii_signal and third_party_signal,
+        bool(PII_THIRD_PARTY_POLICY_RE.search(all_text)),
+        "PII third-party sharing/processor policy evidence found in source text",
+        "PII/privacy wording mentions a third party, vendor, processor, partner, external service, export, upload, or sharing without data-sharing/processor policy evidence",
+        "What vendor/processor review, DPA, subprocessor list, purpose limitation, or data-sharing agreement governs the personal data?",
     )
     check_property(
         "security-access-boundary-declared",
