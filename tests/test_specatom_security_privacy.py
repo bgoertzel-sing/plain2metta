@@ -25,6 +25,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "privacy-lawful-basis-reviewed",
             "privacy-retention-deletion-reviewed",
             "privacy-purpose-limitation-reviewed",
+            "privacy-data-subject-rights-reviewed",
             "security-access-boundary-declared",
             "security-privilege-escalation-reviewed",
             "security-destructive-action-safety-reviewed",
@@ -100,6 +101,24 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             )
         )
 
+    def test_pii_without_data_subject_rights_stays_unknown(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Collect user email address classified as restricted data with consent, retention limits, purpose limitation, and encryption.\n",
+            "privacy-rights-gap.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "privacy-data-subject-rights-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertTrue(
+            any(
+                ("MissingSecurityPrivacyEvidence", obj.id, "privacy-data-subject-rights-reviewed") in obj.facts
+                and ("Blocks", obj.id, check.obligation_id) in obj.facts
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            )
+        )
+
     def test_pii_region_without_residency_policy_stays_unknown(self):
         doc = compile_source(
             "***functional specifications***\n"
@@ -140,7 +159,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
         doc = compile_source(
             "***functional specifications***\n"
             "- Store API tokens in a secret manager; tokens are redacted from logs and not hard-coded.\n"
-            "- Collect user email address classified as restricted data with consent, data minimization, retention limits, encryption, EU data residency, purpose limitation, and vendor review under a DPA.\n"
+            "- Collect user email address classified as restricted data with consent, data minimization, retention limits, encryption, EU data residency, purpose limitation, privacy rights access requests, and vendor review under a DPA.\n"
             "- Use RBAC least privilege access control for admin-only account records.\n"
             "- Delete records only after confirmation with audit log and rollback backup.\n",
             "security-privacy-pass.plain",
@@ -154,6 +173,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "privacy-lawful-basis-reviewed",
             "privacy-retention-deletion-reviewed",
             "privacy-purpose-limitation-reviewed",
+            "privacy-data-subject-rights-reviewed",
             "privacy-data-residency-reviewed",
             "privacy-third-party-sharing-reviewed",
             "security-access-boundary-declared",

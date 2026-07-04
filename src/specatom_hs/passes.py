@@ -289,6 +289,11 @@ PII_PURPOSE_LIMITATION_RE = re.compile(
     r"not used for other purposes|secondary use review|no secondary use|compatible use)\b",
     re.IGNORECASE,
 )
+PII_DATA_SUBJECT_RIGHTS_RE = re.compile(
+    r"\b(data subject rights?|subject access request|dsar|access request|correction request|rectification|"
+    r"portability|right to object|opt[- ]out|privacy rights?)\b",
+    re.IGNORECASE,
+)
 DATA_CLASSIFICATION_RE = re.compile(
     r"\b(data classification|classified as|classification label|sensitivity label|confidential|restricted|public data|internal data|regulated data)\b",
     re.IGNORECASE,
@@ -641,6 +646,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "PII purpose-limitation evidence found in source text",
         "PII/privacy wording lacks purpose-limitation, use-limitation, or secondary-use review evidence",
         "What specific purpose, use limitation, or secondary-use review governs the personal data?",
+    )
+    check_property(
+        "privacy-data-subject-rights-reviewed",
+        "Specs that mention PII or personal data should state data-subject rights handling before downstream privacy claims are trusted.",
+        pii_signal,
+        bool(PII_DATA_SUBJECT_RIGHTS_RE.search(all_text)),
+        "PII data-subject rights evidence found in source text",
+        "PII/privacy wording lacks data-subject access, correction, portability, opt-out, or rights-request evidence",
+        "How can data subjects exercise access, correction/rectification, portability, objection, opt-out, or related privacy rights?",
     )
     location_signal = bool(PII_LOCATION_SIGNAL_RE.search(all_text))
     check_property(
