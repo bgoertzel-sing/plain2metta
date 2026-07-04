@@ -279,6 +279,11 @@ SECRET_HANDLING_RE = re.compile(r"\b(secret manager|vault|environment variable|e
 SECRET_LOGGING_RE = re.compile(r"\b(redacted from logs?|log redaction|not logged|never logged|no logs?|masked in logs?|scrubbed from logs?)\b", re.IGNORECASE)
 PII_SIGNAL_RE = re.compile(r"\b(pii|personal data|email address|phone number|user data|privacy)\b", re.IGNORECASE)
 PII_HANDLING_RE = re.compile(r"\b(consent|minimi[sz]ation|retention|anonymi[sz]e|pseudonymi[sz]e|encrypt(?:ed|ion)?|delete on request|privacy review)\b", re.IGNORECASE)
+PII_ENCRYPTION_SCOPE_RE = re.compile(
+    r"\b(encrypt(?:ed|ion)? at rest|encrypt(?:ed|ion)? in transit|tls|https|transport encryption|"
+    r"database encryption|field[- ]level encryption|key management|kms|key rotation|encryption keys?)\b",
+    re.IGNORECASE,
+)
 PII_LAWFUL_BASIS_RE = re.compile(
     r"\b(consent|lawful basis|legal basis|contractual necessity|contract basis|legal obligation|legitimate interest|vital interest|public task)\b",
     re.IGNORECASE,
@@ -640,6 +645,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "data-classification evidence found in source text",
         "PII/privacy wording lacks an explicit data or sensitivity classification",
         "What data classification or sensitivity label applies to the personal data in this spec?",
+    )
+    check_property(
+        "privacy-encryption-scope-reviewed",
+        "Specs that mention PII or personal data should state encryption scope, transport protection, or key-management evidence before downstream protection claims are trusted.",
+        pii_signal,
+        bool(PII_ENCRYPTION_SCOPE_RE.search(all_text)),
+        "PII encryption-scope/key-management evidence found in source text",
+        "PII/privacy wording lacks encryption-at-rest, transport-encryption, or key-management scope evidence",
+        "What encryption scope, transport protection, or key-management policy protects the personal data?",
     )
     check_property(
         "privacy-lawful-basis-reviewed",
