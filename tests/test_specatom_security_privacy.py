@@ -11,7 +11,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "***functional specifications***\n"
             "- Store API token and password for the integration.\n"
             "- Collect user email address and phone number for support.\n"
-            "- Admin users can access account records.\n"
+            "- Admin users login and can access account records.\n"
             "- Delete records from the database on request.\n",
             "security-privacy-gaps.plain",
         )
@@ -31,6 +31,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "privacy-incident-response-reviewed",
             "security-access-boundary-declared",
             "security-privilege-escalation-reviewed",
+            "security-session-management-reviewed",
             "security-destructive-action-safety-reviewed",
         }:
             check = next(c for c in doc.checks if c.property == property_name and c.target_id == review.id)
@@ -158,6 +159,24 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             )
         )
 
+    def test_authentication_without_session_management_stays_unknown(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Users login with role-based access control and least privilege for account records.\n",
+            "auth-session-management-gap.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "security-session-management-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertTrue(
+            any(
+                ("MissingSecurityPrivacyEvidence", obj.id, "security-session-management-reviewed") in obj.facts
+                and ("Blocks", obj.id, check.obligation_id) in obj.facts
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            )
+        )
+
     def test_pii_access_without_audit_stays_unknown(self):
         doc = compile_source(
             "***functional specifications***\n"
@@ -235,7 +254,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "***functional specifications***\n"
             "- Store API tokens in a secret manager; tokens are redacted from logs and not hard-coded.\n"
             "- Collect user email address classified as restricted data with consent, data minimization, retention limits, encryption at rest, TLS transport encryption, key rotation, EU data residency, purpose limitation, privacy rights access requests with identity verification, vendor review under a DPA, access audit logs, and breach notification incident response.\n"
-            "- Use RBAC least privilege access control for admin-only account records.\n"
+            "- Use RBAC least privilege access control for admin-only account records with MFA, session timeout, logout, and token expiry.\n"
             "- Delete records only after confirmation with audit log and rollback backup.\n",
             "security-privacy-pass.plain",
         )
@@ -257,6 +276,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "privacy-incident-response-reviewed",
             "security-access-boundary-declared",
             "security-privilege-escalation-reviewed",
+            "security-session-management-reviewed",
             "security-destructive-action-safety-reviewed",
         }:
             self.assertTrue(any(c.property == property_name and c.status == CheckStatus.PASS for c in doc.checks), property_name)

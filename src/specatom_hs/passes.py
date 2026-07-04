@@ -344,6 +344,12 @@ PII_THIRD_PARTY_POLICY_RE = re.compile(
 )
 ACCESS_SIGNAL_RE = re.compile(r"\b(auth(?:entication|orization)?|access|permission|admin|role|login|rbac)\b", re.IGNORECASE)
 ACCESS_BOUNDARY_RE = re.compile(r"\b(role[- ]based|rbac|least privilege|permission check|authorize|authz|access control|admin[- ]only|deny by default)\b", re.IGNORECASE)
+AUTH_SESSION_SIGNAL_RE = re.compile(r"\b(auth(?:entication)?|login|sign[- ]?in|session)\b", re.IGNORECASE)
+AUTH_SESSION_MANAGEMENT_RE = re.compile(
+    r"\b(mfa|multi[- ]factor|two[- ]factor|2fa|session timeout|session expiry|session expiration|idle timeout|"
+    r"token expiry|token expiration|refresh token rotation|revoke sessions?|logout|reauth(?:enticate|entication))\b",
+    re.IGNORECASE,
+)
 PRIVILEGE_ESCALATION_REVIEW_RE = re.compile(
     r"\b(least privilege|privilege escalation|self[- ]?grant|cannot grant (?:their|own)|separation of duties|two[- ]person|approval|audit(?:ed| log)?|admin[- ]only)\b",
     re.IGNORECASE,
@@ -608,6 +614,7 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
     secret_signal = bool(SECRET_SIGNAL_RE.search(all_text))
     pii_signal = bool(PII_SIGNAL_RE.search(all_text))
     access_signal = bool(ACCESS_SIGNAL_RE.search(all_text))
+    auth_session_signal = bool(AUTH_SESSION_SIGNAL_RE.search(all_text))
     destructive_signal = bool(DESTRUCTIVE_ACTION_RE.search(all_text))
 
     check_property(
@@ -756,6 +763,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "privilege-escalation review evidence found in source text",
         "access/auth/role wording lacks least-privilege, approval, audit, or self-grant prevention evidence",
         "How are privilege escalation and self-granted/admin permissions prevented, approved, or audited?",
+    )
+    check_property(
+        "security-session-management-reviewed",
+        "Specs that mention authentication, login, sign-in, or sessions should state session-management evidence such as MFA, timeouts, expiry, revocation, logout, refresh-token rotation, or reauthentication.",
+        auth_session_signal,
+        bool(AUTH_SESSION_MANAGEMENT_RE.search(all_text)),
+        "authentication/session-management evidence found in source text",
+        "auth/login/session wording lacks MFA, timeout, expiry, revocation, logout, refresh-token rotation, or reauthentication evidence",
+        "What MFA, session timeout/expiry, revocation/logout, refresh-token rotation, or reauthentication rule governs authenticated sessions?",
     )
     check_property(
         "security-destructive-action-safety-reviewed",
