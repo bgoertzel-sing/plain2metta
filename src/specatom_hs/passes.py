@@ -285,6 +285,10 @@ DATA_CLASSIFICATION_RE = re.compile(
 )
 ACCESS_SIGNAL_RE = re.compile(r"\b(auth(?:entication|orization)?|access|permission|admin|role|login|rbac)\b", re.IGNORECASE)
 ACCESS_BOUNDARY_RE = re.compile(r"\b(role[- ]based|rbac|least privilege|permission check|authorize|authz|access control|admin[- ]only|deny by default)\b", re.IGNORECASE)
+PRIVILEGE_ESCALATION_REVIEW_RE = re.compile(
+    r"\b(least privilege|privilege escalation|self[- ]?grant|cannot grant (?:their|own)|separation of duties|two[- ]person|approval|audit(?:ed| log)?|admin[- ]only)\b",
+    re.IGNORECASE,
+)
 DESTRUCTIVE_ACTION_RE = re.compile(r"\b(delete|drop|erase|purge|force[- ]?push|destructive|wipe)\b", re.IGNORECASE)
 DESTRUCTIVE_SAFETY_RE = re.compile(r"\b(confirm(?:ation)?|dry[- ]run|backup|rollback|undo|soft delete|trash|audit log|approval)\b", re.IGNORECASE)
 
@@ -591,6 +595,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "access-boundary evidence found in source text",
         "access/auth/role wording lacks a declared permission or boundary rule",
         "Which roles or permissions may perform the protected action, and what is denied by default?",
+    )
+    check_property(
+        "security-privilege-escalation-reviewed",
+        "Specs that mention authentication, authorization, roles, admins, or permissions should review privilege-escalation controls before admin/access claims are trusted.",
+        access_signal,
+        bool(PRIVILEGE_ESCALATION_REVIEW_RE.search(all_text)),
+        "privilege-escalation review evidence found in source text",
+        "access/auth/role wording lacks least-privilege, approval, audit, or self-grant prevention evidence",
+        "How are privilege escalation and self-granted/admin permissions prevented, approved, or audited?",
     )
     check_property(
         "security-destructive-action-safety-reviewed",

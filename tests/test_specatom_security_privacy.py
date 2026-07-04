@@ -23,6 +23,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "privacy-pii-handling-reviewed",
             "privacy-data-classification-declared",
             "security-access-boundary-declared",
+            "security-privilege-escalation-reviewed",
             "security-destructive-action-safety-reviewed",
         }:
             check = next(c for c in doc.checks if c.property == property_name and c.target_id == review.id)
@@ -58,6 +59,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "privacy-pii-handling-reviewed",
             "privacy-data-classification-declared",
             "security-access-boundary-declared",
+            "security-privilege-escalation-reviewed",
             "security-destructive-action-safety-reviewed",
         }:
             self.assertTrue(any(c.property == property_name and c.status == CheckStatus.PASS for c in doc.checks), property_name)
