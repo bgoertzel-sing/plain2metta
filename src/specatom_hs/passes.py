@@ -279,6 +279,10 @@ SECRET_HANDLING_RE = re.compile(r"\b(secret manager|vault|environment variable|e
 SECRET_LOGGING_RE = re.compile(r"\b(redacted from logs?|log redaction|not logged|never logged|no logs?|masked in logs?|scrubbed from logs?)\b", re.IGNORECASE)
 PII_SIGNAL_RE = re.compile(r"\b(pii|personal data|email address|phone number|user data|privacy)\b", re.IGNORECASE)
 PII_HANDLING_RE = re.compile(r"\b(consent|minimi[sz]ation|retention|anonymi[sz]e|pseudonymi[sz]e|encrypt(?:ed|ion)?|delete on request|privacy review)\b", re.IGNORECASE)
+PII_LAWFUL_BASIS_RE = re.compile(
+    r"\b(consent|lawful basis|legal basis|contractual necessity|contract basis|legal obligation|legitimate interest|vital interest|public task)\b",
+    re.IGNORECASE,
+)
 PII_RETENTION_DELETION_RE = re.compile(r"\b(retention(?: limit| period| policy)?|delete on request|deletion request|data deletion|right to erasure|purge after|expire after|minimi[sz]ation|data minimization)\b", re.IGNORECASE)
 DATA_CLASSIFICATION_RE = re.compile(
     r"\b(data classification|classified as|classification label|sensitivity label|confidential|restricted|public data|internal data|regulated data)\b",
@@ -605,6 +609,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "data-classification evidence found in source text",
         "PII/privacy wording lacks an explicit data or sensitivity classification",
         "What data classification or sensitivity label applies to the personal data in this spec?",
+    )
+    check_property(
+        "privacy-lawful-basis-reviewed",
+        "Specs that mention PII or personal data should state lawful-basis or consent evidence before downstream collection/use claims are trusted.",
+        pii_signal,
+        bool(PII_LAWFUL_BASIS_RE.search(all_text)),
+        "PII lawful-basis/consent evidence found in source text",
+        "PII/privacy wording lacks lawful-basis, legal-basis, consent, contract, legal-obligation, or legitimate-interest evidence",
+        "What lawful basis, consent, contract basis, legal obligation, or legitimate interest authorizes this personal-data use?",
     )
     check_property(
         "privacy-retention-deletion-reviewed",

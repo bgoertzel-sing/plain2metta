@@ -22,6 +22,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "security-secret-log-exposure-reviewed",
             "privacy-pii-handling-reviewed",
             "privacy-data-classification-declared",
+            "privacy-lawful-basis-reviewed",
             "privacy-retention-deletion-reviewed",
             "security-access-boundary-declared",
             "security-privilege-escalation-reviewed",
@@ -56,6 +57,24 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
         self.assertTrue(
             any(
                 ("MissingSecurityPrivacyEvidence", obj.id, "privacy-retention-deletion-reviewed") in obj.facts
+                and ("Blocks", obj.id, check.obligation_id) in obj.facts
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            )
+        )
+
+    def test_pii_encryption_without_lawful_basis_stays_unknown(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Collect user email address classified as restricted data with retention limits and encryption.\n",
+            "privacy-lawful-basis-gap.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "privacy-lawful-basis-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertTrue(
+            any(
+                ("MissingSecurityPrivacyEvidence", obj.id, "privacy-lawful-basis-reviewed") in obj.facts
                 and ("Blocks", obj.id, check.obligation_id) in obj.facts
                 for obj in doc.objects
                 if obj.role == Role.QUESTION_OBJECT
@@ -113,6 +132,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "security-secret-log-exposure-reviewed",
             "privacy-pii-handling-reviewed",
             "privacy-data-classification-declared",
+            "privacy-lawful-basis-reviewed",
             "privacy-retention-deletion-reviewed",
             "privacy-data-residency-reviewed",
             "privacy-third-party-sharing-reviewed",
