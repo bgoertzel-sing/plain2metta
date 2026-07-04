@@ -294,6 +294,16 @@ PII_DATA_SUBJECT_RIGHTS_RE = re.compile(
     r"portability|right to object|opt[- ]out|privacy rights?)\b",
     re.IGNORECASE,
 )
+PII_RIGHTS_REQUEST_SIGNAL_RE = re.compile(
+    r"\b(data subject rights?|subject access request|dsar|access request|correction request|rectification|"
+    r"portability|right to object|opt[- ]out|privacy rights?|deletion request|delete on request|right to erasure)\b",
+    re.IGNORECASE,
+)
+PII_RIGHTS_AUTHENTICATION_RE = re.compile(
+    r"\b(identity verification|verify identity|verified identity|authenticated request|authenticated user|"
+    r"account owner|authorized data subject|request authentication|proof of identity)\b",
+    re.IGNORECASE,
+)
 DATA_CLASSIFICATION_RE = re.compile(
     r"\b(data classification|classified as|classification label|sensitivity label|confidential|restricted|public data|internal data|regulated data)\b",
     re.IGNORECASE,
@@ -655,6 +665,16 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "PII data-subject rights evidence found in source text",
         "PII/privacy wording lacks data-subject access, correction, portability, opt-out, or rights-request evidence",
         "How can data subjects exercise access, correction/rectification, portability, objection, opt-out, or related privacy rights?",
+    )
+    rights_request_signal = bool(PII_RIGHTS_REQUEST_SIGNAL_RE.search(all_text))
+    check_property(
+        "privacy-rights-request-authentication-reviewed",
+        "Specs that mention PII/personal data together with data-subject rights, access, deletion, opt-out, or erasure requests should state identity/authentication evidence before rights workflows are trusted.",
+        pii_signal and rights_request_signal,
+        bool(PII_RIGHTS_AUTHENTICATION_RE.search(all_text)),
+        "PII rights-request authentication evidence found in source text",
+        "PII/privacy rights or deletion request wording lacks identity verification or request-authentication evidence",
+        "How is the requester authenticated or identity-verified before fulfilling personal-data access, deletion, correction, portability, or opt-out requests?",
     )
     location_signal = bool(PII_LOCATION_SIGNAL_RE.search(all_text))
     check_property(

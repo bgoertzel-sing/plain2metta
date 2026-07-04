@@ -119,6 +119,24 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             )
         )
 
+    def test_pii_rights_request_without_identity_verification_stays_unknown(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Collect user email address classified as restricted data with consent, retention limits, purpose limitation, privacy rights access requests, and encryption.\n",
+            "privacy-rights-auth-gap.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "privacy-rights-request-authentication-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertTrue(
+            any(
+                ("MissingSecurityPrivacyEvidence", obj.id, "privacy-rights-request-authentication-reviewed") in obj.facts
+                and ("Blocks", obj.id, check.obligation_id) in obj.facts
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            )
+        )
+
     def test_pii_region_without_residency_policy_stays_unknown(self):
         doc = compile_source(
             "***functional specifications***\n"
@@ -159,7 +177,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
         doc = compile_source(
             "***functional specifications***\n"
             "- Store API tokens in a secret manager; tokens are redacted from logs and not hard-coded.\n"
-            "- Collect user email address classified as restricted data with consent, data minimization, retention limits, encryption, EU data residency, purpose limitation, privacy rights access requests, and vendor review under a DPA.\n"
+            "- Collect user email address classified as restricted data with consent, data minimization, retention limits, encryption, EU data residency, purpose limitation, privacy rights access requests with identity verification, and vendor review under a DPA.\n"
             "- Use RBAC least privilege access control for admin-only account records.\n"
             "- Delete records only after confirmation with audit log and rollback backup.\n",
             "security-privacy-pass.plain",
@@ -174,6 +192,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "privacy-retention-deletion-reviewed",
             "privacy-purpose-limitation-reviewed",
             "privacy-data-subject-rights-reviewed",
+            "privacy-rights-request-authentication-reviewed",
             "privacy-data-residency-reviewed",
             "privacy-third-party-sharing-reviewed",
             "security-access-boundary-declared",
