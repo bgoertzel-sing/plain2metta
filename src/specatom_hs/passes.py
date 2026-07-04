@@ -309,6 +309,12 @@ PII_ACCESS_AUDIT_RE = re.compile(
     r"monitor(?:ed|ing) access|privacy access log)\b",
     re.IGNORECASE,
 )
+PII_INCIDENT_RESPONSE_RE = re.compile(
+    r"\b(incident response|breach response|breach notification|data breach|security incident|"
+    r"incident handling|incident runbook|notify(?:ing)? affected users?|regulator notification|"
+    r"breach disclosure|incident escalation)\b",
+    re.IGNORECASE,
+)
 DATA_CLASSIFICATION_RE = re.compile(
     r"\b(data classification|classified as|classification label|sensitivity label|confidential|restricted|public data|internal data|regulated data)\b",
     re.IGNORECASE,
@@ -689,6 +695,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "PII access audit/logging evidence found in source text",
         "PII/privacy access wording lacks access audit, logging, or monitoring evidence",
         "How is access to personal data logged, audited, or monitored for privacy review?",
+    )
+    check_property(
+        "privacy-incident-response-reviewed",
+        "Specs that mention PII or personal data should state incident-response or breach-notification evidence before downstream privacy claims are trusted.",
+        pii_signal,
+        bool(PII_INCIDENT_RESPONSE_RE.search(all_text)),
+        "PII incident-response/breach-notification evidence found in source text",
+        "PII/privacy wording lacks incident-response, breach-notification, or escalation evidence",
+        "What incident-response, breach-notification, regulator-notification, or escalation process applies if personal data is exposed?",
     )
     location_signal = bool(PII_LOCATION_SIGNAL_RE.search(all_text))
     check_property(
