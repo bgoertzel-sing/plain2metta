@@ -284,6 +284,11 @@ PII_LAWFUL_BASIS_RE = re.compile(
     re.IGNORECASE,
 )
 PII_RETENTION_DELETION_RE = re.compile(r"\b(retention(?: limit| period| policy)?|delete on request|deletion request|data deletion|right to erasure|purge after|expire after|minimi[sz]ation|data minimization)\b", re.IGNORECASE)
+PII_PURPOSE_LIMITATION_RE = re.compile(
+    r"\b(purpose limitation|specific purpose|limited purpose|use limitation|only used for|used only for|"
+    r"not used for other purposes|secondary use review|no secondary use|compatible use)\b",
+    re.IGNORECASE,
+)
 DATA_CLASSIFICATION_RE = re.compile(
     r"\b(data classification|classified as|classification label|sensitivity label|confidential|restricted|public data|internal data|regulated data)\b",
     re.IGNORECASE,
@@ -627,6 +632,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "PII retention/deletion evidence found in source text",
         "PII/privacy wording lacks retention, deletion, erasure, expiry, or minimization evidence",
         "What retention period, deletion/erasure behavior, or minimization rule governs the personal data?",
+    )
+    check_property(
+        "privacy-purpose-limitation-reviewed",
+        "Specs that mention PII or personal data should state purpose-limitation evidence before downstream collection/use claims are trusted.",
+        pii_signal,
+        bool(PII_PURPOSE_LIMITATION_RE.search(all_text)),
+        "PII purpose-limitation evidence found in source text",
+        "PII/privacy wording lacks purpose-limitation, use-limitation, or secondary-use review evidence",
+        "What specific purpose, use limitation, or secondary-use review governs the personal data?",
     )
     location_signal = bool(PII_LOCATION_SIGNAL_RE.search(all_text))
     check_property(
