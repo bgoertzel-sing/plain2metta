@@ -304,6 +304,11 @@ PII_RIGHTS_AUTHENTICATION_RE = re.compile(
     r"account owner|authorized data subject|request authentication|proof of identity)\b",
     re.IGNORECASE,
 )
+PII_ACCESS_AUDIT_RE = re.compile(
+    r"\b(access logs?|audit logs?|audited access|access audit|logging of access|access monitoring|"
+    r"monitor(?:ed|ing) access|privacy access log)\b",
+    re.IGNORECASE,
+)
 DATA_CLASSIFICATION_RE = re.compile(
     r"\b(data classification|classified as|classification label|sensitivity label|confidential|restricted|public data|internal data|regulated data)\b",
     re.IGNORECASE,
@@ -675,6 +680,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "PII rights-request authentication evidence found in source text",
         "PII/privacy rights or deletion request wording lacks identity verification or request-authentication evidence",
         "How is the requester authenticated or identity-verified before fulfilling personal-data access, deletion, correction, portability, or opt-out requests?",
+    )
+    check_property(
+        "privacy-pii-access-audit-reviewed",
+        "Specs that mention PII/personal data together with access/admin/role wording should state access audit, logging, or monitoring evidence before access-control privacy claims are trusted.",
+        pii_signal and access_signal,
+        bool(PII_ACCESS_AUDIT_RE.search(all_text)),
+        "PII access audit/logging evidence found in source text",
+        "PII/privacy access wording lacks access audit, logging, or monitoring evidence",
+        "How is access to personal data logged, audited, or monitored for privacy review?",
     )
     location_signal = bool(PII_LOCATION_SIGNAL_RE.search(all_text))
     check_property(
