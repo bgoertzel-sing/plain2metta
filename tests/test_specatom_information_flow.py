@@ -318,6 +318,80 @@ class InformationFlowValidationTests(unittest.TestCase):
         edge_atoms = [obj for obj in doc.objects if any(f[0] == "DataFlowEdge" for f in obj.facts)]
         self.assertEqual(len(edge_atoms), 0)
 
+    def test_transitive_dependency_detected_and_unacknowledged(self):
+        """When A→B and B→C edges exist, a transitive A→C dependency is detected and produces Unknown without acknowledgement."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the cache.\n"
+            "- The cache reads from the database.\n",
+            "transitive-unack.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        transitive_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-transitive-dependency-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(transitive_check.status, CheckStatus.UNKNOWN)
+        self.assertIn("pipeline", transitive_check.evidence.lower())
+        self.assertIn("database", transitive_check.evidence.lower())
+        self.assertTrue(
+            any(
+                ("MissingInformationFlowEvidence", obj.id, "information-flow-transitive-dependency-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, transitive_check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            ),
+            "transitive dependency question not found",
+        )
+
+    def test_transitive_dependency_acknowledged_passes(self):
+        """When transitive chains exist and the spec acknowledges them (via 'through' or similar), the check passes."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the cache.\n"
+            "- The cache reads from the database.\n"
+            "- The pipeline indirectly accesses the database through the cache.\n",
+            "transitive-ack.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        transitive_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-transitive-dependency-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(transitive_check.status, CheckStatus.PASS)
+        self.assertIn("acknowledged", transitive_check.evidence.lower())
+
+    def test_no_transitive_dependency_when_no_chains(self):
+        """When edges don't form chains (no intermediate hops), the transitive check passes with 'no transitive' evidence."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n"
+            "- The service writes to the database.\n",
+            "no-transitive.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        transitive_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-transitive-dependency-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(transitive_check.status, CheckStatus.PASS)
+        self.assertIn("no transitive", transitive_check.evidence.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

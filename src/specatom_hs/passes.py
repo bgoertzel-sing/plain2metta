@@ -1165,6 +1165,73 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
             )
             existing_ids.add(qid)
 
+    # --- Transitive dependency chain detection ---
+    # Build adjacency list from extracted edges and detect transitive chains:
+    # if A→B and B→C exist, then A transitively depends on C.  If the spec
+    # text acknowledges transitivity (e.g. "transitive", "indirect", "through",
+    # "via", "chained"), the obligation passes; otherwise it becomes Unknown.
+    TRANSITIVE_ACK_RE = re.compile(
+        r"\b(transitive(?:ly)?|indirect(?:ly)?|through|via|chained?|intermediary)\b",
+        re.IGNORECASE,
+    )
+    adjacency: dict[str, set[str]] = {}
+    for source, target, _direction, _item_id in edges:
+        adjacency.setdefault(source, set()).add(target)
+
+    transitive_pairs: list[tuple[str, str]] = []
+    for source in adjacency:
+        # BFS/DFS to find nodes reachable in 2+ hops from `source`.
+        visited: set[str] = set()
+        frontier = set(adjacency[source])
+        hops = 0
+        while frontier and hops < 10:  # safety bound
+            hops += 1
+            next_frontier: set[str] = set()
+            for node in frontier:
+                if node in visited:
+                    continue
+                visited.add(node)
+                for neighbour in adjacency.get(node, set()):
+                    if neighbour not in visited and neighbour not in adjacency[source]:
+                        transitive_pairs.append((source, neighbour))
+                    next_frontier.add(neighbour)
+            frontier = next_frontier
+
+    # Deduplicate transitive pairs.
+    transitive_pairs = list(dict.fromkeys(transitive_pairs))
+
+    transitive_obligation = add_validation_obligation(
+        doc,
+        "information-flow-transitive-dependency-reviewed",
+        review_id,
+        "Specs with explicit data-path edges that imply transitive dependencies (A→B and B→C implies A→C) should acknowledge or review those transitive chains.",
+        first_span_id,
+    )
+    if not transitive_pairs:
+        add_check(doc, transitive_obligation, CheckStatus.PASS, "no transitive dependency chains detected from extracted edges")
+    elif TRANSITIVE_ACK_RE.search(all_text):
+        chain_summary = "; ".join(f"{s} → {t}" for s, t in transitive_pairs)
+        add_check(doc, transitive_obligation, CheckStatus.PASS, f"transitive dependency chains acknowledged in source text: {chain_summary}")
+    else:
+        chain_summary = "; ".join(f"{s} → {t}" for s, t in transitive_pairs)
+        add_check(doc, transitive_obligation, CheckStatus.UNKNOWN, f"transitive dependency chains detected but not acknowledged in source text: {chain_summary}")
+        qid = stable_id("question", "information-flow", "information-flow-transitive-dependency-reviewed", review_id)
+        if qid not in existing_ids:
+            doc.objects.append(
+                SpecObject(
+                    qid,
+                    Role.QUESTION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    first_span_id,
+                    facts=[
+                        ("MissingInformationFlowEvidence", qid, "information-flow-transitive-dependency-reviewed"),
+                        ("QuestionText", qid, f"The following transitive dependencies are implied by the declared data paths ({chain_summary}). Are these transitive chains intended and reviewed?"),
+                        ("Blocks", qid, transitive_obligation.id),
+                    ],
+                )
+            )
+            existing_ids.add(qid)
+
     return doc
 
 
