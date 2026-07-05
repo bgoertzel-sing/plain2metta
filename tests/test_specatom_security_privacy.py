@@ -20,6 +20,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
         for property_name in {
             "security-secrets-handling-reviewed",
             "security-secret-log-exposure-reviewed",
+            "security-credential-rotation-reviewed",
             "privacy-pii-handling-reviewed",
             "privacy-data-classification-declared",
             "privacy-encryption-scope-reviewed",
@@ -51,6 +52,24 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
         self.assertIn(f"(SecurityPrivacyReview {review.id})", atoms)
         self.assertTrue(any(atom.startswith("(MissingSecurityPrivacyEvidence") for atom in atoms))
         self.assertFalse(any("MissingSecurityPrivacyEvidence" in refusal.reason for refusal in refusals))
+
+    def test_secret_without_rotation_or_revocation_stays_unknown(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Store API token in a secret manager; token is redacted from logs and not hard-coded.\n",
+            "secret-rotation-gap.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "security-credential-rotation-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertTrue(
+            any(
+                ("MissingSecurityPrivacyEvidence", obj.id, "security-credential-rotation-reviewed") in obj.facts
+                and ("Blocks", obj.id, check.obligation_id) in obj.facts
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            )
+        )
 
     def test_pii_encryption_without_retention_or_deletion_stays_unknown(self):
         doc = compile_source(
@@ -281,6 +300,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
         for property_name in {
             "security-secrets-handling-reviewed",
             "security-secret-log-exposure-reviewed",
+            "security-credential-rotation-reviewed",
             "privacy-pii-handling-reviewed",
             "privacy-data-classification-declared",
             "privacy-encryption-scope-reviewed",

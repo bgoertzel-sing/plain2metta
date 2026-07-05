@@ -286,6 +286,11 @@ SECURITY_PRIVACY_RE = re.compile(
 SECRET_SIGNAL_RE = re.compile(r"\b(secret|api[- ]?key|token|password|credential)\b", re.IGNORECASE)
 SECRET_HANDLING_RE = re.compile(r"\b(secret manager|vault|environment variable|env var|redacted|not hard[- ]?coded|no plaintext|encrypted at rest)\b", re.IGNORECASE)
 SECRET_LOGGING_RE = re.compile(r"\b(redacted from logs?|log redaction|not logged|never logged|no logs?|masked in logs?|scrubbed from logs?)\b", re.IGNORECASE)
+SECRET_ROTATION_RE = re.compile(
+    r"\b(secret rotation|rotate secrets?|key rotation|credential rotation|token rotation|password rotation|"
+    r"secret expiry|credential expiry|token expiry|password expiry|revoke(?:d|s)? tokens?|credential revocation|compromise revocation)\b",
+    re.IGNORECASE,
+)
 PII_SIGNAL_RE = re.compile(r"\b(pii|personal data|email address|phone number|user data|privacy)\b", re.IGNORECASE)
 PII_HANDLING_RE = re.compile(r"\b(consent|minimi[sz]ation|retention|anonymi[sz]e|pseudonymi[sz]e|encrypt(?:ed|ion)?|delete on request|privacy review)\b", re.IGNORECASE)
 PII_ENCRYPTION_SCOPE_RE = re.compile(
@@ -650,6 +655,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "secret log-exposure evidence found in source text",
         "secret/credential wording lacks redaction, masking, or no-logging evidence",
         "How are secrets, tokens, passwords, or credentials kept out of logs and diagnostics?",
+    )
+    check_property(
+        "security-credential-rotation-reviewed",
+        "Specs that mention secrets, tokens, passwords, or credentials should state rotation, expiry, or revocation evidence before credential-lifecycle claims are trusted.",
+        secret_signal,
+        bool(SECRET_ROTATION_RE.search(all_text)),
+        "secret/credential rotation, expiry, or revocation evidence found in source text",
+        "secret/credential wording lacks rotation, expiry, or revocation evidence",
+        "What rotation, expiry, or revocation rule governs secrets, tokens, passwords, or credentials?",
     )
     check_property(
         "privacy-pii-handling-reviewed",
