@@ -370,6 +370,12 @@ AUTH_ABUSE_PROTECTION_RE = re.compile(
     r"account lock(?:out|ing)|login attempt limit|abuse detection|bot detection|captcha)\b",
     re.IGNORECASE,
 )
+API_AUTHORIZATION_SIGNAL_RE = re.compile(r"\b(api|endpoint|webhook|route|request)\b", re.IGNORECASE)
+API_AUTHORIZATION_RE = re.compile(
+    r"\b(authori[sz]e(?:d|s|ation)?|authz|permission checks?|scope checks?|scoped tokens?|"
+    r"rbac|role[- ]based|access control|deny by default|policy enforcement)\b",
+    re.IGNORECASE,
+)
 AUTH_TRANSPORT_PROTECTION_RE = re.compile(
     r"\b(tls|https|transport encryption|encrypted in transit|secure channel|mtls|mutual tls|certificate pinning)\b",
     re.IGNORECASE,
@@ -640,6 +646,7 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
     access_signal = bool(ACCESS_SIGNAL_RE.search(all_text))
     auth_session_signal = bool(AUTH_SESSION_SIGNAL_RE.search(all_text))
     auth_abuse_signal = bool(AUTH_ABUSE_SIGNAL_RE.search(all_text))
+    api_authorization_signal = bool(API_AUTHORIZATION_SIGNAL_RE.search(all_text)) and (access_signal or auth_abuse_signal)
     destructive_signal = bool(DESTRUCTIVE_ACTION_RE.search(all_text))
 
     check_property(
@@ -815,6 +822,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "authentication/API abuse-protection evidence found in source text",
         "auth/login/API/password/token wording lacks rate-limit, throttling, brute-force, lockout, or abuse-detection evidence",
         "What rate limit, throttling, brute-force protection, lockout, or abuse/bot-detection rule protects this authentication/API surface?",
+    )
+    check_property(
+        "security-api-authorization-reviewed",
+        "Specs that mention API endpoints/routes/requests together with authentication or access-control wording should state authorization/scope evidence before endpoint access claims are trusted.",
+        api_authorization_signal,
+        bool(API_AUTHORIZATION_RE.search(all_text)),
+        "API authorization/scope evidence found in source text",
+        "API endpoint/request wording lacks authorization, permission, scope, RBAC, or deny-by-default evidence",
+        "What authorization, permission, token-scope, RBAC, or policy-enforcement rule protects each API endpoint or request?",
     )
     check_property(
         "security-auth-transport-protection-reviewed",
