@@ -380,6 +380,16 @@ AUTH_TRANSPORT_PROTECTION_RE = re.compile(
     r"\b(tls|https|transport encryption|encrypted in transit|secure channel|mtls|mutual tls|certificate pinning)\b",
     re.IGNORECASE,
 )
+API_INPUT_SIGNAL_RE = re.compile(
+    r"\b(api|endpoint|route|request|webhook)\b[^.;\n]{0,80}\b(input|payload|body|query|parameter|params|json|form|upload)\b|"
+    r"\b(input|payload|body|query|parameter|params|json|form|upload)\b[^.;\n]{0,80}\b(api|endpoint|route|request|webhook)\b",
+    re.IGNORECASE,
+)
+API_INPUT_VALIDATION_RE = re.compile(
+    r"\b(input validation|validate(?:d|s)? input|payload validation|schema validation|json schema|"
+    r"request schema|parameter validation|saniti[sz]e(?:d|s)?|allow[- ]?list|type check(?:s|ing)?|bounds check(?:s|ing)?)\b",
+    re.IGNORECASE,
+)
 WEBHOOK_AUTHENTICITY_SIGNAL_RE = re.compile(
     r"\b(webhook|callback|incoming request|external request|signed request)\b",
     re.IGNORECASE,
@@ -657,6 +667,7 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
     auth_abuse_signal = bool(AUTH_ABUSE_SIGNAL_RE.search(all_text))
     api_authorization_signal = bool(API_AUTHORIZATION_SIGNAL_RE.search(all_text)) and (access_signal or auth_abuse_signal)
     webhook_authenticity_signal = bool(WEBHOOK_AUTHENTICITY_SIGNAL_RE.search(all_text))
+    api_input_signal = bool(API_INPUT_SIGNAL_RE.search(all_text))
     destructive_signal = bool(DESTRUCTIVE_ACTION_RE.search(all_text))
 
     check_property(
@@ -850,6 +861,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "authentication/API transport-protection evidence found in source text",
         "auth/login/API/password/token wording lacks TLS, HTTPS, mTLS, or secure-channel evidence",
         "What TLS, HTTPS, mTLS, certificate, or secure-channel rule protects credentials and authenticated API traffic in transit?",
+    )
+    check_property(
+        "security-api-input-validation-reviewed",
+        "Specs that mention API/webhook requests together with input, payload, body, query, parameter, JSON, form, or upload wording should state input validation evidence before accepting request data.",
+        api_input_signal,
+        bool(API_INPUT_VALIDATION_RE.search(all_text)),
+        "API/request input-validation evidence found in source text",
+        "API/webhook request input wording lacks validation, schema, sanitization, allow-list, type-check, or bounds-check evidence",
+        "What schema, validation, sanitization, allow-list, type-check, or bounds-check rule constrains inbound API/webhook inputs?",
     )
     check_property(
         "security-webhook-request-authenticity-reviewed",
