@@ -392,6 +392,93 @@ class InformationFlowValidationTests(unittest.TestCase):
         self.assertEqual(transitive_check.status, CheckStatus.PASS)
         self.assertIn("no transitive", transitive_check.evidence.lower())
 
+    def test_cycle_detected_from_graph_edges(self):
+        """When A→B and B→A edges exist, a graph cycle is detected and produces Unknown."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Component A reads from component B.\n"
+            "- Component B writes to component A.\n",
+            "cycle-simple.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        cycle_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-cycle-detected" and c.target_id == review.id
+        )
+        self.assertEqual(cycle_check.status, CheckStatus.UNKNOWN)
+        self.assertIn("cycle", cycle_check.evidence.lower())
+        self.assertTrue(
+            any(
+                ("MissingInformationFlowEvidence", obj.id, "information-flow-cycle-detected") in obj.facts
+                and any(fact == ("Blocks", obj.id, cycle_check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            ),
+            "cycle question not found",
+        )
+
+    def test_no_cycle_when_acyclic_graph(self):
+        """When edges form a DAG (no back edges), the cycle check passes."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n"
+            "- The pipeline writes to the downstream sink.\n",
+            "cycle-acyclic.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        cycle_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-cycle-detected" and c.target_id == review.id
+        )
+        self.assertEqual(cycle_check.status, CheckStatus.PASS)
+        self.assertIn("no cycles", cycle_check.evidence.lower())
+
+    def test_three_node_cycle_detected(self):
+        """A→B→C→A three-node cycle is detected."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The alpha reads from the beta.\n"
+            "- The beta reads from the gamma.\n"
+            "- The gamma writes to the alpha.\n",
+            "cycle-three-node.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        cycle_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-cycle-detected" and c.target_id == review.id
+        )
+        self.assertEqual(cycle_check.status, CheckStatus.UNKNOWN)
+        self.assertIn("alpha", cycle_check.evidence.lower())
+        self.assertIn("gamma", cycle_check.evidence.lower())
+
+    def test_no_cycle_when_no_edges(self):
+        """When no DataFlowEdge atoms are extracted, the cycle check passes trivially."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The system should be fast.\n",
+            "cycle-no-edges.plain",
+        )
+
+        # No information-flow review at all, so no cycle obligation should exist.
+        self.assertFalse(
+            any(c.property == "information-flow-cycle-detected" for c in doc.checks)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

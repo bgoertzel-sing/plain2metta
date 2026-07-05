@@ -1232,6 +1232,71 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
             )
             existing_ids.add(qid)
 
+    # --- Graph-based cycle detection from extracted DataFlowEdge atoms ---
+    # Detect actual cycles in the directed graph (A→B and B→A, or A→B→C→A)
+    # using DFS with white/gray/black coloring.  This is stronger than the
+    # keyword-based circular-dependency check because it finds cycles that
+    # the spec text may not mention at all.
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color: dict[str, int] = {node: WHITE for node in adjacency}
+    cycles: list[list[str]] = []
+
+    def _dfs_cycle(node: str, path: list[str]) -> None:
+        color[node] = GRAY
+        path.append(node)
+        for neighbor in adjacency.get(node, set()):
+            if color.get(neighbor, WHITE) == GRAY:
+                # Found a back edge → cycle.  Extract the cycle path.
+                cycle_start = path.index(neighbor)
+                cycles.append(path[cycle_start:] + [neighbor])
+            elif color.get(neighbor, WHITE) == WHITE:
+                _dfs_cycle(neighbor, path)
+        path.pop()
+        color[node] = BLACK
+
+    for node in list(adjacency):
+        if color[node] == WHITE:
+            _dfs_cycle(node, [])
+
+    # Deduplicate cycles by their sorted node set.
+    seen_cycle_keys: set[tuple[str, ...]] = set()
+    unique_cycles: list[list[str]] = []
+    for cycle in cycles:
+        key = tuple(sorted(cycle))
+        if key not in seen_cycle_keys:
+            seen_cycle_keys.add(key)
+            unique_cycles.append(cycle)
+
+    cycle_obligation = add_validation_obligation(
+        doc,
+        "information-flow-cycle-detected",
+        review_id,
+        "Specs with explicit data-path edges that form a cycle (A→B→A or longer) should acknowledge or review the cycle and state termination/safety evidence.",
+        first_span_id,
+    )
+    if not unique_cycles:
+        add_check(doc, cycle_obligation, CheckStatus.PASS, "no cycles detected in extracted data-path graph")
+    else:
+        cycle_summaries = [" → ".join(cycle) for cycle in unique_cycles]
+        summary = "; ".join(cycle_summaries)
+        add_check(doc, cycle_obligation, CheckStatus.UNKNOWN, f"cycle(s) detected in extracted data-path graph: {summary}")
+        qid = stable_id("question", "information-flow", "information-flow-cycle-detected", review_id)
+        if qid not in existing_ids:
+            doc.objects.append(
+                SpecObject(
+                    qid,
+                    Role.QUESTION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    first_span_id,
+                    facts=[
+                        ("MissingInformationFlowEvidence", qid, "information-flow-cycle-detected"),
+                        ("QuestionText", qid, f"The following cycle(s) are detected in the declared data paths ({summary}). Are these cycles intended? What termination condition, deadlock prevention, or feedback-control mechanism ensures safe operation?"),
+                        ("Blocks", qid, cycle_obligation.id),
+                    ],
+                )
+            )
+            existing_ids.add(qid)
+
     return doc
 
 
