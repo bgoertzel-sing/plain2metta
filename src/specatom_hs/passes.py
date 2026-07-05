@@ -279,7 +279,7 @@ ML_FRESHNESS_EVIDENCE_RE = re.compile(
 )
 SECURITY_PRIVACY_RE = re.compile(
     r"\b(secret|api[- ]?key|token|password|credential|pii|personal data|email address|phone number|"
-    r"privacy|encrypt|auth(?:entication|orization)?|login|sign[- ]?in|api|endpoint|access|permission|admin|role|delete|drop|erase|purge|"
+    r"privacy|encrypt|auth(?:entication|orization)?|login|sign[- ]?in|api|endpoint|webhook|callback|access|permission|admin|role|delete|drop|erase|purge|"
     r"force[- ]?push|destructive)\b",
     re.IGNORECASE,
 )
@@ -378,6 +378,15 @@ API_AUTHORIZATION_RE = re.compile(
 )
 AUTH_TRANSPORT_PROTECTION_RE = re.compile(
     r"\b(tls|https|transport encryption|encrypted in transit|secure channel|mtls|mutual tls|certificate pinning)\b",
+    re.IGNORECASE,
+)
+WEBHOOK_AUTHENTICITY_SIGNAL_RE = re.compile(
+    r"\b(webhook|callback|incoming request|external request|signed request)\b",
+    re.IGNORECASE,
+)
+WEBHOOK_AUTHENTICITY_RE = re.compile(
+    r"\b(hmac|signature verification|verify signatures?|signed webhook|webhook secret|request signature|"
+    r"timestamp tolerance|timestamp window|replay protection|nonce|idempotency key)\b",
     re.IGNORECASE,
 )
 PRIVILEGE_ESCALATION_REVIEW_RE = re.compile(
@@ -647,6 +656,7 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
     auth_session_signal = bool(AUTH_SESSION_SIGNAL_RE.search(all_text))
     auth_abuse_signal = bool(AUTH_ABUSE_SIGNAL_RE.search(all_text))
     api_authorization_signal = bool(API_AUTHORIZATION_SIGNAL_RE.search(all_text)) and (access_signal or auth_abuse_signal)
+    webhook_authenticity_signal = bool(WEBHOOK_AUTHENTICITY_SIGNAL_RE.search(all_text))
     destructive_signal = bool(DESTRUCTIVE_ACTION_RE.search(all_text))
 
     check_property(
@@ -840,6 +850,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "authentication/API transport-protection evidence found in source text",
         "auth/login/API/password/token wording lacks TLS, HTTPS, mTLS, or secure-channel evidence",
         "What TLS, HTTPS, mTLS, certificate, or secure-channel rule protects credentials and authenticated API traffic in transit?",
+    )
+    check_property(
+        "security-webhook-request-authenticity-reviewed",
+        "Specs that mention webhooks, callbacks, or incoming external requests should state request-authenticity and replay-protection evidence before accepting inbound events.",
+        webhook_authenticity_signal,
+        bool(WEBHOOK_AUTHENTICITY_RE.search(all_text)),
+        "webhook/request authenticity evidence found in source text",
+        "webhook/callback/external-request wording lacks signature, HMAC, nonce, timestamp-window, or replay-protection evidence",
+        "What signature verification, HMAC/webhook secret, nonce, timestamp-window, or replay-protection rule authenticates inbound webhook/callback requests?",
     )
     check_property(
         "security-destructive-action-safety-reviewed",

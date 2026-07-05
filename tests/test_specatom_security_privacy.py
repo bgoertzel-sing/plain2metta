@@ -253,6 +253,24 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             )
         )
 
+    def test_webhook_without_request_authenticity_stays_unknown(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Accept webhook callbacks from an external billing service over HTTPS and route events to the API.\n",
+            "webhook-authenticity-gap.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "security-webhook-request-authenticity-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertTrue(
+            any(
+                ("MissingSecurityPrivacyEvidence", obj.id, "security-webhook-request-authenticity-reviewed") in obj.facts
+                and ("Blocks", obj.id, check.obligation_id) in obj.facts
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            )
+        )
+
     def test_pii_access_without_audit_stays_unknown(self):
         doc = compile_source(
             "***functional specifications***\n"
@@ -330,7 +348,8 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "***functional specifications***\n"
             "- Store API tokens in a secret manager; tokens are redacted from logs and not hard-coded.\n"
             "- Collect user email address classified as restricted data with consent, data minimization, retention limits, encryption at rest, TLS transport encryption, key rotation, EU data residency, purpose limitation, privacy rights access requests with identity verification, vendor review under a DPA, access audit logs, and breach notification incident response.\n"
-            "- Use RBAC least privilege access control for admin-only account records with MFA, session timeout, logout, token expiry, rate limits, and brute-force lockout.\n"
+            "- Use RBAC least privilege access control for admin-only account records with MFA, session timeout, logout, token expiry, rate limits, brute-force lockout, and HTTPS.\n"
+            "- Accept webhook callbacks only after HMAC signature verification, timestamp-window checks, and replay protection.\n"
             "- Delete records only after confirmation with audit log and rollback backup.\n",
             "security-privacy-pass.plain",
         )
@@ -357,6 +376,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "security-auth-abuse-protection-reviewed",
             "security-api-authorization-reviewed",
             "security-auth-transport-protection-reviewed",
+            "security-webhook-request-authenticity-reviewed",
             "security-destructive-action-safety-reviewed",
         }:
             self.assertTrue(any(c.property == property_name and c.status == CheckStatus.PASS for c in doc.checks), property_name)
