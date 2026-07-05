@@ -268,6 +268,15 @@ ML_FEATURE_AVAILABILITY_RE = re.compile(
     r"as[- ]of|point[- ]in[- ]time|lagged|historical|prior to prediction|no future (?:data|values|features?))\b",
     re.IGNORECASE,
 )
+ML_FRESHNESS_SIGNAL_RE = re.compile(
+    r"\b(real[- ]?time|live|stream(?:ing)?|online|current|latest|recent|fresh)\b",
+    re.IGNORECASE,
+)
+ML_FRESHNESS_EVIDENCE_RE = re.compile(
+    r"\b(freshness|staleness|max(?:imum)? age|data age|latency|as[- ]of timestamp|event time|"
+    r"updated every|refreshed every|within \d+\s*(?:second|minute|hour|day)s?)\b",
+    re.IGNORECASE,
+)
 SECURITY_PRIVACY_RE = re.compile(
     r"\b(secret|api[- ]?key|token|password|credential|pii|personal data|email address|phone number|"
     r"privacy|encrypt|auth(?:entication|orization)?|access|permission|admin|role|delete|drop|erase|purge|"
@@ -794,8 +803,9 @@ def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
     N/P methodology hazards: metric declaration, horizon/frequency declaration,
     reproducibility evidence, train-only preprocessing fit scope, leakage-prone
     preprocessing order, explicit future/label leakage wording, temporal split
-    order, baseline comparison, named comparator review, uncertainty/error-bar
-    reporting, and named uncertainty method review.
+    order, feature freshness/staleness review, baseline comparison, named
+    comparator review, uncertainty/error-bar reporting, and named uncertainty
+    method review.
     """
     candidate_items = [item for item in doc.items if ML_EXPERIMENT_RE.search(item.raw_text)]
     if not candidate_items:
@@ -924,6 +934,16 @@ def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
         "feature availability is reviewed or no explicit feature/input list is present",
         "feature/input wording lacks point-in-time availability evidence" if not future_label_leakage else "feature/input wording also triggers future/label leakage review",
         "Which declared features, inputs, predictors, or covariates are available at prediction time, and are they point-in-time/lagged as needed?",
+    )
+    freshness_signal = bool(ML_FRESHNESS_SIGNAL_RE.search(all_text))
+    freshness_evidence = bool(ML_FRESHNESS_EVIDENCE_RE.search(all_text))
+    check_property(
+        "ml-feature-freshness-reviewed",
+        "ML/time-series specs that mention real-time, live, current, latest, recent, or fresh inputs should state a freshness, latency, staleness, data-age, update-cadence, or as-of timestamp assumption.",
+        not (feature_inputs_declared and freshness_signal) or freshness_evidence,
+        "feature freshness/staleness evidence found, or no real-time/current feature signal is present",
+        "real-time/current feature wording lacks freshness, staleness, latency, data-age, update-cadence, or as-of timestamp evidence",
+        "What freshness, staleness, latency, data-age, update-cadence, or as-of timestamp assumption applies to these time-dependent features?",
     )
     temporal_split_declared = bool(ML_TEMPORAL_SPLIT_RE.search(all_text))
     random_split_declared = bool(ML_RANDOM_SPLIT_RE.search(all_text))

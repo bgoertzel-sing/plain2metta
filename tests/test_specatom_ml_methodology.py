@@ -36,6 +36,7 @@ class MLMethodologyValidationTests(unittest.TestCase):
             "ml-uncertainty-method-named",
         }:
             self.assertTrue(any(c.property == property_name and c.target_id == experiment.id and c.status == CheckStatus.UNKNOWN for c in doc.checks))
+        self.assertTrue(any(c.property == "ml-feature-freshness-reviewed" and c.target_id == experiment.id and c.status == CheckStatus.PASS for c in doc.checks))
         self.assertTrue(any(c.property == "ml-temporal-split-order-reviewed" and c.target_id == experiment.id and c.status == CheckStatus.PASS for c in doc.checks))
 
         questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT]
@@ -66,6 +67,7 @@ class MLMethodologyValidationTests(unittest.TestCase):
             "ml-preprocessing-order-reviewed",
             "ml-future-label-leakage-reviewed",
             "ml-feature-availability-reviewed",
+            "ml-feature-freshness-reviewed",
             "ml-temporal-split-order-reviewed",
             "ml-baseline-comparison-declared",
             "ml-baseline-comparator-named",
@@ -159,6 +161,36 @@ class MLMethodologyValidationTests(unittest.TestCase):
         )
 
         self.assertTrue(any(c.property == "ml-feature-availability-reviewed" and c.status == CheckStatus.PASS for c in doc.checks))
+
+    def test_current_features_without_freshness_review_become_unknown_question(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Train a model to forecast hourly demand using current weather features and live traffic inputs.\n"
+            "- Report RMSE for the 1 hour horizon with seed 7, train-only preprocessing, chronological split, naive baseline, and bootstrap confidence intervals.\n",
+            "ml-freshness-gap.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "ml-feature-freshness-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertIn("freshness", check.evidence)
+        self.assertTrue(
+            any(
+                ("MissingMethodologyEvidence", obj.id, "ml-feature-freshness-reviewed") in obj.facts
+                and ("Blocks", obj.id, check.obligation_id) in obj.facts
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            )
+        )
+
+    def test_current_features_with_freshness_review_pass(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Train a model to forecast hourly demand using current weather features available at prediction time with as-of timestamp and maximum age within 15 minutes.\n"
+            "- Report RMSE for the 1 hour horizon with seed 7, train-only preprocessing, chronological split, naive baseline, and bootstrap confidence intervals.\n",
+            "ml-freshness-pass.plain",
+        )
+
+        self.assertTrue(any(c.property == "ml-feature-freshness-reviewed" and c.status == CheckStatus.PASS for c in doc.checks))
 
     def test_random_time_series_split_gets_temporal_order_review_question(self):
         doc = compile_source(
