@@ -416,6 +416,53 @@ PRIVILEGE_ESCALATION_REVIEW_RE = re.compile(
 DESTRUCTIVE_ACTION_RE = re.compile(r"\b(delete|drop|erase|purge|force[- ]?push|destructive|wipe)\b", re.IGNORECASE)
 DESTRUCTIVE_SAFETY_RE = re.compile(r"\b(confirm(?:ation)?|dry[- ]run|backup|rollback|undo|soft delete|trash|audit log|approval)\b", re.IGNORECASE)
 
+# --- Information-flow validation patterns ---
+INFO_FLOW_SIGNAL_RE = re.compile(
+    r"\b(input|output|consume|produce|read(?:s| from)?|write(?:s| to)?|receive(?:s| from)?|send(?:s| to)?|"
+    r"depend(?:s|ency|encies)?(?:\s+on)?|source(?:s| from)?|sink|feed(?:s| into)?|flow(?:s| from| to)?|"
+    r"upstream|downstream|pipeline|data flow|data dependency|ingest|emit|"
+    r"circular|cycle|mutual(?:ly)? depend|feedback loop|recursive(?:ly)? depend|bidirectional)\b",
+    re.IGNORECASE,
+)
+INPUT_DECLARATION_RE = re.compile(
+    r"\b(input(?:s)?|consume(?:s)?|read(?:s)? from|receive(?:s)? from|ingest(?:s)?|"
+    r"upstream(?:\s+input|\s+source|\s+data))\b[^.;\n]{0,120}",
+    re.IGNORECASE,
+)
+OUTPUT_DECLARATION_RE = re.compile(
+    r"\b(output(?:s)?|produce(?:s)?|write(?:s)? to|send(?:s)? to|sink(?:s)?|emit(?:s)?|"
+    r"downstream(?:\s+output|\s+target|\s+data)?|feed(?:s)? into)\b[^.;\n]{0,120}",
+    re.IGNORECASE,
+)
+DEPENDENCY_DIRECTION_RE = re.compile(
+    r"\b(depend(?:s|ency|encies)?(?:\s+on)?|read(?:s| from)?|write(?:s| to)?|consume(?:s| from)?|"
+    r"produce(?:s| for)?|receive(?:s| from)?|send(?:s| to)?|feed(?:s| into)?|"
+    r"source(?:s| from)?|sink(?:s| to)?|upstream|downstream)\b",
+    re.IGNORECASE,
+)
+TEMPORAL_AVAILABILITY_SIGNAL_RE = re.compile(
+    r"\b(before|after|prior to|following|once|when|available|ready|complete(?:d)?|"
+    r"finish(?:ed|es)?|then|subsequently|order|sequential|precedence)\b",
+    re.IGNORECASE,
+)
+TEMPORAL_AVAILABILITY_EVIDENCE_RE = re.compile(
+    r"\b(available before|ready before|completed before|finish(?:ed|es)? before|"
+    r"point[- ]in[- ]time|as[- ]of|temporal order|causal order|execution order|"
+    r"available at|ready at|available when|ready when|available once|"
+    r"dependency order|topolog|ordering constraint|happens[- ]before)\b",
+    re.IGNORECASE,
+)
+CIRCULAR_DEPENDENCY_SIGNAL_RE = re.compile(
+    r"\b(circular|cycle|mutual(?:ly)? depend|feedback loop|recursive(?:ly)? depend|"
+    r"mutually recursive|bidirectional)\b",
+    re.IGNORECASE,
+)
+CIRCULAR_DEPENDENCY_EVIDENCE_RE = re.compile(
+    r"\b(acyclic|no cycle|break(?:s| the)? cycle|no circular|terminates?|base case|"
+    r"bounded recursion|depth limit|max depth|recursion limit)\b",
+    re.IGNORECASE,
+)
+
 
 def _clean_requirement_label(label: str) -> str:
     return re.sub(r"\s+", " ", label).strip()
@@ -913,6 +960,116 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
 
 
 
+def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
+    """Add conservative information-flow and temporal-availability obligations.
+
+    This pass is intentionally keyword-level. It detects data-flow wording
+    (inputs, outputs, dependencies, sources, sinks, pipelines) and creates
+    Unknown checks plus blocking questions when temporal availability or
+    dependency-direction evidence is missing. It does not infer actual data
+    paths, execute graph analysis, or approve operational behavior.
+    """
+    candidate_items = [item for item in doc.items if INFO_FLOW_SIGNAL_RE.search(item.raw_text)]
+    if not candidate_items:
+        return doc
+
+    existing_ids = {obj.id for obj in doc.objects}
+    first_span_id = candidate_items[0].span.id
+    review_id = stable_id("infoflow", doc.files[0].id if doc.files else "document")
+    all_text = "\n".join(item.raw_text for item in doc.items)
+
+    if review_id not in existing_ids:
+        doc.objects.append(
+            SpecObject(
+                review_id,
+                Role.VALIDATION_OBJECT,
+                SemanticLevel.TEMPLATE_PARSED,
+                first_span_id,
+                facts=[("InformationFlowReview", review_id), ("InformationFlowSignal", review_id, "information-flow-keywords")],
+            )
+        )
+        existing_ids.add(review_id)
+
+    def check_property(property: str, rationale: str, needed: bool, passing: bool, pass_evidence: str, unknown_evidence: str, question_text: str) -> None:
+        obligation = add_validation_obligation(doc, property, review_id, rationale, first_span_id)
+        if not needed:
+            add_check(doc, obligation, CheckStatus.PASS, "no triggering signal found in source text")
+            return
+        if passing:
+            add_check(doc, obligation, CheckStatus.PASS, pass_evidence)
+            return
+        add_check(doc, obligation, CheckStatus.UNKNOWN, unknown_evidence)
+        qid = stable_id("question", "information-flow", property, review_id)
+        if qid not in existing_ids:
+            doc.objects.append(
+                SpecObject(
+                    qid,
+                    Role.QUESTION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    first_span_id,
+                    facts=[
+                        ("MissingInformationFlowEvidence", qid, property),
+                        ("QuestionText", qid, question_text),
+                        ("Blocks", qid, obligation.id),
+                    ],
+                )
+            )
+            existing_ids.add(qid)
+
+    input_signal = bool(INPUT_DECLARATION_RE.search(all_text))
+    output_signal = bool(OUTPUT_DECLARATION_RE.search(all_text))
+    dependency_signal = bool(DEPENDENCY_DIRECTION_RE.search(all_text))
+    temporal_signal = bool(TEMPORAL_AVAILABILITY_SIGNAL_RE.search(all_text))
+    circular_signal = bool(CIRCULAR_DEPENDENCY_SIGNAL_RE.search(all_text))
+
+    check_property(
+        "information-flow-inputs-declared",
+        "Specs that mention data flows, pipelines, or dependencies should explicitly declare what inputs are consumed or read.",
+        input_signal or dependency_signal,
+        input_signal,
+        "input/consume/read/source wording found in source text",
+        "data-flow or dependency wording lacks explicit input/consume/read/source declaration",
+        "What specific inputs does this component or pipeline consume, read, or receive from upstream sources?",
+    )
+    check_property(
+        "information-flow-outputs-declared",
+        "Specs that mention data flows, pipelines, or dependencies should explicitly declare what outputs are produced or written.",
+        output_signal or dependency_signal,
+        output_signal,
+        "output/produce/write/sink/emit wording found in source text",
+        "data-flow or dependency wording lacks explicit output/produce/write/sink/emit declaration",
+        "What specific outputs does this component or pipeline produce, write, or send to downstream consumers?",
+    )
+    check_property(
+        "information-flow-dependency-direction-declared",
+        "Specs that mention dependencies between components should state the direction of data flow (which component reads from or writes to which).",
+        dependency_signal,
+        bool(DEPENDENCY_DIRECTION_RE.search(all_text)),
+        "dependency-direction wording (depends on, reads from, writes to, consumes from, produces for) found in source text",
+        "dependency wording lacks explicit direction (depends on, reads from, writes to, consumes from, produces for)",
+        "What is the direction of the data dependency between these components — which component reads from or writes to which?",
+    )
+    check_property(
+        "information-flow-temporal-availability-reviewed",
+        "Specs with data-flow or dependency wording should state temporal availability assumptions: inputs are available before outputs are needed, or execution order is declared.",
+        dependency_signal or (input_signal and output_signal),
+        bool(TEMPORAL_AVAILABILITY_EVIDENCE_RE.search(all_text)) or not temporal_signal,
+        "temporal availability/ordering evidence found, or no temporal-ordering signal is present",
+        "data-flow wording with temporal-ordering signal lacks explicit availability, ordering, or happens-before evidence",
+        "Are all inputs available before outputs are needed? What execution order or happens-before constraint applies to this data flow?",
+    )
+    check_property(
+        "information-flow-circular-dependency-reviewed",
+        "Specs that mention circular dependencies, cycles, mutual dependencies, or feedback loops should state termination or acyclicity evidence.",
+        circular_signal,
+        bool(CIRCULAR_DEPENDENCY_EVIDENCE_RE.search(all_text)),
+        "circular-dependency termination or acyclicity evidence found in source text",
+        "circular/recursive dependency wording lacks termination, base-case, depth-limit, or acyclicity evidence",
+        "What termination condition, base case, depth limit, or acyclicity proof prevents this circular or recursive dependency from causing deadlock or infinite recursion?",
+    )
+    return doc
+
+
 def build_ml_methodology_validation(doc: SpecDocument) -> SpecDocument:
     """Add conservative ML/time-series methodology obligations.
 
@@ -1117,6 +1274,7 @@ PASS_REGISTRY = [
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
+    PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),
     PassSpec("validate-document", "Emit first validation obligations/check records.", validate_document),
 ]
