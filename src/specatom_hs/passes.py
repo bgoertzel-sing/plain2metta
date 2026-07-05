@@ -463,6 +463,41 @@ CIRCULAR_DEPENDENCY_EVIDENCE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Detect explicit component-level data-path edges like:
+#   "The pipeline reads from the upstream source"
+#   "The service consumes input from the message queue"
+#   "Component A depends on component B"
+# The source and target are simple noun phrases (1–2 alphabetic words).
+# Stop words are filtered so conjunctions/articles are not treated as sources.
+DATA_PATH_EDGE_RE = re.compile(
+    r"(?:(?:The|the|A|a|An|an)\s+)?"
+    r"(?P<source>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)"
+    r"\s+"
+    r"(?P<verb>reads?\s+from|writes?\s+to|sends?\s+to|depends?\s+on"
+    r"|consumes?\s+\w+\s+from|produces?\s+\w+\s+to)"
+    r"\s+"
+    r"(?:(?:the|a|an)\s+)?"
+    r"(?P<target>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)",
+    re.IGNORECASE,
+)
+_EDGE_STOP_WORDS = frozenset({
+    "and", "or", "but", "then", "if", "when", "while", "the", "a", "an",
+    "is", "are", "was", "were", "be", "been", "being", "to", "from",
+    "in", "on", "at", "by", "for", "with", "about", "as", "into",
+    "through", "during", "before", "after", "above", "below", "up",
+    "down", "of", "off", "over", "under", "that", "this", "these",
+    "those", "it", "its",
+})
+
+
+def _normalize_direction(verb: str) -> str:
+    """Normalize a matched verb phrase to a direction string.
+
+    'reads from' -> 'reads-from', 'consumes input from' -> 'consumes-from', etc.
+    """
+    parts = verb.lower().split()
+    return f"{parts[0]}-{parts[-1]}"
+
 
 def _clean_requirement_label(label: str) -> str:
     return re.sub(r"\s+", " ", label).strip()
@@ -1067,6 +1102,69 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
         "circular/recursive dependency wording lacks termination, base-case, depth-limit, or acyclicity evidence",
         "What termination condition, base case, depth limit, or acyclicity proof prevents this circular or recursive dependency from causing deadlock or infinite recursion?",
     )
+
+    # --- Component-level data-path edge extraction ---
+    # Extract explicit edges like "pipeline reads from upstream source" and
+    # create DataFlowEdge atoms. This is conservative: it does not infer edges
+    # from vague wording like "data flows from one component to another".
+    edges: list[tuple[str, str, str, str]] = []  # (source, target, direction, item_id)
+    for item in candidate_items:
+        for match in DATA_PATH_EDGE_RE.finditer(item.raw_text):
+            source = match.group("source").strip().lower()
+            target = match.group("target").strip().lower()
+            if source in _EDGE_STOP_WORDS or target in _EDGE_STOP_WORDS:
+                continue
+            direction = _normalize_direction(match.group("verb"))
+            edges.append((source, target, direction, item.id))
+
+    # Emit DataFlowEdge atoms for each extracted edge.
+    for source, target, direction, item_id in edges:
+        edge_id = stable_id("edge", source, target, direction, item_id)
+        if edge_id not in existing_ids:
+            doc.objects.append(
+                SpecObject(
+                    edge_id,
+                    Role.VALIDATION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    first_span_id,
+                    facts=[
+                        ("DataFlowEdge", edge_id, source, target, direction),
+                    ],
+                )
+            )
+            existing_ids.add(edge_id)
+
+    # Data-path declaration check: Pass when at least one explicit component-level
+    # edge is found; Unknown when only vague data-flow wording exists.
+    data_path_obligation = add_validation_obligation(
+        doc,
+        "information-flow-data-path-declared",
+        review_id,
+        "Specs that mention data flows or dependencies should declare explicit component-level data paths, not just vague 'data flows' or 'pipeline' wording.",
+        first_span_id,
+    )
+    if edges:
+        edge_summary = "; ".join(f"{s} {d} {t}" for s, t, d, _ in edges)
+        add_check(doc, data_path_obligation, CheckStatus.PASS, f"explicit data-path edges found: {edge_summary}")
+    else:
+        add_check(doc, data_path_obligation, CheckStatus.UNKNOWN, "data-flow or dependency wording found but no explicit component-level data-path edges extracted")
+        qid = stable_id("question", "information-flow", "information-flow-data-path-declared", review_id)
+        if qid not in existing_ids:
+            doc.objects.append(
+                SpecObject(
+                    qid,
+                    Role.QUESTION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    first_span_id,
+                    facts=[
+                        ("MissingInformationFlowEvidence", qid, "information-flow-data-path-declared"),
+                        ("QuestionText", qid, "What are the explicit component-level data paths? Which component reads from or writes to which?"),
+                        ("Blocks", qid, data_path_obligation.id),
+                    ],
+                )
+            )
+            existing_ids.add(qid)
+
     return doc
 
 

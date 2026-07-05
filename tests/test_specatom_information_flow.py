@@ -217,6 +217,107 @@ class InformationFlowValidationTests(unittest.TestCase):
         self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
         self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
 
+    def test_explicit_data_path_edges_are_extracted(self):
+        """Explicit component-level data-path patterns produce DataFlowEdge atoms."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n"
+            "- The pipeline writes to the downstream sink.\n"
+            "- The service consumes input from the message queue.\n"
+            "- Component A depends on component B.\n",
+            "data-path-edges.plain",
+        )
+
+        edge_atoms = [obj for obj in doc.objects if any(f[0] == "DataFlowEdge" for f in obj.facts)]
+        self.assertGreaterEqual(len(edge_atoms), 4, f"expected at least 4 edges, got {len(edge_atoms)}")
+
+        # Verify edge contents match ground truth.
+        edges = []
+        for obj in edge_atoms:
+            for fact in obj.facts:
+                if fact[0] == "DataFlowEdge":
+                    edges.append((fact[2], fact[3], fact[4]))  # (source, target, direction)
+
+        self.assertIn(("pipeline", "upstream source", "reads-from"), edges)
+        self.assertIn(("pipeline", "downstream sink", "writes-to"), edges)
+        self.assertIn(("service", "message queue", "consumes-from"), edges)
+        self.assertIn(("component a", "component b", "depends-on"), edges)
+
+    def test_data_path_check_passes_with_explicit_edges(self):
+        """The information-flow-data-path-declared check passes when explicit edges are found."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n"
+            "- The pipeline writes to the downstream sink.\n",
+            "data-path-pass.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-data-path-declared" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.PASS)
+        self.assertIn("explicit data-path edges found", check.evidence)
+
+    def test_data_path_check_unknown_with_only_vague_wording(self):
+        """The information-flow-data-path-declared check is Unknown when only vague wording exists."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Data flows from one component to another.\n"
+            "- There is a dependency between components.\n",
+            "data-path-vague.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-data-path-declared" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+
+        # Should produce a blocking question.
+        self.assertTrue(
+            any(
+                ("MissingInformationFlowEvidence", obj.id, "information-flow-data-path-declared") in obj.facts
+                and any(fact == ("Blocks", obj.id, check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            ),
+            "data-path question not found",
+        )
+
+    def test_data_flow_edge_atoms_exported_through_petta_profile(self):
+        """DataFlowEdge atoms are exported through the PeTTa reified profile."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n",
+            "data-path-export.plain",
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertTrue(any(atom.startswith("(DataFlowEdge") for atom in atoms))
+        self.assertFalse(any("DataFlowEdge" in refusal.reason for refusal in refusals))
+
+    def test_no_data_path_edges_for_non_flow_specs(self):
+        """Specs without data-flow wording produce no DataFlowEdge atoms."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The system should be user-friendly.\n",
+            "no-data-path.plain",
+        )
+
+        edge_atoms = [obj for obj in doc.objects if any(f[0] == "DataFlowEdge" for f in obj.facts)]
+        self.assertEqual(len(edge_atoms), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -75,6 +75,7 @@ FACT_SCHEMAS = {
     "MissingSecurityPrivacyEvidence": FactSchema(3),
     "InformationFlowReview": FactSchema(2),
     "InformationFlowSignal": FactSchema(3),
+    "DataFlowEdge": FactSchema(5, subject_pos=None),
     "MissingInformationFlowEvidence": FactSchema(3),
     "Blocks": FactSchema(3, obligation_refs=(2,)),
     "GeneratedFrom": FactSchema(3, object_refs=(2,)),
