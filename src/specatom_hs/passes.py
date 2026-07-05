@@ -370,6 +370,10 @@ AUTH_ABUSE_PROTECTION_RE = re.compile(
     r"account lock(?:out|ing)|login attempt limit|abuse detection|bot detection|captcha)\b",
     re.IGNORECASE,
 )
+AUTH_TRANSPORT_PROTECTION_RE = re.compile(
+    r"\b(tls|https|transport encryption|encrypted in transit|secure channel|mtls|mutual tls|certificate pinning)\b",
+    re.IGNORECASE,
+)
 PRIVILEGE_ESCALATION_REVIEW_RE = re.compile(
     r"\b(least privilege|privilege escalation|self[- ]?grant|cannot grant (?:their|own)|separation of duties|two[- ]person|approval|audit(?:ed| log)?|admin[- ]only)\b",
     re.IGNORECASE,
@@ -811,6 +815,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "authentication/API abuse-protection evidence found in source text",
         "auth/login/API/password/token wording lacks rate-limit, throttling, brute-force, lockout, or abuse-detection evidence",
         "What rate limit, throttling, brute-force protection, lockout, or abuse/bot-detection rule protects this authentication/API surface?",
+    )
+    check_property(
+        "security-auth-transport-protection-reviewed",
+        "Specs that mention authentication, API endpoints, passwords, or tokens should state transport-protection evidence such as TLS, HTTPS, mTLS, or an encrypted secure channel.",
+        auth_abuse_signal,
+        bool(AUTH_TRANSPORT_PROTECTION_RE.search(all_text)),
+        "authentication/API transport-protection evidence found in source text",
+        "auth/login/API/password/token wording lacks TLS, HTTPS, mTLS, or secure-channel evidence",
+        "What TLS, HTTPS, mTLS, certificate, or secure-channel rule protects credentials and authenticated API traffic in transit?",
     )
     check_property(
         "security-destructive-action-safety-reviewed",

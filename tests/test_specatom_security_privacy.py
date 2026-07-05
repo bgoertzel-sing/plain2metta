@@ -34,6 +34,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "security-privilege-escalation-reviewed",
             "security-session-management-reviewed",
             "security-auth-abuse-protection-reviewed",
+            "security-auth-transport-protection-reviewed",
             "security-destructive-action-safety-reviewed",
         }:
             check = next(c for c in doc.checks if c.property == property_name and c.target_id == review.id)
@@ -215,6 +216,24 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             )
         )
 
+    def test_auth_api_without_transport_protection_stays_unknown(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Users login to the API endpoint with RBAC, least privilege, MFA, session timeout, and rate limits.\n",
+            "auth-transport-protection-gap.plain",
+        )
+
+        check = next(c for c in doc.checks if c.property == "security-auth-transport-protection-reviewed")
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertTrue(
+            any(
+                ("MissingSecurityPrivacyEvidence", obj.id, "security-auth-transport-protection-reviewed") in obj.facts
+                and ("Blocks", obj.id, check.obligation_id) in obj.facts
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            )
+        )
+
     def test_pii_access_without_audit_stays_unknown(self):
         doc = compile_source(
             "***functional specifications***\n"
@@ -317,6 +336,7 @@ class SecurityPrivacyValidationTests(unittest.TestCase):
             "security-privilege-escalation-reviewed",
             "security-session-management-reviewed",
             "security-auth-abuse-protection-reviewed",
+            "security-auth-transport-protection-reviewed",
             "security-destructive-action-safety-reviewed",
         }:
             self.assertTrue(any(c.property == property_name and c.status == CheckStatus.PASS for c in doc.checks), property_name)
