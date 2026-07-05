@@ -390,6 +390,16 @@ API_INPUT_VALIDATION_RE = re.compile(
     r"request schema|parameter validation|saniti[sz]e(?:d|s)?|allow[- ]?list|type check(?:s|ing)?|bounds check(?:s|ing)?)\b",
     re.IGNORECASE,
 )
+API_ERROR_SIGNAL_RE = re.compile(
+    r"\b(api|endpoint|route|request|webhook)\b[^.;\n]{0,100}\b(error|exception|stack trace|traceback|debug|diagnostic|failure response|error response)\b|"
+    r"\b(error|exception|stack trace|traceback|debug|diagnostic|failure response|error response)\b[^.;\n]{0,100}\b(api|endpoint|route|request|webhook)\b",
+    re.IGNORECASE,
+)
+API_ERROR_SAFE_RESPONSE_RE = re.compile(
+    r"\b(generic error|safe error|redacted errors?|saniti[sz]ed errors?|no stack traces?|hide stack traces?|"
+    r"do not expose stack|not expose stack|no debug output|suppress debug|opaque error|error code|correlation id)\b",
+    re.IGNORECASE,
+)
 WEBHOOK_AUTHENTICITY_SIGNAL_RE = re.compile(
     r"\b(webhook|callback|incoming request|external request|signed request)\b",
     re.IGNORECASE,
@@ -668,6 +678,7 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
     api_authorization_signal = bool(API_AUTHORIZATION_SIGNAL_RE.search(all_text)) and (access_signal or auth_abuse_signal)
     webhook_authenticity_signal = bool(WEBHOOK_AUTHENTICITY_SIGNAL_RE.search(all_text))
     api_input_signal = bool(API_INPUT_SIGNAL_RE.search(all_text))
+    api_error_signal = bool(API_ERROR_SIGNAL_RE.search(all_text))
     destructive_signal = bool(DESTRUCTIVE_ACTION_RE.search(all_text))
 
     check_property(
@@ -879,6 +890,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "webhook/request authenticity evidence found in source text",
         "webhook/callback/external-request wording lacks signature, HMAC, nonce, timestamp-window, or replay-protection evidence",
         "What signature verification, HMAC/webhook secret, nonce, timestamp-window, or replay-protection rule authenticates inbound webhook/callback requests?",
+    )
+    check_property(
+        "security-api-error-disclosure-reviewed",
+        "Specs that mention API/webhook errors, exceptions, stack traces, tracebacks, debug output, or diagnostic failure responses should state safe error-disclosure evidence before exposing responses.",
+        api_error_signal,
+        bool(API_ERROR_SAFE_RESPONSE_RE.search(all_text)),
+        "API/webhook safe error-disclosure evidence found in source text",
+        "API/webhook error or diagnostic wording lacks generic/redacted/sanitized error-response evidence",
+        "What generic, redacted, sanitized, opaque, or correlation-ID based error response prevents stack traces, debug details, secrets, or internals from leaking?",
     )
     check_property(
         "security-destructive-action-safety-reviewed",
