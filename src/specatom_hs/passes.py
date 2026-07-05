@@ -279,7 +279,7 @@ ML_FRESHNESS_EVIDENCE_RE = re.compile(
 )
 SECURITY_PRIVACY_RE = re.compile(
     r"\b(secret|api[- ]?key|token|password|credential|pii|personal data|email address|phone number|"
-    r"privacy|encrypt|auth(?:entication|orization)?|access|permission|admin|role|delete|drop|erase|purge|"
+    r"privacy|encrypt|auth(?:entication|orization)?|login|sign[- ]?in|api|endpoint|access|permission|admin|role|delete|drop|erase|purge|"
     r"force[- ]?push|destructive)\b",
     re.IGNORECASE,
 )
@@ -357,6 +357,12 @@ AUTH_SESSION_SIGNAL_RE = re.compile(r"\b(auth(?:entication)?|login|sign[- ]?in|s
 AUTH_SESSION_MANAGEMENT_RE = re.compile(
     r"\b(mfa|multi[- ]factor|two[- ]factor|2fa|session timeout|session expiry|session expiration|idle timeout|"
     r"token expiry|token expiration|refresh token rotation|revoke sessions?|logout|reauth(?:enticate|entication))\b",
+    re.IGNORECASE,
+)
+AUTH_ABUSE_SIGNAL_RE = re.compile(r"\b(auth(?:entication)?|login|sign[- ]?in|api|endpoint|password|token)\b", re.IGNORECASE)
+AUTH_ABUSE_PROTECTION_RE = re.compile(
+    r"\b(rate[- ]?limit(?:ing|s)?|throttl(?:e|ing)|brute[- ]force|credential stuffing|"
+    r"account lock(?:out|ing)|login attempt limit|abuse detection|bot detection|captcha)\b",
     re.IGNORECASE,
 )
 PRIVILEGE_ESCALATION_REVIEW_RE = re.compile(
@@ -624,6 +630,7 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
     pii_signal = bool(PII_SIGNAL_RE.search(all_text))
     access_signal = bool(ACCESS_SIGNAL_RE.search(all_text))
     auth_session_signal = bool(AUTH_SESSION_SIGNAL_RE.search(all_text))
+    auth_abuse_signal = bool(AUTH_ABUSE_SIGNAL_RE.search(all_text))
     destructive_signal = bool(DESTRUCTIVE_ACTION_RE.search(all_text))
 
     check_property(
@@ -781,6 +788,15 @@ def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
         "authentication/session-management evidence found in source text",
         "auth/login/session wording lacks MFA, timeout, expiry, revocation, logout, refresh-token rotation, or reauthentication evidence",
         "What MFA, session timeout/expiry, revocation/logout, refresh-token rotation, or reauthentication rule governs authenticated sessions?",
+    )
+    check_property(
+        "security-auth-abuse-protection-reviewed",
+        "Specs that mention authentication, login, API endpoints, passwords, or tokens should state abuse-protection evidence such as rate limiting, throttling, brute-force protection, lockouts, or abuse/bot detection.",
+        auth_abuse_signal,
+        bool(AUTH_ABUSE_PROTECTION_RE.search(all_text)),
+        "authentication/API abuse-protection evidence found in source text",
+        "auth/login/API/password/token wording lacks rate-limit, throttling, brute-force, lockout, or abuse-detection evidence",
+        "What rate limit, throttling, brute-force protection, lockout, or abuse/bot-detection rule protects this authentication/API surface?",
     )
     check_property(
         "security-destructive-action-safety-reviewed",
