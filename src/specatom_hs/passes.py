@@ -1724,6 +1724,58 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                 )
                 existing_ids.add(qid)
 
+        # --- Cross-layer consistency: DataFlowEdge vs TemporalOrderEdge ---
+        # If data flows A→B (A sends/writes/depends-on B), the data-flow
+        # ordering implies A should happen before or no-later-than B.  If the
+        # spec also declares "B before A" explicitly, that contradicts the
+        # data-flow direction.  We flag these cross-layer inconsistencies.
+        if edges and temporal_edges:
+            # Build a set of (before, after) pairs from temporal edges.
+            temporal_pairs: set[tuple[str, str]] = set()
+            for before, after, _verb, _item_id in temporal_edges:
+                temporal_pairs.add((before, after))
+
+            contradictions: list[tuple[str, str, str, str]] = []  # (data_src, data_tgt, temp_before, temp_after)
+            for source, target, direction, _item_id in edges:
+                s = source.lower().strip()
+                t = target.lower().strip()
+                # Data flows source → target (source sends/writes/depends-on target).
+                # Temporal contradiction: temporal says target before source.
+                if (t, s) in temporal_pairs:
+                    contradictions.append((source, target, t, s))
+
+            cross_obligation = add_validation_obligation(
+                doc,
+                "information-flow-data-temporal-consistency-reviewed",
+                review_id,
+                "When data flows from A to B but temporal ordering states B before A, the spec contains a cross-layer inconsistency that should be resolved.",
+                first_span_id,
+            )
+            if not contradictions:
+                add_check(doc, cross_obligation, CheckStatus.PASS, "data-flow direction and temporal ordering are consistent")
+            else:
+                contra_summary = "; ".join(
+                    f"data flows {ds}→{dt} but temporal says {tb} before {ta}"
+                    for ds, dt, tb, ta in contradictions
+                )
+                add_check(doc, cross_obligation, CheckStatus.FAIL, f"cross-layer contradiction(s): {contra_summary}")
+                qid = stable_id("question", "information-flow", "information-flow-data-temporal-consistency-reviewed", review_id)
+                if qid not in existing_ids:
+                    doc.objects.append(
+                        SpecObject(
+                            qid,
+                            Role.QUESTION_OBJECT,
+                            SemanticLevel.TEMPLATE_PARSED,
+                            first_span_id,
+                            facts=[
+                                ("MissingInformationFlowEvidence", qid, "information-flow-data-temporal-consistency-reviewed"),
+                                ("QuestionText", qid, f"The spec contains cross-layer ordering contradictions ({contra_summary}). Is the data-flow direction or the temporal ordering statement incorrect, or does concurrency/parallel execution resolve the apparent contradiction?"),
+                                ("Blocks", qid, cross_obligation.id),
+                            ],
+                        )
+                    )
+                    existing_ids.add(qid)
+
     return doc
 
 

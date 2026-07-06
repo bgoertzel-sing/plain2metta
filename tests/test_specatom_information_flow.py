@@ -1144,5 +1144,72 @@ class InformationFlowValidationTests(unittest.TestCase):
         self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
 
 
+    def test_cross_layer_data_temporal_contradiction_detected(self):
+        """Data flows A→B but temporal says B before A → FAIL cross-layer check."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the database.\n"
+            "- The database happens before the pipeline.\n",
+            "cross-layer-contradiction.plain",
+        )
+
+        cross_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-data-temporal-consistency-reviewed"
+        )
+        self.assertEqual(cross_check.status, CheckStatus.FAIL)
+        self.assertIn("contradiction", cross_check.evidence.lower())
+
+        # Blocking question should exist.
+        q_objs = [
+            obj for obj in doc.objects
+            if obj.role == Role.QUESTION_OBJECT
+            and ("MissingInformationFlowEvidence", obj.id, "information-flow-data-temporal-consistency-reviewed") in obj.facts
+        ]
+        self.assertEqual(len(q_objs), 1)
+        self.assertTrue(
+            any(fact == ("Blocks", q_objs[0].id, cross_check.obligation_id) for fact in q_objs[0].facts)
+        )
+
+    def test_cross_layer_data_temporal_consistent_passes(self):
+        """Data flows A→B and temporal says A before B → PASS cross-layer check."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the database.\n"
+            "- The pipeline happens before the database.\n",
+            "cross-layer-consistent.plain",
+        )
+
+        cross_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-data-temporal-consistency-reviewed"
+        )
+        self.assertEqual(cross_check.status, CheckStatus.PASS)
+
+    def test_cross_layer_no_check_when_no_edges_or_temporal(self):
+        """No DataFlowEdge or no TemporalOrderEdge → no cross-layer obligation."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The system depends on data flow.\n",
+            "cross-layer-no-edges.plain",
+        )
+        self.assertFalse(
+            any(c.property == "information-flow-data-temporal-consistency-reviewed" for c in doc.checks)
+        )
+
+    def test_cross_layer_atoms_exported_through_petta_profile(self):
+        """Cross-layer consistency obligations and questions are exported through the PeTTa reified profile."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline writes to the database.\n"
+            "- The database happens before the pipeline.\n",
+            "cross-layer-export.plain",
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertTrue(any("information-flow-data-temporal-consistency-reviewed" in atom for atom in atoms))
+        self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
+        self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
+
+
 if __name__ == "__main__":
     unittest.main()
