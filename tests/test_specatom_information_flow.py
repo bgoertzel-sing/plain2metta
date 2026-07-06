@@ -1505,6 +1505,66 @@ class InformationFlowValidationTests(unittest.TestCase):
         )
         self.assertEqual(provenance_check.status, CheckStatus.FAIL)
 
+    def test_connected_components_single_component_passes(self):
+        """A fully connected data-flow graph passes the connected-components check."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n"
+            "- The pipeline writes to the downstream sink.\n",
+            "connected-single.plain",
+        )
+        cc_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-connected-components-reviewed"
+        )
+        self.assertEqual(cc_check.status, CheckStatus.PASS)
+        self.assertIn("fully connected", cc_check.evidence)
+
+    def test_connected_components_multiple_disconnected_passes_with_acknowledgment(self):
+        """Multiple disconnected components with acknowledgment text pass the check."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the source and writes to the sink.\n"
+            "- The monitor reads from the metrics database and writes to the dashboard.\n"
+            "- These are independent standalone subsystems.\n",
+            "connected-ack.plain",
+        )
+        cc_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-connected-components-reviewed"
+        )
+        self.assertEqual(cc_check.status, CheckStatus.PASS)
+        self.assertIn("acknowledged", cc_check.evidence)
+
+    def test_connected_components_multiple_disconnected_unknown_without_acknowledgment(self):
+        """Multiple disconnected components without acknowledgment produce Unknown and a blocking question."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the source and writes to the sink.\n"
+            "- The monitor reads from the metrics database and writes to the dashboard.\n",
+            "connected-gaps.plain",
+        )
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+        cc_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-connected-components-reviewed"
+            and c.target_id == review.id
+        )
+        self.assertEqual(cc_check.status, CheckStatus.UNKNOWN)
+        self.assertIn("disconnected components", cc_check.evidence)
+        # Verify a blocking question was created.
+        question = next(
+            obj for obj in doc.objects
+            if obj.role == Role.QUESTION_OBJECT
+            and any(f[0] == "MissingInformationFlowEvidence" and f[2] == "information-flow-connected-components-reviewed" for f in obj.facts)
+        )
+        self.assertTrue(
+            any(f[0] == "Blocks" and f[2] == cc_check.obligation_id for f in question.facts)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

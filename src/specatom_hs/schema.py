@@ -121,6 +121,9 @@ class SpecDocument:
     objects: list[SpecObject] = field(default_factory=list)
     validation_obligations: list[ValidationObligation] = field(default_factory=list)
     checks: list[CheckRecord] = field(default_factory=list)
+    # O(1) deduplication sets (kept in sync with the lists above)
+    _obligation_ids: set[str] = field(default_factory=set, repr=False, compare=False)
+    _check_ids: set[str] = field(default_factory=set, repr=False, compare=False)
 
     def facts(self) -> list[tuple]:
         """Return a compact reified fact view for tests and backends."""

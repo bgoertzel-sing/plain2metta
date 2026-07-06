@@ -21,7 +21,8 @@ def add_validation_obligation(doc: SpecDocument, property: str, target_id: str, 
     use the deterministic ID that already defines obligation identity.
     """
     obl = ValidationObligation(stable_id("vobl", property, target_id), property, target_id, rationale, source_span_id)
-    if all(existing.id != obl.id for existing in doc.validation_obligations):
+    if obl.id not in doc._obligation_ids:
+        doc._obligation_ids.add(obl.id)
         doc.validation_obligations.append(obl)
     return obl
 
@@ -29,7 +30,8 @@ def add_validation_obligation(doc: SpecDocument, property: str, target_id: str, 
 def add_check(doc: SpecDocument, obligation: ValidationObligation, status: CheckStatus, evidence: str) -> CheckRecord:
     """Append a check record once, keyed by stable ID."""
     check = CheckRecord(stable_id("chk", obligation.id, status.value, evidence), obligation.id, obligation.property, obligation.target_id, status, evidence)
-    if all(existing.id != check.id for existing in doc.checks):
+    if check.id not in doc._check_ids:
+        doc._check_ids.add(check.id)
         doc.checks.append(check)
     return check
 

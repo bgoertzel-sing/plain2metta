@@ -1581,6 +1581,78 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                 )
                 existing_ids.add(qid)
 
+        # --- Connected components detection ---
+        # The reachability check above only checks directed reachability from
+        # source nodes.  Two independent subgraphs each with their own source
+        # would pass reachability but the graph is still disconnected.  This
+        # check uses undirected BFS to find connected components; multiple
+        # components may indicate missing dependency declarations between
+        # subsystems or intentionally independent modules that deserve review.
+        CONNECTED_COMPONENTS_ACK_RE = re.compile(
+            r"\b(independent(?:ly)?|separate|standalone|decoupled|isolated|"
+            r"autonomous|self[- ]?contained|disjoint|unrelated|"
+            r"separate (?:module|subsystem|service|component))\b",
+            re.IGNORECASE,
+        )
+
+        # Build undirected adjacency from the directed edges.
+        undirected_adj: dict[str, set[str]] = {}
+        for src in adjacency:
+            for tgt in adjacency[src]:
+                undirected_adj.setdefault(src, set()).add(tgt)
+                undirected_adj.setdefault(tgt, set()).add(src)
+        for node in all_nodes:
+            undirected_adj.setdefault(node, set())
+
+        visited_cc: set[str] = set()
+        components: list[set[str]] = []
+        for node in all_nodes:
+            if node in visited_cc:
+                continue
+            comp: set[str] = set()
+            queue = [node]
+            visited_cc.add(node)
+            while queue:
+                cur = queue.pop(0)
+                comp.add(cur)
+                for neighbor in undirected_adj.get(cur, set()):
+                    if neighbor not in visited_cc:
+                        visited_cc.add(neighbor)
+                        queue.append(neighbor)
+            components.append(comp)
+
+        connected_components_obligation = add_validation_obligation(
+            doc,
+            "information-flow-connected-components-reviewed",
+            review_id,
+            "Data-flow graphs with multiple disconnected components may indicate missing dependency declarations between subsystems or intentionally independent modules that deserve review.",
+            first_span_id,
+        )
+        if len(components) <= 1:
+            add_check(doc, connected_components_obligation, CheckStatus.PASS, "data-flow graph is fully connected (single component)")
+        elif CONNECTED_COMPONENTS_ACK_RE.search(all_text):
+            comp_summaries = [", ".join(sorted(comp)) for comp in components]
+            add_check(doc, connected_components_obligation, CheckStatus.PASS, f"multiple disconnected components acknowledged in source text: {' | '.join(comp_summaries)}")
+        else:
+            comp_summaries = [", ".join(sorted(comp)) for comp in components]
+            add_check(doc, connected_components_obligation, CheckStatus.UNKNOWN, f"{len(components)} disconnected components detected: {' | '.join(comp_summaries)}")
+            qid = stable_id("question", "information-flow", "information-flow-connected-components-reviewed", review_id)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        first_span_id,
+                        facts=[
+                            ("MissingInformationFlowEvidence", qid, "information-flow-connected-components-reviewed"),
+                            ("QuestionText", qid, f"The data-flow graph has {len(components)} disconnected components ({' | '.join(comp_summaries)}). Are these intentionally independent subsystems, or are there missing dependency declarations between them?"),
+                            ("Blocks", qid, connected_components_obligation.id),
+                        ],
+                    )
+                )
+                existing_ids.add(qid)
+
         # --- Redundant path detection ---
         # When multiple distinct paths exist from node A to node B in the
         # DataFlowEdge graph, this may indicate intentional redundancy (fault
