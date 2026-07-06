@@ -438,6 +438,36 @@ def _validate_check_records(doc: SpecDocument) -> None:
         add_check(doc, obligation, CheckStatus.FAIL if mismatches else CheckStatus.PASS, "; ".join(mismatches) if mismatches else "check agrees with cited obligation")
 
 
+def _validate_edge_source_provenance(doc: SpecDocument) -> None:
+    """Check that DataFlowEdge and TemporalOrderEdge objects cite per-item source spans.
+
+    Edge objects should carry the source span of the specific item where the edge
+    was extracted, not a generic first-item span.  This check verifies that edge
+    objects have a source span that belongs to an indexed PlainItem, making edge
+    provenance auditable and traceable back to the exact source text.
+    """
+    item_span_ids = {item.span.id for item in doc.items}
+    edge_predicates = {"DataFlowEdge", "TemporalOrderEdge"}
+
+    for obj in doc.objects:
+        has_edge_fact = any(fact and str(fact[0]) in edge_predicates for fact in obj.facts)
+        if not has_edge_fact:
+            continue
+        obligation = add_validation_obligation(
+            doc,
+            "edge-has-item-level-source-provenance",
+            obj.id,
+            "DataFlowEdge and TemporalOrderEdge objects should cite the source span of the specific item where the edge was found, not a generic first-item span.",
+            obj.source_span_id,
+        )
+        if obj.source_span_id and obj.source_span_id in item_span_ids:
+            add_check(doc, obligation, CheckStatus.PASS, f"source_span={obj.source_span_id} belongs to an indexed item")
+        elif obj.source_span_id:
+            add_check(doc, obligation, CheckStatus.UNKNOWN, f"source_span={obj.source_span_id} does not belong to an indexed item")
+        else:
+            add_check(doc, obligation, CheckStatus.FAIL, "missing source span for edge object")
+
+
 def validate_document(doc: SpecDocument) -> SpecDocument:
     """Populate first crisp validation records in-place and return ``doc``."""
     known_files = {f.id for f in doc.files}
@@ -501,6 +531,7 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     _validate_question_objects(doc)
     _validate_validation_obligations(doc)
     _validate_check_records(doc)
+    _validate_edge_source_provenance(doc)
 
     if not doc.objects:
         o = add_validation_obligation(doc, "semantic-objects-present", doc.files[0].id if doc.files else "document", "A compiler pass should create semantic objects after source indexing.")

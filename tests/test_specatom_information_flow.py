@@ -1404,6 +1404,107 @@ class InformationFlowValidationTests(unittest.TestCase):
         self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
         self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
 
+    def test_data_flow_edge_has_item_level_source_provenance(self):
+        """Each DataFlowEdge object should cite the source span of the specific item where the edge was found."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the source.\n"
+            "- The service writes to the database.\n",
+            "edge-provenance.plain",
+        )
+        item_by_text = {item.raw_text: item for item in doc.items}
+        pipeline_item = item_by_text["The pipeline reads from the source."]
+        service_item = item_by_text["The service writes to the database."]
+
+        edge_objects = [
+            obj for obj in doc.objects
+            if any(fact and str(fact[0]) == "DataFlowEdge" for fact in obj.facts)
+        ]
+        self.assertEqual(len(edge_objects), 2)
+
+        for edge_obj in edge_objects:
+            provenance_checks = [
+                c for c in doc.checks
+                if c.property == "edge-has-item-level-source-provenance" and c.target_id == edge_obj.id
+            ]
+            self.assertEqual(len(provenance_checks), 1)
+            self.assertEqual(provenance_checks[0].status, CheckStatus.PASS)
+
+        # Verify each edge's source span matches the expected item.
+        edge_by_source = {}
+        for edge_obj in edge_objects:
+            edge_fact = next(f for f in edge_obj.facts if str(f[0]) == "DataFlowEdge")
+            edge_by_source[edge_fact[2]] = edge_obj
+
+        self.assertEqual(edge_by_source["pipeline"].source_span_id, pipeline_item.span.id)
+        self.assertEqual(edge_by_source["service"].source_span_id, service_item.span.id)
+
+    def test_temporal_order_edge_has_item_level_source_provenance(self):
+        """Each TemporalOrderEdge object should cite the source span of the specific item where the edge was found."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the source.\n"
+            "- The service runs before the database.\n",
+            "temporal-provenance.plain",
+        )
+        item_by_text = {item.raw_text: item for item in doc.items}
+        pipeline_item = item_by_text["The pipeline reads from the source."]
+        service_item = item_by_text["The service runs before the database."]
+
+        temporal_edges = [
+            obj for obj in doc.objects
+            if any(fact and str(fact[0]) == "TemporalOrderEdge" for fact in obj.facts)
+        ]
+        self.assertEqual(len(temporal_edges), 1)
+
+        for edge_obj in temporal_edges:
+            provenance_checks = [
+                c for c in doc.checks
+                if c.property == "edge-has-item-level-source-provenance" and c.target_id == edge_obj.id
+            ]
+            self.assertEqual(len(provenance_checks), 1)
+            self.assertEqual(provenance_checks[0].status, CheckStatus.PASS)
+
+        # Verify per-item span assignment.
+        # "service runs before database" -> service before database
+        edge_obj = temporal_edges[0]
+        self.assertEqual(edge_obj.source_span_id, service_item.span.id)
+
+        # Also verify the DataFlowEdge has per-item provenance.
+        data_edges = [
+            obj for obj in doc.objects
+            if any(fact and str(fact[0]) == "DataFlowEdge" for fact in obj.facts)
+        ]
+        self.assertEqual(len(data_edges), 1)
+        self.assertEqual(data_edges[0].source_span_id, pipeline_item.span.id)
+
+    def test_edge_provenance_validation_fails_for_missing_source_span(self):
+        """An edge object without a source span should fail the edge-provenance validation."""
+        from specatom_hs.schema import SpecObject, SemanticLevel, Role, SpecDocument, stable_id
+        from specatom_hs.validators import _validate_edge_source_provenance
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the source.\n",
+            "edge-missing-span.plain",
+        )
+        # Inject a synthetic edge object with no source span and validate.
+        bad_edge_id = stable_id("edge", "bad", "target", "reads-from", "synthetic")
+        doc.objects.append(
+            SpecObject(
+                bad_edge_id,
+                Role.VALIDATION_OBJECT,
+                SemanticLevel.TEMPLATE_PARSED,
+                None,
+                facts=[("DataFlowEdge", bad_edge_id, "bad", "target", "reads-from")],
+            )
+        )
+        _validate_edge_source_provenance(doc)
+        provenance_check = next(
+            c for c in doc.checks
+            if c.property == "edge-has-item-level-source-provenance" and c.target_id == bad_edge_id
+        )
+        self.assertEqual(provenance_check.status, CheckStatus.FAIL)
+
 
 if __name__ == "__main__":
     unittest.main()

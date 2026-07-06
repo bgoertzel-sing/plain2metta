@@ -1012,6 +1012,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
     first_span_id = candidate_items[0].span.id
     review_id = stable_id("infoflow", doc.files[0].id if doc.files else "document")
     all_text = "\n".join(item.raw_text for item in doc.items)
+    item_by_id = {item.id: item for item in doc.items}
 
     if review_id not in existing_ids:
         doc.objects.append(
@@ -1118,15 +1119,18 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
             edges.append((source, target, direction, item.id))
 
     # Emit DataFlowEdge atoms for each extracted edge.
+    # Each edge carries the source span of the specific item where it was found,
+    # not the first candidate item's span, for precise provenance.
     for source, target, direction, item_id in edges:
         edge_id = stable_id("edge", source, target, direction, item_id)
         if edge_id not in existing_ids:
+            edge_span_id = item_by_id[item_id].span.id if item_id in item_by_id else first_span_id
             doc.objects.append(
                 SpecObject(
                     edge_id,
                     Role.VALIDATION_OBJECT,
                     SemanticLevel.TEMPLATE_PARSED,
-                    first_span_id,
+                    edge_span_id,
                     facts=[
                         ("DataFlowEdge", edge_id, source, target, direction),
                     ],
@@ -1727,12 +1731,13 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
         for before, after, verb, item_id in temporal_edges:
             edge_id = stable_id("temporal-edge", before, after, "precedes", item_id)
             if edge_id not in existing_ids:
+                edge_span_id = item_by_id[item_id].span.id if item_id in item_by_id else first_span_id
                 doc.objects.append(
                     SpecObject(
                         edge_id,
                         Role.VALIDATION_OBJECT,
                         SemanticLevel.TEMPLATE_PARSED,
-                        first_span_id,
+                        edge_span_id,
                         facts=[
                             ("TemporalOrderEdge", edge_id, before, after),
                         ],
