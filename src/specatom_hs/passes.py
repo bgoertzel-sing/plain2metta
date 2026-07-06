@@ -1776,6 +1776,100 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                     )
                     existing_ids.add(qid)
 
+        # --- Dependency depth / critical path length detection ---
+        # When the DataFlowEdge graph is acyclic, compute the longest path
+        # (critical path).  Deep dependency chains (>= DEPTH_THRESHOLD edges)
+        # may indicate latency, fragility, or excessive coupling concerns that
+        # deserve explicit review.  If the spec text acknowledges deep chains
+        # ("deep", "multi-layer", "multi-hop", "long chain", "critical path",
+        # "layered", "pipeline depth"), the obligation passes; otherwise it
+        # becomes Unknown with a blocking question.
+        if not unique_cycles:
+            DEPTH_THRESHOLD = 4  # minimum edges to trigger depth review
+            DEPTH_ACK_RE = re.compile(
+                r"\b(deep(?:ly)?|multi[- ]?layer|multi[- ]?hop|long[- ]?chain|"
+                r"critical[- ]?path|layered|pipeline[- ]?depth|"
+                r"chain[- ]?of[- ]?command|nest(?:ed|ing))\b",
+                re.IGNORECASE,
+            )
+
+            # Compute longest path via topological sort + DP.
+            # Only meaningful when the graph is acyclic.
+            in_degree_dp: dict[str, int] = {node: 0 for node in all_nodes}
+            for src in adjacency:
+                for tgt in adjacency[src]:
+                    in_degree_dp[tgt] = in_degree_dp.get(tgt, 0) + 1
+
+            # Kahn's algorithm for topological order.
+            from collections import deque
+            topo_queue: deque[str] = deque(
+                node for node in all_nodes if in_degree_dp.get(node, 0) == 0
+            )
+            topo_order: list[str] = []
+            while topo_queue:
+                node = topo_queue.popleft()
+                topo_order.append(node)
+                for neighbor in adjacency.get(node, set()):
+                    in_degree_dp[neighbor] -= 1
+                    if in_degree_dp[neighbor] == 0:
+                        topo_queue.append(neighbor)
+
+            # Longest path DP: dist[node] = max(dist[pred]) + 1 for each edge pred→node.
+            dist: dict[str, int] = {node: 0 for node in all_nodes}
+            predecessor: dict[str, str | None] = {node: None for node in all_nodes}
+            for node in topo_order:
+                for neighbor in adjacency.get(node, set()):
+                    if dist[node] + 1 > dist[neighbor]:
+                        dist[neighbor] = dist[node] + 1
+                        predecessor[neighbor] = node
+
+            max_depth = max(dist.values()) if dist else 0
+
+            # Reconstruct the longest path for evidence.
+            def _reconstruct_path(end: str) -> list[str]:
+                path = [end]
+                cur = predecessor[end]
+                while cur is not None:
+                    path.append(cur)
+                    cur = predecessor[cur]
+                return list(reversed(path))
+
+            depth_obligation = add_validation_obligation(
+                doc,
+                "information-flow-dependency-depth-reviewed",
+                review_id,
+                "Specs with deep dependency chains (long critical paths) should acknowledge the depth and review it for latency, fragility, or coupling concerns.",
+                first_span_id,
+            )
+            if max_depth < DEPTH_THRESHOLD:
+                add_check(doc, depth_obligation, CheckStatus.PASS, f"maximum dependency depth is {max_depth} (below threshold of {DEPTH_THRESHOLD})")
+            elif DEPTH_ACK_RE.search(all_text):
+                deepest = max(dist, key=lambda n: dist[n])
+                longest_path = _reconstruct_path(deepest)
+                path_str = " → ".join(longest_path)
+                add_check(doc, depth_obligation, CheckStatus.PASS, f"deep dependency chain ({max_depth} edges: {path_str}) acknowledged in source text")
+            else:
+                deepest = max(dist, key=lambda n: dist[n])
+                longest_path = _reconstruct_path(deepest)
+                path_str = " → ".join(longest_path)
+                add_check(doc, depth_obligation, CheckStatus.UNKNOWN, f"deep dependency chain ({max_depth} edges: {path_str}) not acknowledged in source text")
+                qid = stable_id("question", "information-flow", "information-flow-dependency-depth-reviewed", review_id)
+                if qid not in existing_ids:
+                    doc.objects.append(
+                        SpecObject(
+                            qid,
+                            Role.QUESTION_OBJECT,
+                            SemanticLevel.TEMPLATE_PARSED,
+                            first_span_id,
+                            facts=[
+                                ("MissingInformationFlowEvidence", qid, "information-flow-dependency-depth-reviewed"),
+                                ("QuestionText", qid, f"The dependency chain {path_str} has {max_depth} edges. Is this depth intended? What latency, fragility, or coupling review addresses the long critical path?"),
+                                ("Blocks", qid, depth_obligation.id),
+                            ],
+                        )
+                    )
+                    existing_ids.add(qid)
+
     return doc
 
 

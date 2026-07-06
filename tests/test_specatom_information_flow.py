@@ -1210,6 +1210,111 @@ class InformationFlowValidationTests(unittest.TestCase):
         self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
         self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
 
+    def test_dependency_depth_shallow_passes(self):
+        """A shallow graph (depth < 4) passes the dependency-depth check."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the source.\n"
+            "- The pipeline writes to the database.\n",
+            "depth-shallow.plain",
+        )
+        depth_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-dependency-depth-reviewed"
+        )
+        self.assertEqual(depth_check.status, CheckStatus.PASS)
+        self.assertIn("below threshold", depth_check.evidence)
+
+    def test_dependency_depth_deep_unacknowledged(self):
+        """A deep chain (>= 4 edges) without acknowledgment produces Unknown + blocking question."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The gateway reads from the source.\n"
+            "- The cache reads from the gateway.\n"
+            "- The queue reads from the cache.\n"
+            "- The worker reads from the queue.\n"
+            "- The database writes from the worker.\n",
+            "depth-deep-unack.plain",
+        )
+        depth_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-dependency-depth-reviewed"
+        )
+        self.assertEqual(depth_check.status, CheckStatus.UNKNOWN)
+        self.assertIn("not acknowledged", depth_check.evidence)
+
+        q_objs = [
+            obj for obj in doc.objects
+            if obj.role == Role.QUESTION_OBJECT
+            and ("MissingInformationFlowEvidence", obj.id, "information-flow-dependency-depth-reviewed") in obj.facts
+        ]
+        self.assertEqual(len(q_objs), 1)
+        self.assertTrue(
+            any(fact == ("Blocks", q_objs[0].id, depth_check.obligation_id) for fact in q_objs[0].facts)
+        )
+
+    def test_dependency_depth_deep_acknowledged_passes(self):
+        """A deep chain with acknowledgment wording passes the dependency-depth check."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The gateway reads from the source.\n"
+            "- The cache reads from the gateway.\n"
+            "- The queue reads from the cache.\n"
+            "- The worker reads from the queue.\n"
+            "- The database writes from the worker.\n"
+            "- This is a deep multi-layer pipeline architecture.\n",
+            "depth-deep-ack.plain",
+        )
+        depth_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-dependency-depth-reviewed"
+        )
+        self.assertEqual(depth_check.status, CheckStatus.PASS)
+        self.assertIn("acknowledged", depth_check.evidence)
+
+    def test_dependency_depth_no_check_when_no_edges(self):
+        """No DataFlowEdge atoms → no dependency-depth obligation."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The system has a pipeline and data flow connections.\n",
+            "depth-no-edges.plain",
+        )
+        self.assertFalse(
+            any(c.property == "information-flow-dependency-depth-reviewed" for c in doc.checks)
+        )
+
+    def test_dependency_depth_no_check_when_cyclic(self):
+        """When the graph has a cycle, depth check is not emitted (only meaningful for DAGs)."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The alpha reads from the beta.\n"
+            "- The beta reads from the alpha.\n",
+            "depth-cyclic.plain",
+        )
+        # Cycle should be detected but depth should not.
+        self.assertTrue(
+            any(c.property == "information-flow-cycle-detected" for c in doc.checks)
+        )
+        self.assertFalse(
+            any(c.property == "information-flow-dependency-depth-reviewed" for c in doc.checks)
+        )
+
+    def test_dependency_depth_atoms_exported_through_petta_profile(self):
+        """Dependency-depth obligations and questions are exported through the PeTTa reified profile."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The gateway reads from the source.\n"
+            "- The cache reads from the gateway.\n"
+            "- The queue reads from the cache.\n"
+            "- The worker reads from the queue.\n"
+            "- The database writes from the worker.\n",
+            "depth-export.plain",
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertTrue(any("information-flow-dependency-depth-reviewed" in atom for atom in atoms))
+        self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
+        self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
+
 
 if __name__ == "__main__":
     unittest.main()
