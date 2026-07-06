@@ -947,6 +947,202 @@ class InformationFlowValidationTests(unittest.TestCase):
         self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
         self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
 
+    # --- Temporal ordering impossibility detection tests ---
+
+    def test_temporal_impossibility_detected_with_contradictory_before(self):
+        """When the spec says 'A before B' and 'B before A', an impossible temporal cycle is detected."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The alpha happens before the beta.\n"
+            "- The beta happens before the alpha.\n"
+            "- The system depends on data flow.\n",
+            "temporal-cycle.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-temporal-impossibility-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.FAIL)
+        self.assertIn("impossible temporal cycle", check.evidence.lower())
+        self.assertIn("alpha", check.evidence.lower())
+        self.assertIn("beta", check.evidence.lower())
+        self.assertTrue(
+            any(
+                ("MissingInformationFlowEvidence", obj.id, "information-flow-temporal-impossibility-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            ),
+            "temporal impossibility question not found",
+        )
+
+    def test_temporal_ordering_consistent_passes(self):
+        """When temporal ordering is consistent (no cycles), the check passes."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The alpha happens before the beta.\n"
+            "- The beta happens before the gamma.\n"
+            "- The system depends on data flow.\n",
+            "temporal-consistent.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-temporal-impossibility-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.PASS)
+        self.assertIn("consistent", check.evidence.lower())
+
+    def test_temporal_ordering_with_after_normalizes_correctly(self):
+        """'A after B' is normalized to 'B before A' and checked for cycles."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The alpha happens after the beta.\n"
+            "- The beta happens after the alpha.\n"
+            "- The system depends on data flow.\n",
+            "temporal-after-cycle.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-temporal-impossibility-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.FAIL)
+        self.assertIn("impossible temporal cycle", check.evidence.lower())
+
+    def test_temporal_ordering_with_follows_normalizes_correctly(self):
+        """'A follows B' is normalized to 'B before A' and checked for cycles."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The gamma follows the beta.\n"
+            "- The beta follows the alpha.\n"
+            "- The system depends on data flow.\n",
+            "temporal-follows.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-temporal-impossibility-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.PASS)
+        self.assertIn("consistent", check.evidence.lower())
+
+    def test_temporal_ordering_with_then_detected(self):
+        """'A then B' is recognized as a temporal ordering statement."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The alpha then the beta.\n"
+            "- The beta then the alpha.\n"
+            "- The system depends on data flow.\n",
+            "temporal-then-cycle.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-temporal-impossibility-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.FAIL)
+        self.assertIn("impossible temporal cycle", check.evidence.lower())
+
+    def test_no_temporal_ordering_passes(self):
+        """Specs without explicit temporal ordering statements pass with 'no temporal ordering' evidence."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n"
+            "- The pipeline writes to the downstream sink.\n",
+            "no-temporal.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-temporal-impossibility-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.PASS)
+        self.assertIn("no explicit temporal ordering", check.evidence.lower())
+
+    def test_temporal_order_edge_atoms_exported_through_petta_profile(self):
+        """TemporalOrderEdge atoms are exported through the PeTTa reified profile."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The alpha happens before the beta.\n"
+            "- The system depends on data flow.\n",
+            "temporal-export.plain",
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertTrue(any(atom.startswith("(TemporalOrderEdge") for atom in atoms), f"TemporalOrderEdge atom not found in: {atoms}")
+        self.assertFalse(any("TemporalOrderEdge" in refusal.reason for refusal in refusals))
+
+    def test_three_node_temporal_cycle_detected(self):
+        """A→B→C→A three-node temporal cycle is detected."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The alpha happens before the beta.\n"
+            "- The beta happens before the gamma.\n"
+            "- The gamma happens before the alpha.\n"
+            "- The system depends on data flow.\n",
+            "temporal-three-cycle.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-temporal-impossibility-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.FAIL)
+        self.assertIn("alpha", check.evidence.lower())
+        self.assertIn("gamma", check.evidence.lower())
+
+    def test_temporal_impossibility_atoms_exported_through_petta_profile(self):
+        """Temporal impossibility obligations and questions are exported through the PeTTa reified profile."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The alpha happens before the beta.\n"
+            "- The beta happens before the alpha.\n"
+            "- The system depends on data flow.\n",
+            "temporal-impossibility-export.plain",
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertTrue(any("information-flow-temporal-impossibility-reviewed" in atom for atom in atoms))
+        self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
+        self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1605,6 +1605,125 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                 )
                 existing_ids.add(qid)
 
+        # --- Temporal ordering impossibility detection ---
+        # Extract explicit temporal ordering statements like "A before B",
+        # "A after B", "A then B", "A precedes B", "A follows B" and build a
+        # temporal ordering graph.  A cycle in this graph means the spec claims
+        # an impossible temporal ordering (e.g. "A before B" and "B before A").
+        # Note: we scan ALL items, not just candidate_items, because temporal
+        # ordering statements may appear without explicit data-flow keywords.
+        TEMPORAL_ORDER_RE = re.compile(
+            r"(?:(?:The|the|A|a|An|an)\s+)?"
+            r"(?P<source>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)"
+            r"\s+(?P<verb>happens?\s+before|comes?\s+before|occurs?\s+before|"
+            r"precedes?|runs?\s+before|executes?\s+before|"
+            r"happens?\s+after|comes?\s+after|occurs?\s+after|"
+            r"follows?|runs?\s+after|executes?\s+after|"
+            r"then)"
+            r"\s+(?:(?:the|a|an)\s+)?"
+            r"(?P<target>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)",
+            re.IGNORECASE,
+        )
+        temporal_edges: list[tuple[str, str, str, str]] = []  # (before, after, verb, item_id)
+        for item in doc.items:
+            for match in TEMPORAL_ORDER_RE.finditer(item.raw_text):
+                src = match.group("source").strip().lower()
+                tgt = match.group("target").strip().lower()
+                if src in _EDGE_STOP_WORDS or tgt in _EDGE_STOP_WORDS:
+                    continue
+                verb = match.group("verb").lower().strip()
+                # Normalize: "A before B" means A → B (A precedes B)
+                # "A after B" / "A follows B" means B → A (B precedes A)
+                if "after" in verb or "follows" in verb:
+                    before, after = tgt, src
+                else:
+                    before, after = src, tgt
+                temporal_edges.append((before, after, verb, item.id))
+
+        # Build temporal adjacency and detect cycles via DFS.
+        temporal_adj: dict[str, set[str]] = {}
+        for before, after, _verb, _item_id in temporal_edges:
+            temporal_adj.setdefault(before, set()).add(after)
+
+        WHITE_T, GRAY_T, BLACK_T = 0, 1, 2
+        t_color: dict[str, int] = {node: WHITE_T for node in temporal_adj}
+        temporal_cycles: list[list[str]] = []
+
+        def _dfs_temporal_cycle(node: str, path: list[str]) -> None:
+            t_color[node] = GRAY_T
+            path.append(node)
+            for neighbor in temporal_adj.get(node, set()):
+                if t_color.get(neighbor, WHITE_T) == GRAY_T:
+                    cycle_start = path.index(neighbor)
+                    temporal_cycles.append(path[cycle_start:] + [neighbor])
+                elif t_color.get(neighbor, WHITE_T) == WHITE_T:
+                    _dfs_temporal_cycle(neighbor, path)
+            path.pop()
+            t_color[node] = BLACK_T
+
+        for node in list(temporal_adj):
+            if t_color[node] == WHITE_T:
+                _dfs_temporal_cycle(node, [])
+
+        # Deduplicate temporal cycles.
+        seen_t_keys: set[tuple[str, ...]] = set()
+        unique_t_cycles: list[list[str]] = []
+        for cycle in temporal_cycles:
+            key = tuple(sorted(cycle))
+            if key not in seen_t_keys:
+                seen_t_keys.add(key)
+                unique_t_cycles.append(cycle)
+
+        # Emit TemporalOrderEdge atoms for each extracted temporal edge.
+        for before, after, verb, item_id in temporal_edges:
+            edge_id = stable_id("temporal-edge", before, after, "precedes", item_id)
+            if edge_id not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        edge_id,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        first_span_id,
+                        facts=[
+                            ("TemporalOrderEdge", edge_id, before, after),
+                        ],
+                    )
+                )
+                existing_ids.add(edge_id)
+
+        temporal_obligation = add_validation_obligation(
+            doc,
+            "information-flow-temporal-impossibility-reviewed",
+            review_id,
+            "Specs that declare explicit temporal ordering between components should not contain impossible cycles (A before B and B before A).",
+            first_span_id,
+        )
+        if not temporal_edges:
+            add_check(doc, temporal_obligation, CheckStatus.PASS, "no explicit temporal ordering statements found")
+        elif not unique_t_cycles:
+            edge_summary = "; ".join(f"{b} before {a}" for b, a, _, _ in temporal_edges)
+            add_check(doc, temporal_obligation, CheckStatus.PASS, f"temporal ordering is consistent (no impossible cycles): {edge_summary}")
+        else:
+            cycle_summaries = [" → ".join(cycle) for cycle in unique_t_cycles]
+            summary = "; ".join(cycle_summaries)
+            add_check(doc, temporal_obligation, CheckStatus.FAIL, f"impossible temporal cycle(s) detected: {summary}")
+            qid = stable_id("question", "information-flow", "information-flow-temporal-impossibility-reviewed", review_id)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        first_span_id,
+                        facts=[
+                            ("MissingInformationFlowEvidence", qid, "information-flow-temporal-impossibility-reviewed"),
+                            ("QuestionText", qid, f"The spec declares temporal ordering that creates an impossible cycle ({summary}). Which ordering constraint is incorrect, or what concurrency/parallelism resolves the apparent contradiction?"),
+                            ("Blocks", qid, temporal_obligation.id),
+                        ],
+                    )
+                )
+                existing_ids.add(qid)
+
     return doc
 
 
