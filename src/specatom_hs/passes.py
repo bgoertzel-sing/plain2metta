@@ -1473,6 +1473,61 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                 )
                 existing_ids.add(qid)
 
+        # --- Isolated component detection ---
+        # Components mentioned with broader data-flow verbs (receives from, feeds
+        # into, flows to, provides to, gets from, pulls from, pushes to) that are
+        # NOT part of the explicit DATA_PATH_EDGE_RE verb set should still appear
+        # in at least one DataFlowEdge.  A component mentioned with these broader
+        # verbs but not connected to any explicit edge may indicate an
+        # underspecified dependency or missing declaration.
+        ISOLATED_COMPONENT_RE = re.compile(
+            r"(?:(?:The|the|A|a|An|an)\s+)?"
+            r"(?P<component>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)"
+            r"\s+(?:receives?\s+\w+\s+from|sends?\s+\w+\s+to"
+            r"|feeds?\s+into|flows?\s+(?:from|to|into)"
+            r"|provides?\s+\w+\s+to|gets?\s+\w+\s+from"
+            r"|pulls?\s+\w+\s+from|pushes?\s+\w+\s+to)\b",
+            re.IGNORECASE,
+        )
+        mentioned_components: set[str] = set()
+        for item in candidate_items:
+            for match in ISOLATED_COMPONENT_RE.finditer(item.raw_text):
+                comp = match.group("component").strip().lower()
+                if comp not in _EDGE_STOP_WORDS and len(comp) > 1:
+                    mentioned_components.add(comp)
+
+        connected_nodes = all_nodes
+        isolated = sorted(mentioned_components - connected_nodes)
+
+        isolated_obligation = add_validation_obligation(
+            doc,
+            "information-flow-isolated-component-reviewed",
+            review_id,
+            "Components mentioned in data-flow context should be connected to at least one declared data-path edge; isolated components may indicate underspecified dependencies.",
+            first_span_id,
+        )
+        if not isolated:
+            add_check(doc, isolated_obligation, CheckStatus.PASS, "all data-flow-mentioned components are connected to at least one edge")
+        else:
+            summary = ", ".join(isolated)
+            add_check(doc, isolated_obligation, CheckStatus.UNKNOWN, f"components mentioned in data-flow context but not connected to any edge: {summary}")
+            qid = stable_id("question", "information-flow", "information-flow-isolated-component-reviewed", review_id)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        first_span_id,
+                        facts=[
+                            ("MissingInformationFlowEvidence", qid, "information-flow-isolated-component-reviewed"),
+                            ("QuestionText", qid, f"Components {summary} are mentioned in data-flow context but not connected to any declared data-path edge. Are there missing dependency declarations or undocumented connections?"),
+                            ("Blocks", qid, isolated_obligation.id),
+                        ],
+                    )
+                )
+                existing_ids.add(qid)
+
     return doc
 
 

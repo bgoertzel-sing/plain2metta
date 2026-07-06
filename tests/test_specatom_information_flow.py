@@ -777,5 +777,76 @@ class InformationFlowValidationTests(unittest.TestCase):
         self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
 
 
+    def test_isolated_component_detected_and_unacknowledged(self):
+        """A component mentioned with broader data-flow verbs but not in any edge triggers Unknown."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n"
+            "- The monitor receives data from the alert system.\n",
+            "isolated-component.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        # 'pipeline' appears in an explicit edge (pipeline reads-from upstream source)
+        # but 'monitor' uses 'receives data from' which is a broader data-flow verb
+        # that does not produce a DataFlowEdge.  So 'monitor' is isolated.
+        isolated_checks = [c for c in doc.checks if c.property == "information-flow-isolated-component-reviewed"]
+        self.assertTrue(len(isolated_checks) >= 1, "isolated component check should exist when edges are present")
+        check = isolated_checks[0]
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertIn("monitor", check.evidence)
+        self.assertTrue(
+            any(
+                ("MissingInformationFlowEvidence", obj.id, "information-flow-isolated-component-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            )
+        )
+
+    def test_isolated_component_passes_when_all_connected(self):
+        """When all data-flow-mentioned components appear in edges, the check passes."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the source.\n"
+            "- The pipeline writes to the sink.\n",
+            "all-connected.plain",
+        )
+
+        isolated_checks = [c for c in doc.checks if c.property == "information-flow-isolated-component-reviewed"]
+        self.assertTrue(len(isolated_checks) >= 1)
+        self.assertEqual(isolated_checks[0].status, CheckStatus.PASS)
+
+    def test_no_isolated_component_check_when_no_edges(self):
+        """When no DataFlowEdge atoms exist, no isolated-component obligation is emitted."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Data flows from one component to another.\n",
+            "no-edges-no-isolated.plain",
+        )
+
+        self.assertFalse(
+            any(c.property == "information-flow-isolated-component-reviewed" for c in doc.checks)
+        )
+
+    def test_isolated_component_atoms_exported_through_petta_profile(self):
+        """Isolated component obligations and questions are exported through the PeTTa reified profile."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n"
+            "- The monitor receives data from the alert system.\n",
+            "isolated-export.plain",
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertTrue(any("information-flow-isolated-component-reviewed" in atom for atom in atoms))
+        self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
+        self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
+
+
 if __name__ == "__main__":
     unittest.main()
