@@ -31,7 +31,7 @@ class PettaProfileGateTests(unittest.TestCase):
     def test_reified_atom_refuses_raw_text_only(self):
         doc = SpecDocument(objects=[obj(SemanticLevel.RAW_TEXT_ONLY)])
         atoms, refusals = emit_reified_atoms(doc)
-        self.assertEqual(atoms, ["(target-profile petta_reified_v0)"])
+        self.assertEqual(atoms, ["(target-profile petta_reified_v0)", "(document-validation-summary document 0 0 0 0)"])
         self.assertEqual(len(refusals), 1)
         self.assertEqual(refusals[0].reason, "unsupported-semantic-level-for-reified-emission")
 

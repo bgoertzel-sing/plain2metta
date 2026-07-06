@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from ..schema import SemanticLevel, SpecDocument, SpecObject
+from ..schema import SemanticLevel, SpecDocument, SpecObject, Role
 from ..validators import FACT_SCHEMAS
 
 SUPPORTED_REIFIED_LEVELS = {
@@ -103,6 +103,14 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
         atoms.append(_atom(["check", check.id, check.property, check.target_id, status_value]))
         atoms.append(_atom(["check-obligation", check.id, check.obligation_id]))
         atoms.append(_atom(["check-evidence", check.id, check.evidence]))
+
+    # Document validation summary: counts by status for quick downstream triage.
+    pass_count = sum(1 for c in doc.checks if hasattr(c.status, "value") and c.status.value == "Pass")
+    fail_count = sum(1 for c in doc.checks if hasattr(c.status, "value") and c.status.value == "Fail")
+    unknown_count = sum(1 for c in doc.checks if hasattr(c.status, "value") and c.status.value == "Unknown")
+    question_count = sum(1 for obj in doc.objects if obj.role == Role.QUESTION_OBJECT)
+    atoms.append(_atom(["document-validation-summary", doc.files[0].id if doc.files else "document", pass_count, fail_count, unknown_count, question_count]))
+
     return atoms, refusals
 
 
@@ -125,9 +133,9 @@ def emit_reified_atoms_grouped(doc: SpecDocument) -> tuple[list[str], list[Backe
     object_prefixes = tuple(
         prefix
         for prefix in {atom.split(" ", 1)[0] for atom in atoms}
-        if prefix not in {"(target-profile", "(plain-file", "(source-span", "(section", "(plain-item", "(derived-from", "(validation-obligation", "(validation-rationale", "(check", "(check-obligation", "(check-evidence"}
+        if prefix not in {"(target-profile", "(plain-file", "(source-span", "(section", "(plain-item", "(derived-from", "(validation-obligation", "(validation-rationale", "(check", "(check-obligation", "(check-evidence", "(document-validation-summary"}
     )
-    validation_prefixes = ("(validation-obligation", "(validation-rationale", "(check", "(check-obligation", "(check-evidence")
+    validation_prefixes = ("(validation-obligation", "(validation-rationale", "(check", "(check-obligation", "(check-evidence", "(document-validation-summary")
 
     add_section("Source Files", [atom for atom in atoms if atom.startswith(source_prefixes)])
     add_section("Sections", [atom for atom in atoms if atom.startswith(section_prefixes)])
