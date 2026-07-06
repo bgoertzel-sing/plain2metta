@@ -1528,6 +1528,83 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                 )
                 existing_ids.add(qid)
 
+        # --- Redundant path detection ---
+        # When multiple distinct paths exist from node A to node B in the
+        # DataFlowEdge graph, this may indicate intentional redundancy (fault
+        # tolerance, backup paths) or accidental duplication.  If the spec text
+        # acknowledges redundancy ("redundant", "backup", "fallback",
+        # "failover", "fault tolerance", "high availability", "duplicate"),
+        # the obligation passes; otherwise it becomes Unknown.
+        REDUNDANCY_ACK_RE = re.compile(
+            r"\b(redundant(?:ly)?|backup|fallback|failover|fault tolerance|"
+            r"high availability|duplicate(?:d)?|resilien(?:t|ce)|replicated?)\b",
+            re.IGNORECASE,
+        )
+
+        def _find_all_paths(adj: dict[str, set[str]], start: str, goal: str, max_depth: int = 6) -> list[list[str]]:
+            """Find all simple paths from start to goal (max_depth hops)."""
+            paths: list[list[str]] = []
+            stack: list[tuple[str, list[str]]] = [(start, [start])]
+            while stack:
+                node, path = stack.pop()
+                if len(path) - 1 >= max_depth:
+                    continue
+                for neighbour in adj.get(node, set()):
+                    if neighbour == goal:
+                        paths.append(path + [neighbour])
+                    elif neighbour not in path:  # simple path: no revisits
+                        stack.append((neighbour, path + [neighbour]))
+            return paths
+
+        redundant_pairs: list[tuple[str, str, int]] = []  # (source, target, path_count)
+        checked_pairs: set[tuple[str, str]] = set()
+        for src in adjacency:
+            for dst in adjacency.get(src, set()):
+                # Check if there's also an indirect path from src to dst
+                # (i.e., a path of length >= 3 that goes through other nodes).
+                indirect_paths = [
+                    p for p in _find_all_paths(adjacency, src, dst, max_depth=6)
+                    if len(p) >= 3  # direct edge is [src, dst] (len 2); indirect is >= 3 (src, mid, ..., dst)
+                ]
+                pair_key = (src, dst)
+                if pair_key in checked_pairs:
+                    continue
+                checked_pairs.add(pair_key)
+                if indirect_paths:
+                    redundant_pairs.append((src, dst, len(indirect_paths)))
+
+        redundant_obligation = add_validation_obligation(
+            doc,
+            "information-flow-redundant-path-reviewed",
+            review_id,
+            "When multiple distinct paths connect the same pair of components in the data-flow graph, the spec should acknowledge whether this is intentional redundancy (fault tolerance, backup) or needs review for accidental duplication.",
+            first_span_id,
+        )
+        if not redundant_pairs:
+            add_check(doc, redundant_obligation, CheckStatus.PASS, "no redundant paths found in the data-flow graph")
+        elif bool(REDUNDANCY_ACK_RE.search(all_text)):
+            pair_summary = "; ".join(f"{s}→{t} ({n} indirect paths)" for s, t, n in redundant_pairs)
+            add_check(doc, redundant_obligation, CheckStatus.PASS, f"redundant paths acknowledged in spec text: {pair_summary}")
+        else:
+            pair_summary = "; ".join(f"{s}→{t} ({n} indirect paths)" for s, t, n in redundant_pairs)
+            add_check(doc, redundant_obligation, CheckStatus.UNKNOWN, f"redundant paths found without acknowledgment: {pair_summary}")
+            qid = stable_id("question", "information-flow", "information-flow-redundant-path-reviewed", review_id)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        first_span_id,
+                        facts=[
+                            ("MissingInformationFlowEvidence", qid, "information-flow-redundant-path-reviewed"),
+                            ("QuestionText", qid, f"Multiple distinct paths exist between components {pair_summary}. Is this intentional redundancy for fault tolerance, or accidental duplication that should be reviewed?"),
+                            ("Blocks", qid, redundant_obligation.id),
+                        ],
+                    )
+                )
+                existing_ids.add(qid)
+
     return doc
 
 

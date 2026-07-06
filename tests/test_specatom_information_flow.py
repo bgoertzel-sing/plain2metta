@@ -847,6 +847,106 @@ class InformationFlowValidationTests(unittest.TestCase):
         self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
         self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
 
+    # --- Redundant path detection tests ---
+
+    def test_redundant_path_detected_and_unacknowledged(self):
+        """When multiple distinct paths exist between the same pair of nodes without acknowledgment, Unknown + blocking question."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The gateway reads from the source.\n"
+            "- The gateway writes to the cache.\n"
+            "- The cache writes to the database.\n"
+            "- The gateway writes to the queue.\n"
+            "- The queue writes to the database.\n"
+            # Direct path: gateway → database (via direct edge? No.)
+            # Actually: gateway → cache → database  (indirect path from gateway to database)
+            # And: gateway → queue → database       (another indirect path from gateway to database)
+            # But we need a DIRECT edge gateway→database too for redundant path.
+            # Let's add it:
+            "- The gateway writes to the database.\n"
+            "- The system depends on data flow.\n",
+            "redundant-unack.plain",
+        )
+
+        redundant_checks = [c for c in doc.checks if c.property == "information-flow-redundant-path-reviewed"]
+        self.assertEqual(len(redundant_checks), 1)
+        self.assertEqual(redundant_checks[0].status, CheckStatus.UNKNOWN)
+        self.assertIn("gateway", redundant_checks[0].evidence)
+        self.assertIn("database", redundant_checks[0].evidence)
+
+        blocking = [
+            obj for obj in doc.objects
+            if obj.role == Role.QUESTION_OBJECT
+            and any(fact == ("MissingInformationFlowEvidence", obj.id, "information-flow-redundant-path-reviewed") for fact in obj.facts)
+        ]
+        self.assertEqual(len(blocking), 1)
+        self.assertTrue(any(fact[0] == "Blocks" for fact in blocking[0].facts))
+
+    def test_redundant_path_acknowledged_passes(self):
+        """When redundant paths exist and the spec acknowledges redundancy, the obligation passes."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The gateway reads from the source.\n"
+            "- The gateway writes to the cache.\n"
+            "- The cache writes to the database.\n"
+            "- The gateway writes to the queue.\n"
+            "- The queue writes to the database.\n"
+            "- The gateway writes to the database.\n"
+            "- The system uses redundant paths for fault tolerance.\n"
+            "- The system depends on data flow.\n",
+            "redundant-ack.plain",
+        )
+
+        redundant_checks = [c for c in doc.checks if c.property == "information-flow-redundant-path-reviewed"]
+        self.assertEqual(len(redundant_checks), 1)
+        self.assertEqual(redundant_checks[0].status, CheckStatus.PASS)
+        self.assertIn("acknowledged", redundant_checks[0].evidence)
+
+    def test_no_redundant_path_when_no_indirect_paths(self):
+        """When no indirect paths exist, the redundant-path obligation passes with 'no redundant paths'."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the source.\n"
+            "- The pipeline writes to the sink.\n",
+            "no-redundant.plain",
+        )
+
+        redundant_checks = [c for c in doc.checks if c.property == "information-flow-redundant-path-reviewed"]
+        self.assertEqual(len(redundant_checks), 1)
+        self.assertEqual(redundant_checks[0].status, CheckStatus.PASS)
+        self.assertIn("no redundant paths", redundant_checks[0].evidence)
+
+    def test_no_redundant_path_check_when_no_edges(self):
+        """When no DataFlowEdge atoms exist, no redundant-path obligation is emitted."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Data flows from one component to another.\n",
+            "no-edges-no-redundant.plain",
+        )
+
+        self.assertFalse(
+            any(c.property == "information-flow-redundant-path-reviewed" for c in doc.checks)
+        )
+
+    def test_redundant_path_atoms_exported_through_petta_profile(self):
+        """Redundant-path obligations and questions are exported through the PeTTa reified profile."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The gateway reads from the source.\n"
+            "- The gateway writes to the cache.\n"
+            "- The cache writes to the database.\n"
+            "- The gateway writes to the queue.\n"
+            "- The queue writes to the database.\n"
+            "- The gateway writes to the database.\n"
+            "- The system depends on data flow.\n",
+            "redundant-export.plain",
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertTrue(any("information-flow-redundant-path-reviewed" in atom for atom in atoms))
+        self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
+        self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
+
 
 if __name__ == "__main__":
     unittest.main()
