@@ -479,6 +479,171 @@ class InformationFlowValidationTests(unittest.TestCase):
             any(c.property == "information-flow-cycle-detected" for c in doc.checks)
         )
 
+    def test_high_fan_out_detected_and_unacknowledged(self):
+        """A component with >=3 outgoing edges triggers fan-out review and produces Unknown without acknowledgement."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The router reads from the cache.\n"
+            "- The router reads from the database.\n"
+            "- The router reads from the queue.\n"
+            "- The router reads from the index.\n",
+            "fan-out-high.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        fan_out_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-fan-out-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(fan_out_check.status, CheckStatus.UNKNOWN)
+        self.assertIn("router", fan_out_check.evidence.lower())
+        self.assertTrue(
+            any(
+                ("MissingInformationFlowEvidence", obj.id, "information-flow-fan-out-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, fan_out_check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            ),
+            "fan-out question not found",
+        )
+
+    def test_high_fan_out_acknowledged_passes(self):
+        """When high fan-out exists and the spec acknowledges it (e.g. 'bottleneck'), the check passes."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The router reads from the cache.\n"
+            "- The router reads from the database.\n"
+            "- The router reads from the queue.\n"
+            "- The router is a known bottleneck with failover.\n",
+            "fan-out-ack.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        fan_out_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-fan-out-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(fan_out_check.status, CheckStatus.PASS)
+        self.assertIn("acknowledged", fan_out_check.evidence.lower())
+
+    def test_low_fan_out_passes(self):
+        """Components with <3 outgoing edges do not trigger fan-out review."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the cache.\n"
+            "- The pipeline writes to the sink.\n",
+            "fan-out-low.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        fan_out_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-fan-out-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(fan_out_check.status, CheckStatus.PASS)
+        self.assertIn("no components", fan_out_check.evidence.lower())
+
+    def test_high_fan_in_detected_and_unacknowledged(self):
+        """A component with >=3 incoming edges triggers fan-in review and produces Unknown without acknowledgement."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The alpha writes to the database.\n"
+            "- The beta writes to the database.\n"
+            "- The gamma writes to the database.\n"
+            "- The delta writes to the database.\n",
+            "fan-in-high.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        fan_in_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-fan-in-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(fan_in_check.status, CheckStatus.UNKNOWN)
+        self.assertIn("database", fan_in_check.evidence.lower())
+        self.assertTrue(
+            any(
+                ("MissingInformationFlowEvidence", obj.id, "information-flow-fan-in-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, fan_in_check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            ),
+            "fan-in question not found",
+        )
+
+    def test_high_fan_in_acknowledged_passes(self):
+        """When high fan-in exists and the spec acknowledges it (e.g. 'critical dependency'), the check passes."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The alpha writes to the database.\n"
+            "- The beta writes to the database.\n"
+            "- The gamma writes to the database.\n"
+            "- The database is a critical shared dependency with redundancy.\n",
+            "fan-in-ack.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        fan_in_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-fan-in-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(fan_in_check.status, CheckStatus.PASS)
+        self.assertIn("acknowledged", fan_in_check.evidence.lower())
+
+    def test_fan_out_and_fan_in_atoms_exported_through_petta_profile(self):
+        """MissingInformationFlowEvidence atoms for fan-out and fan-in are exported through the PeTTa reified profile."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The router reads from the cache.\n"
+            "- The router reads from the database.\n"
+            "- The router reads from the queue.\n"
+            "- The alpha writes to the sink.\n"
+            "- The beta writes to the sink.\n"
+            "- The gamma writes to the sink.\n",
+            "fan-export.plain",
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertTrue(any("information-flow-fan-out-reviewed" in atom for atom in atoms))
+        self.assertTrue(any("information-flow-fan-in-reviewed" in atom for atom in atoms))
+        self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
+        self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
+
+    def test_no_fan_review_when_no_edges(self):
+        """Specs without data-flow edges do not create fan-out or fan-in obligations."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The system should be fast.\n",
+            "fan-no-edges.plain",
+        )
+
+        self.assertFalse(
+            any(c.property == "information-flow-fan-out-reviewed" for c in doc.checks)
+        )
+        self.assertFalse(
+            any(c.property == "information-flow-fan-in-reviewed" for c in doc.checks)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

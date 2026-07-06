@@ -1297,6 +1297,93 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
             )
             existing_ids.add(qid)
 
+    # --- Fan-out / fan-in concentration detection ---
+    # When a component has many outgoing edges (high fan-out) it is a potential
+    # bottleneck or single-point-of-failure.  When a component has many incoming
+    # edges (high fan-in) it is a critical shared dependency.  Both situations
+    # deserve explicit review; specs that don't acknowledge the concentration
+    # produce Unknown blocking questions.
+    FAN_THRESHOLD = 3  # minimum degree to trigger concentration review
+    FAN_ACK_RE = re.compile(
+        r"\b(fan[- ]?out|fan[- ]?in|bottleneck|single point of failure|spof|"
+        r"critical (?:dependency|component|path)|shared dependency|"
+        r"hotspot|hot[- ]?spot|concentration|coupled|tight(?:ly)? coupled)\b",
+        re.IGNORECASE,
+    )
+
+    out_degree: dict[str, int] = {}
+    in_degree: dict[str, int] = {}
+    for source, target, _direction, _item_id in edges:
+        out_degree[source] = out_degree.get(source, 0) + 1
+        in_degree[target] = in_degree.get(target, 0) + 1
+
+    high_fan_out = sorted(node for node, deg in out_degree.items() if deg >= FAN_THRESHOLD)
+    high_fan_in = sorted(node for node, deg in in_degree.items() if deg >= FAN_THRESHOLD)
+
+    fan_out_obligation = add_validation_obligation(
+        doc,
+        "information-flow-fan-out-reviewed",
+        review_id,
+        "Components with high fan-out (many downstream dependents) are potential bottlenecks or single-points-of-failure and should be reviewed.",
+        first_span_id,
+    )
+    if not high_fan_out:
+        add_check(doc, fan_out_obligation, CheckStatus.PASS, f"no components with fan-out >= {FAN_THRESHOLD}")
+    elif FAN_ACK_RE.search(all_text):
+        summary = ", ".join(f"{node} ({out_degree[node]})" for node in high_fan_out)
+        add_check(doc, fan_out_obligation, CheckStatus.PASS, f"high fan-out acknowledged in source text: {summary}")
+    else:
+        summary = ", ".join(f"{node} ({out_degree[node]})" for node in high_fan_out)
+        add_check(doc, fan_out_obligation, CheckStatus.UNKNOWN, f"high fan-out detected but not acknowledged: {summary}")
+        qid = stable_id("question", "information-flow", "information-flow-fan-out-reviewed", review_id)
+        if qid not in existing_ids:
+            doc.objects.append(
+                SpecObject(
+                    qid,
+                    Role.QUESTION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    first_span_id,
+                    facts=[
+                        ("MissingInformationFlowEvidence", qid, "information-flow-fan-out-reviewed"),
+                        ("QuestionText", qid, f"The following components have high fan-out ({summary}). Are these bottlenecks or single-points-of-failure intended? What failover, scaling, or decoupling strategy mitigates the concentration?"),
+                        ("Blocks", qid, fan_out_obligation.id),
+                    ],
+                )
+            )
+            existing_ids.add(qid)
+
+    fan_in_obligation = add_validation_obligation(
+        doc,
+        "information-flow-fan-in-reviewed",
+        review_id,
+        "Components with high fan-in (many upstream dependencies) are critical shared dependencies and should be reviewed.",
+        first_span_id,
+    )
+    if not high_fan_in:
+        add_check(doc, fan_in_obligation, CheckStatus.PASS, f"no components with fan-in >= {FAN_THRESHOLD}")
+    elif FAN_ACK_RE.search(all_text):
+        summary = ", ".join(f"{node} ({in_degree[node]})" for node in high_fan_in)
+        add_check(doc, fan_in_obligation, CheckStatus.PASS, f"high fan-in acknowledged in source text: {summary}")
+    else:
+        summary = ", ".join(f"{node} ({in_degree[node]})" for node in high_fan_in)
+        add_check(doc, fan_in_obligation, CheckStatus.UNKNOWN, f"high fan-in detected but not acknowledged: {summary}")
+        qid = stable_id("question", "information-flow", "information-flow-fan-in-reviewed", review_id)
+        if qid not in existing_ids:
+            doc.objects.append(
+                SpecObject(
+                    qid,
+                    Role.QUESTION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    first_span_id,
+                    facts=[
+                        ("MissingInformationFlowEvidence", qid, "information-flow-fan-in-reviewed"),
+                        ("QuestionText", qid, f"The following components have high fan-in ({summary}). Are these critical shared dependencies intended? What redundancy, versioning, or isolation strategy mitigates the concentration?"),
+                        ("Blocks", qid, fan_in_obligation.id),
+                    ],
+                )
+            )
+            existing_ids.add(qid)
+
     return doc
 
 
