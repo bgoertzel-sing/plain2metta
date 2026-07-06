@@ -1384,6 +1384,95 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
             )
             existing_ids.add(qid)
 
+    # --- Source/sink identification and reachability analysis ---
+    # Source nodes have no incoming edges; sink nodes have no outgoing edges.
+    # All components should be reachable from at least one source and able to
+    # reach at least one sink.  Unreachable nodes or dead-end nodes may indicate
+    # missing dependencies or dead code.
+    if edges:
+        all_targets: set[str] = set()
+        for tgts in adjacency.values():
+            all_targets.update(tgts)
+        all_nodes: set[str] = set(adjacency.keys()) | all_targets
+
+        sources = sorted(adjacency.keys() - all_targets)
+        sinks = sorted(n for n in all_nodes if not adjacency.get(n))
+
+        source_sink_obligation = add_validation_obligation(
+            doc,
+            "information-flow-source-sink-identified",
+            review_id,
+            "Data-flow graphs should have identifiable source and sink nodes; missing sources or sinks may indicate missing dependencies or dead-end components.",
+            first_span_id,
+        )
+        if sources and sinks:
+            add_check(doc, source_sink_obligation, CheckStatus.PASS, f"sources: {', '.join(sources)}; sinks: {', '.join(sinks)}")
+        else:
+            evidence_parts = []
+            if not sources:
+                evidence_parts.append("no source nodes (all components have incoming edges)")
+            if not sinks:
+                evidence_parts.append("no sink nodes (all components have outgoing edges)")
+            add_check(doc, source_sink_obligation, CheckStatus.UNKNOWN, "; ".join(evidence_parts))
+            qid = stable_id("question", "information-flow", "information-flow-source-sink-identified", review_id)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        first_span_id,
+                        facts=[
+                            ("MissingInformationFlowEvidence", qid, "information-flow-source-sink-identified"),
+                            ("QuestionText", qid, "The data-flow graph has no identifiable source or sink nodes. Are there missing dependencies or circular flows that should be broken?"),
+                            ("Blocks", qid, source_sink_obligation.id),
+                        ],
+                    )
+                )
+                existing_ids.add(qid)
+
+        # Reachability: BFS from all sources; check every node is reachable.
+        visited_from_sources: set[str] = set()
+        if sources:
+            queue = list(sources)
+            visited_from_sources = set(sources)
+            while queue:
+                node = queue.pop(0)
+                for neighbor in adjacency.get(node, set()):
+                    if neighbor not in visited_from_sources:
+                        visited_from_sources.add(neighbor)
+                        queue.append(neighbor)
+        unreachable = sorted(all_nodes - visited_from_sources)
+
+        reachability_obligation = add_validation_obligation(
+            doc,
+            "information-flow-reachability-reviewed",
+            review_id,
+            "All components in the data-flow graph should be reachable from at least one source node; unreachable components may indicate missing dependencies.",
+            first_span_id,
+        )
+        if not unreachable:
+            add_check(doc, reachability_obligation, CheckStatus.PASS, "all components reachable from source nodes")
+        else:
+            summary = ", ".join(unreachable)
+            add_check(doc, reachability_obligation, CheckStatus.UNKNOWN, f"unreachable components: {summary}")
+            qid = stable_id("question", "information-flow", "information-flow-reachability-reviewed", review_id)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        first_span_id,
+                        facts=[
+                            ("MissingInformationFlowEvidence", qid, "information-flow-reachability-reviewed"),
+                            ("QuestionText", qid, f"Components {summary} are not reachable from any source node. Are there missing dependencies or undocumented inputs?"),
+                            ("Blocks", qid, reachability_obligation.id),
+                        ],
+                    )
+                )
+                existing_ids.add(qid)
+
     return doc
 
 

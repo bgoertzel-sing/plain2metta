@@ -644,6 +644,138 @@ class InformationFlowValidationTests(unittest.TestCase):
             any(c.property == "information-flow-fan-in-reviewed" for c in doc.checks)
         )
 
+    def test_source_sink_identified_with_dag(self):
+        """A DAG with clear source and sink nodes passes the source-sink identification check."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n"
+            "- The pipeline writes to the downstream sink.\n",
+            "source-sink-dag.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-source-sink-identified" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.PASS)
+        self.assertIn("upstream source", check.evidence)
+        self.assertIn("downstream sink", check.evidence)
+
+    def test_source_sink_unknown_when_all_nodes_have_incoming_edges(self):
+        """When every node has incoming edges (e.g. a pure cycle), source-sink identification is Unknown."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Component A reads from component B.\n"
+            "- Component B writes to component A.\n",
+            "source-sink-cycle.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-source-sink-identified" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertTrue(
+            any(
+                ("MissingInformationFlowEvidence", obj.id, "information-flow-source-sink-identified") in obj.facts
+                and any(fact == ("Blocks", obj.id, check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            ),
+            "source-sink question not found",
+        )
+
+    def test_reachability_passes_when_all_nodes_reachable(self):
+        """When all nodes are reachable from source nodes, reachability check passes."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the cache.\n"
+            "- The cache reads from the database.\n",
+            "reachability-ok.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-reachability-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.PASS)
+        self.assertIn("reachable", check.evidence.lower())
+
+    def test_reachability_unknown_when_unreachable_nodes_exist(self):
+        """When nodes exist but no source nodes are found (e.g. pure cycle), reachability check is Unknown."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Component A reads from component B.\n"
+            "- Component B writes to component A.\n",
+            "reachability-gap.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-reachability-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertIn("unreachable", check.evidence.lower())
+        self.assertTrue(
+            any(
+                ("MissingInformationFlowEvidence", obj.id, "information-flow-reachability-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            ),
+            "reachability question not found",
+        )
+
+    def test_no_source_sink_or_reachability_when_no_edges(self):
+        """Specs without data-flow edges do not create source-sink or reachability obligations."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The system should be fast.\n",
+            "no-source-sink.plain",
+        )
+
+        self.assertFalse(
+            any(c.property == "information-flow-source-sink-identified" for c in doc.checks)
+        )
+        self.assertFalse(
+            any(c.property == "information-flow-reachability-reviewed" for c in doc.checks)
+        )
+
+    def test_source_sink_and_reachability_atoms_exported_through_petta_profile(self):
+        """Source-sink and reachability obligations and questions are exported through the PeTTa reified profile."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Component A reads from component B.\n"
+            "- Component B writes to component A.\n",
+            "source-sink-export.plain",
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertTrue(any("information-flow-source-sink-identified" in atom for atom in atoms))
+        self.assertTrue(any("information-flow-reachability-reviewed" in atom for atom in atoms))
+        self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
+        self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
+
 
 if __name__ == "__main__":
     unittest.main()
