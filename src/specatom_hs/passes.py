@@ -1384,6 +1384,55 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
             )
             existing_ids.add(qid)
 
+    # --- Bottleneck node detection (high fan-in AND high fan-out) ---
+    # A component that is both a high fan-in node (many upstream dependencies)
+    # and a high fan-out node (many downstream dependents) is a critical
+    # bottleneck: failure or slowdown affects many downstream consumers while
+    # also depending on many upstream sources.  This cross-dimension check is
+    # stronger than fan-out or fan-in alone and deserves explicit review.
+    BOTTLENECK_ACK_RE = re.compile(
+        r"\b(bottleneck|single point of failure|spof|"
+        r"critical (?:dependency|component|path|node)|"
+        r"hotspot|hot[- ]?spot|choke[- ]?point|overloaded|"
+        r"capacity[- ]?constrained?|throughput[- ]?limit)\b",
+        re.IGNORECASE,
+    )
+    bottleneck_nodes = sorted(
+        node for node in high_fan_out if node in set(high_fan_in)
+    )
+
+    bottleneck_obligation = add_validation_obligation(
+        doc,
+        "information-flow-bottleneck-node-reviewed",
+        review_id,
+        "Components that are both high fan-in and high fan-out nodes are critical bottlenecks whose failure or slowdown affects many downstream consumers while depending on many upstream sources.",
+        first_span_id,
+    )
+    if not bottleneck_nodes:
+        add_check(doc, bottleneck_obligation, CheckStatus.PASS, "no bottleneck nodes (high fan-in AND high fan-out) detected")
+    elif BOTTLENECK_ACK_RE.search(all_text):
+        summary = ", ".join(f"{node} (in={in_degree[node]}, out={out_degree[node]})" for node in bottleneck_nodes)
+        add_check(doc, bottleneck_obligation, CheckStatus.PASS, f"bottleneck nodes acknowledged in source text: {summary}")
+    else:
+        summary = ", ".join(f"{node} (in={in_degree[node]}, out={out_degree[node]})" for node in bottleneck_nodes)
+        add_check(doc, bottleneck_obligation, CheckStatus.UNKNOWN, f"bottleneck nodes (high fan-in AND high fan-out) detected but not acknowledged: {summary}")
+        qid = stable_id("question", "information-flow", "information-flow-bottleneck-node-reviewed", review_id)
+        if qid not in existing_ids:
+            doc.objects.append(
+                SpecObject(
+                    qid,
+                    Role.QUESTION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    first_span_id,
+                    facts=[
+                        ("MissingInformationFlowEvidence", qid, "information-flow-bottleneck-node-reviewed"),
+                        ("QuestionText", qid, f"The following components are both high fan-in and high fan-out ({summary}). Are these bottlenecks intended? What capacity planning, load shedding, autoscaling, circuit breaking, or redundancy strategy mitigates the bottleneck risk?"),
+                        ("Blocks", qid, bottleneck_obligation.id),
+                    ],
+                )
+            )
+            existing_ids.add(qid)
+
     # --- Source/sink identification and reachability analysis ---
     # Source nodes have no incoming edges; sink nodes have no outgoing edges.
     # All components should be reachable from at least one source and able to

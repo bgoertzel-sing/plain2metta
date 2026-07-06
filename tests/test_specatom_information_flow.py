@@ -644,6 +644,95 @@ class InformationFlowValidationTests(unittest.TestCase):
             any(c.property == "information-flow-fan-in-reviewed" for c in doc.checks)
         )
 
+    def test_bottleneck_node_detected_and_unacknowledged(self):
+        """A component with high fan-in AND high fan-out that is not acknowledged produces an Unknown blocking question."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The hub reads from the alpha.\n"
+            "- The hub reads from the beta.\n"
+            "- The hub reads from the gamma.\n"
+            "- The delta writes to the hub.\n"
+            "- The epsilon writes to the hub.\n"
+            "- The zeta writes to the hub.\n",
+            "bottleneck.plain",
+        )
+
+        bottleneck_checks = [c for c in doc.checks if c.property == "information-flow-bottleneck-node-reviewed"]
+        self.assertEqual(len(bottleneck_checks), 1)
+        self.assertEqual(bottleneck_checks[0].status, CheckStatus.UNKNOWN)
+        self.assertIn("hub", bottleneck_checks[0].evidence)
+        self.assertIn("in=3", bottleneck_checks[0].evidence)
+        self.assertIn("out=3", bottleneck_checks[0].evidence)
+
+        questions = [o for o in doc.objects if o.role == Role.QUESTION_OBJECT]
+        bottleneck_questions = [q for q in questions if any(f[0] == "MissingInformationFlowEvidence" and "bottleneck" in str(f[2]) for f in q.facts)]
+        self.assertEqual(len(bottleneck_questions), 1)
+        self.assertTrue(any(f[0] == "Blocks" for f in bottleneck_questions[0].facts))
+
+    def test_bottleneck_node_acknowledged_passes(self):
+        """A bottleneck component acknowledged with bottleneck/SPoF wording passes."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The hub reads from the alpha.\n"
+            "- The hub reads from the beta.\n"
+            "- The hub reads from the gamma.\n"
+            "- The delta writes to the hub.\n"
+            "- The epsilon writes to the hub.\n"
+            "- The zeta writes to the hub.\n"
+            "- The hub is a known bottleneck and single point of failure with redundancy.\n",
+            "bottleneck-ack.plain",
+        )
+
+        bottleneck_checks = [c for c in doc.checks if c.property == "information-flow-bottleneck-node-reviewed"]
+        self.assertEqual(len(bottleneck_checks), 1)
+        self.assertEqual(bottleneck_checks[0].status, CheckStatus.PASS)
+        self.assertIn("hub", bottleneck_checks[0].evidence)
+
+    def test_no_bottleneck_when_only_high_fan_out(self):
+        """A component with high fan-out but low fan-in is not a bottleneck node."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The source writes to the alpha.\n"
+            "- The source writes to the beta.\n"
+            "- The source writes to the gamma.\n",
+            "fan-out-only.plain",
+        )
+
+        bottleneck_checks = [c for c in doc.checks if c.property == "information-flow-bottleneck-node-reviewed"]
+        self.assertEqual(len(bottleneck_checks), 1)
+        self.assertEqual(bottleneck_checks[0].status, CheckStatus.PASS)
+        self.assertIn("no bottleneck nodes", bottleneck_checks[0].evidence)
+
+    def test_no_bottleneck_check_when_no_edges(self):
+        """Specs without data-flow edges do not create bottleneck obligations."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The system should be fast.\n",
+            "bottleneck-no-edges.plain",
+        )
+
+        self.assertFalse(
+            any(c.property == "information-flow-bottleneck-node-reviewed" for c in doc.checks)
+        )
+
+    def test_bottleneck_atoms_exported_through_petta_profile(self):
+        """MissingInformationFlowEvidence atoms for bottleneck are exported through the PeTTa reified profile."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The hub reads from the alpha.\n"
+            "- The hub reads from the beta.\n"
+            "- The hub reads from the gamma.\n"
+            "- The delta writes to the hub.\n"
+            "- The epsilon writes to the hub.\n"
+            "- The zeta writes to the hub.\n",
+            "bottleneck-export.plain",
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertTrue(any("information-flow-bottleneck-node-reviewed" in atom for atom in atoms))
+        self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") and "bottleneck" in atom for atom in atoms))
+        self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
+
     def test_source_sink_identified_with_dag(self):
         """A DAG with clear source and sink nodes passes the source-sink identification check."""
         doc = compile_source(
