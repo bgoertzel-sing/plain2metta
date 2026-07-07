@@ -1762,6 +1762,69 @@ class InformationFlowValidationTests(unittest.TestCase):
         # parts = ["information-flow-graph-summary", file_id, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         self.assertEqual(parts[2:], [0, 0, 0, 0, 0, 0, 0, 0, 0], "all graph stats should be zero")
 
+    def test_duplicate_edge_detected_and_unacknowledged(self):
+        """Repeated declarations of the same edge trigger an Unknown blocking question without acknowledgment."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The service reads from the cache.\n"
+            "- The service reads from the cache.\n",
+            "duplicate-edge-unack.plain",
+        )
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+        duplicate_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-duplicate-edge-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(duplicate_check.status, CheckStatus.UNKNOWN)
+        self.assertIn("service reads-from cache (2 declarations)", duplicate_check.evidence)
+        self.assertTrue(
+            any(
+                ("MissingInformationFlowEvidence", obj.id, "information-flow-duplicate-edge-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, duplicate_check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            ),
+            "duplicate edge question not found",
+        )
+
+    def test_duplicate_edge_acknowledged_passes(self):
+        """Repeated edges pass when the source text says the duplication is intentional."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The service reads from the cache.\n"
+            "- The service reads from the cache.\n"
+            "- These duplicate declarations describe the same data path intentionally.\n",
+            "duplicate-edge-ack.plain",
+        )
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+        duplicate_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-duplicate-edge-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(duplicate_check.status, CheckStatus.PASS)
+        self.assertIn("service reads-from cache (2 declarations)", duplicate_check.evidence)
+
+    def test_duplicate_edge_atoms_exported_through_petta_profile(self):
+        """The duplicate-edge obligation/check export through the PeTTa reified profile."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The service reads from the cache.\n"
+            "- The service reads from the cache.\n",
+            "duplicate-edge-export.plain",
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertTrue(
+            any("information-flow-duplicate-edge-reviewed" in atom for atom in atoms),
+            "duplicate edge obligation should be in reified atoms",
+        )
+        self.assertFalse(any("duplicate-edge" in refusal.reason for refusal in refusals))
+
     def test_bidirectional_edge_detected_and_unacknowledged(self):
         """A→B and B→A edges trigger an Unknown blocking question without acknowledgment."""
         doc = compile_source(

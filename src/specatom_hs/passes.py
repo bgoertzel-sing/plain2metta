@@ -1217,6 +1217,54 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
             )
             existing_ids.add(qid)
 
+    # --- Duplicate/parallel edge detection ---
+    # Repeated declarations of the same normalized source→target edge may be
+    # intentional emphasis, but can also indicate copy/paste ambiguity or
+    # multiple unsynchronized versions of the same data path.  Keep this as a
+    # conservative review obligation instead of deduplicating the evidence away.
+    DUPLICATE_EDGE_ACK_RE = re.compile(
+        r"\b(duplicate(?:d)?|repeated|parallel|same edge|same data path|"
+        r"multiple declarations|intentionally repeated|canonical data path)\b",
+        re.IGNORECASE,
+    )
+    edge_counts: dict[tuple[str, str, str], int] = {}
+    for source, target, direction, _item_id, _span_id in edges:
+        key = (source, target, direction)
+        edge_counts[key] = edge_counts.get(key, 0) + 1
+    duplicate_edges = sorted((source, target, direction, count) for (source, target, direction), count in edge_counts.items() if count > 1)
+
+    duplicate_edge_obligation = add_validation_obligation(
+        doc,
+        "information-flow-duplicate-edge-reviewed",
+        review_id,
+        "Specs with repeated declarations of the same component-level data-path edge should state whether the duplication is intentional or should be consolidated.",
+        first_span_id,
+    )
+    if not duplicate_edges:
+        add_check(doc, duplicate_edge_obligation, CheckStatus.PASS, "no duplicate component-level data-path edges detected")
+    elif DUPLICATE_EDGE_ACK_RE.search(all_text):
+        summary = "; ".join(f"{s} {d} {t} ({n} declarations)" for s, t, d, n in duplicate_edges)
+        add_check(doc, duplicate_edge_obligation, CheckStatus.PASS, f"duplicate data-path declarations acknowledged in source text: {summary}")
+    else:
+        summary = "; ".join(f"{s} {d} {t} ({n} declarations)" for s, t, d, n in duplicate_edges)
+        add_check(doc, duplicate_edge_obligation, CheckStatus.UNKNOWN, f"duplicate data-path declarations detected but not acknowledged: {summary}")
+        qid = stable_id("question", "information-flow", "information-flow-duplicate-edge-reviewed", review_id)
+        if qid not in existing_ids:
+            doc.objects.append(
+                SpecObject(
+                    qid,
+                    Role.QUESTION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    first_span_id,
+                    facts=[
+                        ("MissingInformationFlowEvidence", qid, "information-flow-duplicate-edge-reviewed"),
+                        ("QuestionText", qid, f"The same component-level data-path edge is declared multiple times ({summary}). Is this intentional repetition, a parallel channel, or should the declarations be consolidated?"),
+                        ("Blocks", qid, duplicate_edge_obligation.id),
+                    ],
+                )
+            )
+            existing_ids.add(qid)
+
     # --- Self-dependency detection ---
     # A direct edge from a component to itself is a degenerate one-node cycle.
     # Flag it separately from the broader graph cycle detector so reviewers get
