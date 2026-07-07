@@ -37,6 +37,11 @@ class Role(str, Enum):
     VALIDATION_OBJECT = "ValidationObject"
     BACKEND_ARTIFACT = "BackendArtifact"
     QUESTION_OBJECT = "QuestionObject"
+    SCOPE_OBJECT = "ScopeObject"
+    EPISTEMIC_STATUS_OBJECT = "EpistemicStatusObject"
+    EVIDENCE_OBJECT = "EvidenceObject"
+    INTERPRETATION_OBJECT = "InterpretationObject"
+    BRIDGE_OBJECT = "BridgeObject"
 
 
 class CheckStatus(str, Enum):

@@ -2,106 +2,73 @@ import unittest
 
 from specatom_hs.backends.petta import emit_reified_atoms
 from specatom_hs.passes import compile_source
-from specatom_hs.schema import CheckStatus, Role, SemanticLevel
+from specatom_hs.schema import CheckStatus, Role
 
 
 class SemanticObjectTests(unittest.TestCase):
-    def test_proposition_extraction_with_typed_predicate_and_concept_link(self):
+    def test_explicit_semantic_objects_are_created_with_provenance(self):
         doc = compile_source(
-            "***definitions***\n"
-            "- :Task: is tracked work.\n"
             "***requirements***\n"
-            "- [id:R1] The :Task: is a workflow item.\n"
+            "- [id:R1] User login works. Scope: authenticated browser users. "
+            "Evidence: product requirement R1. "
+            "Interpretation: login means credential verification succeeds. "
+            "Epistemic status: observed. Bridge: SUMO.Authentication as related.\n"
             "***acceptance tests***\n"
-            "- [covers:R1] A task can be shown.\n",
-            "proposition.plain",
+            "- [covers:R1] Login succeeds for a valid user.\n",
+            "semantic.plain",
         )
+        roles = {obj.role for obj in doc.objects}
+        self.assertIn(Role.SCOPE_OBJECT, roles)
+        self.assertIn(Role.EPISTEMIC_STATUS_OBJECT, roles)
+        self.assertIn(Role.EVIDENCE_OBJECT, roles)
+        self.assertIn(Role.INTERPRETATION_OBJECT, roles)
+        self.assertIn(Role.BRIDGE_OBJECT, roles)
 
-        prop = next(obj for obj in doc.objects if obj.role == Role.PROPOSITION_OBJECT)
-        self.assertEqual(prop.semantic_level, SemanticLevel.PREDICATE_PARSED)
-        self.assertIn(("PropositionPredicate", prop.id, "is-a"), prop.facts)
-        self.assertIn(("PropositionSubject", prop.id, "Task"), prop.facts)
-        self.assertTrue(any(fact[0] == "GeneratedFrom" and fact[2].startswith("req-") for fact in prop.facts))
-        self.assertTrue(any(fact[0] == "RefersToConcept" for fact in prop.facts))
-        self.assertTrue(any(c.property == "proposition-has-typed-predicate" and c.target_id == prop.id and c.status == CheckStatus.PASS for c in doc.checks))
-        self.assertTrue(any(c.property == "provisional-semantic-link-reviewed" and c.target_id == prop.id and c.status == CheckStatus.PASS for c in doc.checks))
+        for role in [Role.SCOPE_OBJECT, Role.EPISTEMIC_STATUS_OBJECT, Role.EVIDENCE_OBJECT, Role.INTERPRETATION_OBJECT, Role.BRIDGE_OBJECT]:
+            obj = next(obj for obj in doc.objects if obj.role == role)
+            self.assertIsNotNone(obj.source_span_id)
+            self.assertTrue(any(fact[0] == "SourceItem" for fact in obj.facts))
 
-    def test_action_template_extraction(self):
+        interpretation = next(obj for obj in doc.objects if obj.role == Role.INTERPRETATION_OBJECT)
+        self.assertTrue(any(fact[0] == "InterpretationEvidence" for fact in interpretation.facts))
+        self.assertTrue(any(check.property == "interpretation-has-explicit-evidence" and check.status == CheckStatus.PASS for check in doc.checks))
+        self.assertTrue(any(check.property == "bridge-profile-supported" and check.status == CheckStatus.PASS for check in doc.checks))
+
+    def test_incomplete_semantic_support_becomes_unknown_questions(self):
         doc = compile_source(
-            "***definitions***\n"
-            "- :System: is the service boundary.\n"
             "***requirements***\n"
-            "- [id:R2] The :System: shall store audit events.\n"
+            "- [id:R2] Export data. Interpretation: export means sending all records. "
+            "Epistemic status: speculative. Bridge: external.SomeOntology as identical.\n"
             "***acceptance tests***\n"
-            "- [covers:R2] Audit events are stored.\n",
-            "action.plain",
+            "- [covers:R2] Export job completes.\n",
+            "semantic_unknown.plain",
         )
+        checks = {(check.property, check.status, check.evidence) for check in doc.checks}
+        self.assertTrue(any(prop == "interpretation-has-explicit-evidence" and status == CheckStatus.UNKNOWN for prop, status, _ in checks))
+        self.assertTrue(any(prop == "epistemic-status-supported" and status == CheckStatus.UNKNOWN for prop, status, evidence in checks if "speculative" in evidence))
+        self.assertTrue(any(prop == "bridge-profile-supported" and status == CheckStatus.UNKNOWN for prop, status, evidence in checks if "external" in evidence))
+        question_predicates = {fact[0] for obj in doc.objects if obj.role == Role.QUESTION_OBJECT for fact in obj.facts}
+        self.assertIn("MissingInterpretationEvidence", question_predicates)
+        self.assertIn("UnsupportedEpistemicStatus", question_predicates)
+        self.assertIn("UnsupportedBridgeOntology", question_predicates)
 
-        action = next(obj for obj in doc.objects if obj.role == Role.ACTION_TEMPLATE)
-        self.assertEqual(action.semantic_level, SemanticLevel.ACTION_SCHEMA_PARSED)
-        self.assertIn(("ActionSubject", action.id, "System"), action.facts)
-        self.assertIn(("ActionVerb", action.id, "store"), action.facts)
-        self.assertIn(("ActionObject", action.id, "audit events"), action.facts)
-        self.assertTrue(any(c.property == "action-template-has-verb" and c.target_id == action.id and c.status == CheckStatus.PASS for c in doc.checks))
-
-    def test_marker_raw_proposition_gets_unknown_predicate_obligation(self):
+    def test_petta_profile_exports_supported_semantic_facts(self):
         doc = compile_source(
             "***requirements***\n"
-            "- [id:R3] Proposition: reliability maybe.\n"
+            "- [id:R3] Store audit events. Scope: audit administrators. Evidence: audit policy. "
+            "Interpretation: audit events are review records. Bridge: EXPO.ValidationExperiment via analogy.\n"
             "***acceptance tests***\n"
-            "- [covers:R3] Review exists.\n",
-            "raw-proposition.plain",
-        )
-
-        prop = next(obj for obj in doc.objects if obj.role == Role.PROPOSITION_OBJECT)
-        self.assertEqual(prop.semantic_level, SemanticLevel.TEMPLATE_PARSED)
-        self.assertFalse(any(fact[0] == "PropositionPredicate" for fact in prop.facts))
-        self.assertTrue(any(c.property == "proposition-has-typed-predicate" and c.target_id == prop.id and c.status == CheckStatus.UNKNOWN for c in doc.checks))
-
-    def test_unresolved_concept_reference_gets_review_unknown(self):
-        doc = compile_source(
-            "***requirements***\n"
-            "- [id:R6] The :MissingThing: is a workflow item.\n"
-            "***acceptance tests***\n"
-            "- [covers:R6] Review exists.\n",
-            "unresolved-semantic-link.plain",
-        )
-
-        prop = next(obj for obj in doc.objects if obj.role == Role.PROPOSITION_OBJECT)
-        self.assertTrue(any(fact == ("UnresolvedSemanticConcept", prop.id, "missingthing") for fact in prop.facts))
-        self.assertTrue(any(c.property == "provisional-semantic-link-reviewed" and c.target_id == prop.id and c.status == CheckStatus.UNKNOWN for c in doc.checks))
-
-    def test_marker_raw_action_gets_unknown_verb_obligation(self):
-        doc = compile_source(
-            "***requirements***\n"
-            "- [id:R5] Action: TBD after architecture review.\n"
-            "***acceptance tests***\n"
-            "- [covers:R5] Review exists.\n",
-            "raw-action.plain",
-        )
-
-        action = next(obj for obj in doc.objects if obj.role == Role.ACTION_TEMPLATE)
-        self.assertEqual(action.semantic_level, SemanticLevel.TEMPLATE_PARSED)
-        self.assertFalse(any(fact[0] == "ActionVerb" for fact in action.facts))
-        self.assertTrue(any(c.property == "action-template-has-verb" and c.target_id == action.id and c.status == CheckStatus.UNKNOWN for c in doc.checks))
-
-    def test_petta_exports_phase2_semantic_facts(self):
-        doc = compile_source(
-            "***definitions***\n"
-            "- :Component: is a deployable unit.\n"
-            "***requirements***\n"
-            "- [id:R6] The :Component: must validate input. The :Component: has property isolated.\n"
-            "***acceptance tests***\n"
-            "- [covers:R6] Invalid input is rejected.\n",
-            "petta-semantic.plain",
+            "- [covers:R3] Audit events can be queried.\n",
+            "semantic_petta.plain",
         )
         atoms, refusals = emit_reified_atoms(doc)
         joined = "\n".join(atoms)
-        self.assertIn("(Proposition ", joined)
-        self.assertIn("(PropositionPredicate ", joined)
-        self.assertIn("(ActionTemplate ", joined)
-        self.assertIn("(ActionVerb ", joined)
-        self.assertFalse(any("Proposition" in r.reason or "Action" in r.reason for r in refusals))
+        self.assertIn("(Scope ", joined)
+        self.assertIn("(Evidence ", joined)
+        self.assertIn("(Interpretation ", joined)
+        self.assertIn("(Bridge ", joined)
+        self.assertIn(" bridge-profile-supported ", joined)
+        self.assertFalse(any("Scope" in refusal.reason or "Evidence" in refusal.reason or "Bridge" in refusal.reason for refusal in refusals))
 
 
 if __name__ == "__main__":

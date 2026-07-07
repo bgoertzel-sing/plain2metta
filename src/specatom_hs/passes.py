@@ -2624,7 +2624,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
-    PassSpec("build-semantic-objects", "Create Phase 2 proposition and action-template semantic objects.", build_semantic_objects),
+    PassSpec("build-semantic-objects", "Create explicit Phase 2 Scope/Epistemic/Evidence/Interpretation/Bridge objects.", build_semantic_objects),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),
