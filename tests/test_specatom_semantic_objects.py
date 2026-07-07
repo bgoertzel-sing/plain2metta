@@ -38,7 +38,7 @@ class SemanticObjectTests(unittest.TestCase):
         doc = compile_source(
             "***requirements***\n"
             "- [id:R2] Export data. Interpretation: export means sending all records. "
-            "Epistemic status: speculative. Bridge: external.SomeOntology as identical.\n"
+            "Epistemic status: speculative. Bridge: OpenCog.AtomSpace as identical.\n"
             "***acceptance tests***\n"
             "- [covers:R2] Export job completes.\n",
             "semantic_unknown.plain",
@@ -46,11 +46,32 @@ class SemanticObjectTests(unittest.TestCase):
         checks = {(check.property, check.status, check.evidence) for check in doc.checks}
         self.assertTrue(any(prop == "interpretation-has-explicit-evidence" and status == CheckStatus.UNKNOWN for prop, status, _ in checks))
         self.assertTrue(any(prop == "epistemic-status-supported" and status == CheckStatus.UNKNOWN for prop, status, evidence in checks if "speculative" in evidence))
-        self.assertTrue(any(prop == "bridge-profile-supported" and status == CheckStatus.UNKNOWN for prop, status, evidence in checks if "external" in evidence))
+        self.assertTrue(any(prop == "bridge-profile-supported" and status == CheckStatus.UNKNOWN for prop, status, evidence in checks if "opencog" in evidence))
         question_predicates = {fact[0] for obj in doc.objects if obj.role == Role.QUESTION_OBJECT for fact in obj.facts}
         self.assertIn("MissingInterpretationEvidence", question_predicates)
         self.assertIn("UnsupportedEpistemicStatus", question_predicates)
         self.assertIn("UnsupportedBridgeOntology", question_predicates)
+
+    def test_arbitrary_unsupported_bridge_ontology_still_becomes_reviewable_object(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R6] Export atoms. Evidence: design note. Bridge: OpenCog.AtomSpace as analogy.\n"
+            "***acceptance tests***\n"
+            "- [covers:R6] Atom export completes.\n",
+            "semantic_bridge_unknown.plain",
+        )
+        bridge = next(obj for obj in doc.objects if obj.role == Role.BRIDGE_OBJECT)
+        bridge_facts = {fact[0]: fact for fact in bridge.facts}
+
+        self.assertEqual(bridge_facts["BridgeOntology"][2], "opencog")
+        self.assertEqual(bridge_facts["BridgeTarget"][2], "AtomSpace")
+        self.assertTrue(any(check.property == "bridge-profile-supported" and check.status == CheckStatus.UNKNOWN for check in doc.checks))
+        self.assertTrue(
+            any(
+                obj.role == Role.QUESTION_OBJECT and any(fact == ("UnsupportedBridgeOntology", obj.id, "opencog") for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
 
     def test_petta_profile_exports_supported_semantic_facts(self):
         doc = compile_source(

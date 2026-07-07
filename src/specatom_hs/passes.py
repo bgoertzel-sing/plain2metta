@@ -713,7 +713,7 @@ SUPPORTED_EPISTEMIC_STATUSES = {"observed", "assumed", "hypothesis", "derived", 
 EVIDENCE_RE = re.compile(r"\bevidence\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 INTERPRETATION_RE = re.compile(r"\binterpretation\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 BRIDGE_RE = re.compile(
-    r"\bbridge\s*:\s*(?P<ontology>sumo|expo|hyperseed|external)\s*[:.]\s*(?P<target>[A-Za-z0-9_.-]+)(?:\s+(?:as|via|relation)\s+(?P<relation>[A-Za-z0-9_-]+))?",
+    r"\bbridge\s*:\s*(?P<ontology>[A-Za-z][A-Za-z0-9_-]*)\s*[:.]\s*(?P<target>[A-Za-z0-9_.-]+)(?:\s+(?:as|via|relation)\s+(?P<relation>[A-Za-z0-9_-]+))?",
     re.IGNORECASE,
 )
 SUPPORTED_BRIDGE_ONTOLOGIES = {"sumo", "expo", "hyperseed"}
