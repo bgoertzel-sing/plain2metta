@@ -725,17 +725,40 @@ def _line_for_source_offset(doc: SpecDocument, file_id: str, byte_offset: int) -
 
 
 def _raw_match_span(doc: SpecDocument, item, match_start: int, match_end: int) -> str:
-    """Create/reuse an exact SourceSpan for a regex match in item.raw_text."""
+    """Create/reuse an exact SourceSpan for a regex match in item.raw_text.
+
+    ``PlainItem.raw_text`` omits bullet markers and normalizes continuation
+    indentation, so source spans must be aligned by raw-text indices rather than
+    by searching for the matched string.  Searching is ambiguous when an item has
+    repeated markers such as two ``Evidence: ...`` clauses.
+    """
     file_text = next(plain_file.text for plain_file in doc.files if plain_file.id == item.file_id)
     segment = file_text[item.span.start_byte:item.span.end_byte]
-    needle = item.raw_text[match_start:match_end]
-    relative = segment.find(needle)
-    if relative < 0:
-        start = item.span.start_byte
-        end = item.span.end_byte
-    else:
-        start = item.span.start_byte + relative
-        end = start + len(needle)
+
+    def raw_index_to_source_offset(raw_index: int) -> int:
+        cursor = 0
+        at_line_start = True
+        for offset, ch in enumerate(segment):
+            if at_line_start:
+                if ch.isspace() and ch != "\n":
+                    continue
+                if ch == "-":
+                    continue
+                if ch == " ":
+                    continue
+                at_line_start = False
+            if cursor == raw_index:
+                return item.span.start_byte + offset
+            if cursor < len(item.raw_text) and ch == item.raw_text[cursor]:
+                cursor += 1
+            if ch == "\n":
+                at_line_start = True
+        if cursor == raw_index:
+            return item.span.end_byte
+        raise ValueError(f"could not align raw index {raw_index} for item {item.id}")
+
+    start = raw_index_to_source_offset(match_start)
+    end = raw_index_to_source_offset(match_end)
     span_id = stable_id("span", item.file_id, start, end)
     if span_id not in {span.id for span in doc.spans}:
         doc.spans.append(

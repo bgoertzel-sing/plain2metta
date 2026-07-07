@@ -70,6 +70,41 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn(" bridge-profile-supported ", joined)
         self.assertFalse(any("Scope" in refusal.reason or "Evidence" in refusal.reason or "Bridge" in refusal.reason for refusal in refusals))
 
+    def test_semantic_marker_spans_follow_repeated_raw_text_occurrences(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R4] Explain release gate. Evidence: release checklist. "
+            "Evidence: QA signoff. Interpretation: release gate means checklist plus signoff.\n"
+            "***acceptance tests***\n"
+            "- [covers:R4] Release gate rejects missing signoff.\n"
+        )
+        doc = compile_source(source, "semantic_repeated.plain")
+        file_text = doc.files[0].text
+        evidence_slices = []
+        for obj in doc.objects:
+            if obj.role != Role.EVIDENCE_OBJECT:
+                continue
+            span = next(span for span in doc.spans if span.id == obj.source_span_id)
+            evidence_slices.append(file_text[span.start_byte:span.end_byte])
+
+        self.assertEqual(evidence_slices, ["Evidence: release checklist", "Evidence: QA signoff"])
+
+    def test_semantic_marker_spans_align_on_continuation_lines(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R5] Explain delayed review.\n"
+            "  Evidence: second-line review note. Interpretation: delayed review is explicit.\n"
+            "***acceptance tests***\n"
+            "- [covers:R5] Review note appears.\n"
+        )
+        doc = compile_source(source, "semantic_continuation.plain")
+        file_text = doc.files[0].text
+        evidence = next(obj for obj in doc.objects if obj.role == Role.EVIDENCE_OBJECT)
+        span = next(span for span in doc.spans if span.id == evidence.source_span_id)
+
+        self.assertEqual(file_text[span.start_byte:span.end_byte], "Evidence: second-line review note")
+        self.assertEqual(span.start_line, 3)
+
 
 if __name__ == "__main__":
     unittest.main()
