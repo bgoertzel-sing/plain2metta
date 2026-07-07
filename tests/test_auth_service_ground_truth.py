@@ -215,6 +215,40 @@ class AuthSvcGroundTruthTests(unittest.TestCase):
             self.assertIsInstance(check.status, CheckStatus,
                 f"Check {check.id} has non-enum status: {check.status}")
 
+    def test_information_flow_graph_summary_emitted(self):
+        """The PeTTa reified export must include an information-flow-graph-summary atom."""
+        summary_atoms = [a for a in self.atoms if a.startswith("(information-flow-graph-summary")]
+        self.assertEqual(len(summary_atoms), 1, "exactly one information-flow-graph-summary atom expected")
+
+    def test_information_flow_graph_summary_counts_match_graph(self):
+        """Graph summary counts must match the actual DataFlowEdge/TemporalOrderEdge atoms."""
+        summary_atom = next(a for a in self.atoms if a.startswith("(information-flow-graph-summary"))
+        parts = self._parse_summary_atom(summary_atom)
+        # parts = ["information-flow-graph-summary", file_id, nodes, edges, temporal_edges, sources, sinks, cycles, components, max_depth, bottlenecks]
+        self.assertEqual(len(parts), 11, f"expected 11 parts, got {parts}")
+
+        # Recompute from doc objects to verify.
+        data_edges = []
+        temporal_edges = []
+        nodes = set()
+        for obj in self.doc.objects:
+            for fact in obj.facts:
+                if not fact or len(fact) < 2:
+                    continue
+                pred = str(fact[0])
+                if pred == "DataFlowEdge" and len(fact) == 5:
+                    data_edges.append((str(fact[2]), str(fact[3])))
+                    nodes.add(str(fact[2]))
+                    nodes.add(str(fact[3]))
+                elif pred == "TemporalOrderEdge" and len(fact) == 4:
+                    temporal_edges.append((str(fact[2]), str(fact[3])))
+                    nodes.add(str(fact[2]))
+                    nodes.add(str(fact[3]))
+
+        self.assertEqual(parts[2], len(nodes), "node count mismatch")
+        self.assertEqual(parts[3], len(data_edges), "edge count mismatch")
+        self.assertEqual(parts[4], len(temporal_edges), "temporal edge count mismatch")
+
     def test_all_objects_have_known_semantic_levels(self):
         """Every object must have a declared SemanticLevel."""
         known_levels = {level for level in SemanticLevel}

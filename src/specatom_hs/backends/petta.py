@@ -66,6 +66,132 @@ def _profile_fact_refusal(obj: SpecObject, fact: tuple) -> BackendRefusal | None
     return None
 
 
+def _compute_information_flow_summary(doc: SpecDocument) -> dict[str, int]:
+    """Compute quick graph stats from DataFlowEdge and TemporalOrderEdge facts."""
+    data_edges: list[tuple[str, str, str]] = []  # (source, target, direction)
+    temporal_edges: list[tuple[str, str]] = []  # (source, target)
+
+    for obj in doc.objects:
+        for fact in obj.facts:
+            if not fact or len(fact) < 2:
+                continue
+            predicate = str(fact[0])
+            if predicate == "DataFlowEdge" and len(fact) == 5:
+                # (DataFlowEdge, edge_id, source, target, direction)
+                data_edges.append((str(fact[2]), str(fact[3]), str(fact[4])))
+            elif predicate == "TemporalOrderEdge" and len(fact) == 4:
+                # (TemporalOrderEdge, edge_id, before, after)
+                temporal_edges.append((str(fact[2]), str(fact[3])))
+
+    nodes: set[str] = set()
+    for src, tgt, _ in data_edges:
+        nodes.add(src)
+        nodes.add(tgt)
+    for src, tgt in temporal_edges:
+        nodes.add(src)
+        nodes.add(tgt)
+
+    # Adjacency for cycle/component detection
+    adj: dict[str, set[str]] = {n: set() for n in nodes}
+    for src, tgt, _ in data_edges:
+        adj.setdefault(src, set()).add(tgt)
+        adj.setdefault(tgt, set())
+
+    # Undirected adjacency for connected components
+    undirected: dict[str, set[str]] = {n: set() for n in nodes}
+    for src, tgt, _ in data_edges:
+        undirected.setdefault(src, set()).add(tgt)
+        undirected.setdefault(tgt, set()).add(src)
+
+    # Source/sink from directed graph
+    all_targets = {tgt for _, tgt, _ in data_edges}
+    all_sources = {src for src, _, _ in data_edges}
+    source_nodes = {n for n in nodes if n not in all_targets} if nodes else set()
+    sink_nodes = {n for n in nodes if n not in all_sources} if nodes else set()
+
+    # Cycle detection (DFS white/gray/black)
+    WHITE, GRAY, BLACK = 0, 1, 2
+    color = {n: WHITE for n in nodes}
+    cycle_count = 0
+
+    def _dfs_cycle(start: str) -> None:
+        nonlocal cycle_count
+        stack: list[tuple[str, int]] = [(start, 0)]
+        color[start] = GRAY
+        while stack:
+            node, idx = stack[-1]
+            neighbors = sorted(adj.get(node, set()))
+            if idx < len(neighbors):
+                stack[-1] = (node, idx + 1)
+                nb = neighbors[idx]
+                if color.get(nb, WHITE) == GRAY:
+                    cycle_count += 1
+                elif color.get(nb, WHITE) == WHITE:
+                    color[nb] = GRAY
+                    stack.append((nb, 0))
+            else:
+                stack.pop()
+                color[node] = BLACK
+
+    for n in sorted(nodes):
+        if color.get(n, WHITE) == WHITE:
+            _dfs_cycle(n)
+
+    # Connected components (undirected BFS)
+    visited: set[str] = set()
+    component_count = 0
+    for n in sorted(nodes):
+        if n in visited:
+            continue
+        component_count += 1
+        queue = [n]
+        visited.add(n)
+        while queue:
+            current = queue.pop(0)
+            for nb in sorted(undirected.get(current, set())):
+                if nb not in visited:
+                    visited.add(nb)
+                    queue.append(nb)
+
+    # Max depth (longest path in DAG if acyclic)
+    max_depth = 0
+    if cycle_count == 0 and nodes:
+        in_degree = {n: 0 for n in nodes}
+        for src, tgt, _ in data_edges:
+            in_degree[tgt] = in_degree.get(tgt, 0) + 1
+        topo_order: list[str] = [n for n in sorted(nodes) if in_degree.get(n, 0) == 0]
+        depth = {n: 0 for n in nodes}
+        queue = list(topo_order)
+        while queue:
+            current = queue.pop(0)
+            for nb in sorted(adj.get(current, set())):
+                depth[nb] = max(depth.get(nb, 0), depth.get(current, 0) + 1)
+                max_depth = max(max_depth, depth[nb])
+                in_degree[nb] -= 1
+                if in_degree[nb] == 0:
+                    queue.append(nb)
+
+    # Bottleneck nodes (high fan-in AND high fan-out, >=3 each)
+    in_count: dict[str, int] = {}
+    out_count: dict[str, int] = {}
+    for src, tgt, _ in data_edges:
+        out_count[src] = out_count.get(src, 0) + 1
+        in_count[tgt] = in_count.get(tgt, 0) + 1
+    bottleneck_count = sum(1 for n in nodes if in_count.get(n, 0) >= 3 and out_count.get(n, 0) >= 3)
+
+    return {
+        "node_count": len(nodes),
+        "edge_count": len(data_edges),
+        "temporal_edge_count": len(temporal_edges),
+        "source_count": len(source_nodes),
+        "sink_count": len(sink_nodes),
+        "cycle_count": cycle_count,
+        "component_count": component_count,
+        "max_depth": max_depth,
+        "bottleneck_count": bottleneck_count,
+    }
+
+
 def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusal]]:
     atoms = [_atom(["target-profile", "petta_reified_v0"])]
     refusals: list[BackendRefusal] = []
@@ -111,6 +237,15 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
     question_count = sum(1 for obj in doc.objects if obj.role == Role.QUESTION_OBJECT)
     atoms.append(_atom(["document-validation-summary", doc.files[0].id if doc.files else "document", pass_count, fail_count, unknown_count, question_count]))
 
+    # Information-flow graph summary: quick stats from DataFlowEdge/TemporalOrderEdge atoms.
+    graph_summary = _compute_information_flow_summary(doc)
+    atoms.append(_atom(["information-flow-graph-summary", doc.files[0].id if doc.files else "document",
+                         graph_summary["node_count"], graph_summary["edge_count"],
+                         graph_summary["temporal_edge_count"], graph_summary["source_count"],
+                         graph_summary["sink_count"], graph_summary["cycle_count"],
+                         graph_summary["component_count"], graph_summary["max_depth"],
+                         graph_summary["bottleneck_count"]]))
+
     return atoms, refusals
 
 
@@ -133,9 +268,9 @@ def emit_reified_atoms_grouped(doc: SpecDocument) -> tuple[list[str], list[Backe
     object_prefixes = tuple(
         prefix
         for prefix in {atom.split(" ", 1)[0] for atom in atoms}
-        if prefix not in {"(target-profile", "(plain-file", "(source-span", "(section", "(plain-item", "(derived-from", "(validation-obligation", "(validation-rationale", "(check", "(check-obligation", "(check-evidence", "(document-validation-summary"}
+        if prefix not in {"(target-profile", "(plain-file", "(source-span", "(section", "(plain-item", "(derived-from", "(validation-obligation", "(validation-rationale", "(check", "(check-obligation", "(check-evidence", "(document-validation-summary", "(information-flow-graph-summary"}
     )
-    validation_prefixes = ("(validation-obligation", "(validation-rationale", "(check", "(check-obligation", "(check-evidence", "(document-validation-summary")
+    validation_prefixes = ("(validation-obligation", "(validation-rationale", "(check", "(check-obligation", "(check-evidence", "(document-validation-summary", "(information-flow-graph-summary")
 
     add_section("Source Files", [atom for atom in atoms if atom.startswith(source_prefixes)])
     add_section("Sections", [atom for atom in atoms if atom.startswith(section_prefixes)])

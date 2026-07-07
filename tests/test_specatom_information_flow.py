@@ -1566,5 +1566,61 @@ class InformationFlowValidationTests(unittest.TestCase):
         )
 
 
+    def test_information_flow_graph_summary_matches_ground_truth(self):
+        """The information-flow-graph-summary atom must reflect the actual graph structure."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n"
+            "- The cache reads from the database.\n"
+            "- The pipeline writes to the downstream sink.\n",
+            "graph-summary.plain",
+        )
+        atoms, _ = emit_reified_atoms(doc)
+
+        summary_atom = next(a for a in atoms if a.startswith("(information-flow-graph-summary"))
+        # Parse the atom parts.
+        inner = summary_atom.strip()
+        if inner.startswith("(") and inner.endswith(")"):
+            inner = inner[1:-1]
+        import re as _re
+        tokens = _re.findall(r'"[^"]*"|\S+', inner)
+        parts = []
+        for t in tokens:
+            try:
+                parts.append(int(t))
+            except ValueError:
+                parts.append(t)
+
+        # parts = ["information-flow-graph-summary", file_id, nodes, edges, temporal_edges, sources, sinks, cycles, components, max_depth, bottlenecks]
+        self.assertEqual(len(parts), 11, f"expected 11 parts, got {parts}")
+
+        # Edges: pipeline→upstream_source (reads-from), cache→database (reads-from),
+        # pipeline→downstream_sink (writes-to). 4 distinct nodes, 3 edges, 0 temporal edges.
+        self.assertEqual(parts[2], 5, "node count")  # pipeline, upstream source, cache, database, downstream sink
+        self.assertEqual(parts[3], 3, "edge count")
+        self.assertEqual(parts[4], 0, "temporal edge count")
+        self.assertEqual(parts[7], 0, "cycles")
+        self.assertEqual(parts[10], 0, "bottlenecks")
+
+    def test_information_flow_graph_summary_empty_doc(self):
+        """An empty document should produce a zero-stats graph summary."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The system should be user-friendly.\n",
+            "no-graph.plain",
+        )
+        atoms, _ = emit_reified_atoms(doc)
+        summary_atom = next(a for a in atoms if a.startswith("(information-flow-graph-summary"))
+        # All stats should be zero.
+        import re as _re
+        inner = summary_atom.strip()
+        if inner.startswith("(") and inner.endswith(")"):
+            inner = inner[1:-1]
+        tokens = _re.findall(r'"[^"]*"|\S+', inner)
+        parts = [int(t) if t.isdigit() else t for t in tokens]
+        # parts = ["information-flow-graph-summary", file_id, 0, 0, 0, 0, 0, 0, 0, 0, 0]
+        self.assertEqual(parts[2:], [0, 0, 0, 0, 0, 0, 0, 0, 0], "all graph stats should be zero")
+
+
 if __name__ == "__main__":
     unittest.main()
