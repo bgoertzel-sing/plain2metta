@@ -1526,6 +1526,54 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                 )
                 existing_ids.add(qid)
 
+        # Sink reachability: reverse BFS from sinks; check every node can reach at least one sink.
+        reverse_adjacency: dict[str, set[str]] = {node: set() for node in all_nodes}
+        for source, targets in adjacency.items():
+            for target in targets:
+                reverse_adjacency.setdefault(target, set()).add(source)
+                reverse_adjacency.setdefault(source, set())
+
+        visited_to_sinks: set[str] = set()
+        if sinks:
+            queue = list(sinks)
+            visited_to_sinks = set(sinks)
+            while queue:
+                node = queue.pop(0)
+                for predecessor in reverse_adjacency.get(node, set()):
+                    if predecessor not in visited_to_sinks:
+                        visited_to_sinks.add(predecessor)
+                        queue.append(predecessor)
+        no_sink_path = sorted(all_nodes - visited_to_sinks)
+
+        sink_reachability_obligation = add_validation_obligation(
+            doc,
+            "information-flow-sink-reachability-reviewed",
+            review_id,
+            "All components in the data-flow graph should be able to reach at least one sink node; components with no sink path may indicate trapped cycles, dead-end processing, or missing outputs.",
+            first_span_id,
+        )
+        if not no_sink_path:
+            add_check(doc, sink_reachability_obligation, CheckStatus.PASS, "all components can reach at least one sink node")
+        else:
+            summary = ", ".join(no_sink_path)
+            add_check(doc, sink_reachability_obligation, CheckStatus.UNKNOWN, f"components with no path to a sink: {summary}")
+            qid = stable_id("question", "information-flow", "information-flow-sink-reachability-reviewed", review_id)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        first_span_id,
+                        facts=[
+                            ("MissingInformationFlowEvidence", qid, "information-flow-sink-reachability-reviewed"),
+                            ("QuestionText", qid, f"Components {summary} cannot reach any sink node. Are these trapped cycles/dead ends intentional, or are output/dependency declarations missing?"),
+                            ("Blocks", qid, sink_reachability_obligation.id),
+                        ],
+                    )
+                )
+                existing_ids.add(qid)
+
         # --- Isolated component detection ---
         # Components mentioned with broader data-flow verbs (receives from, feeds
         # into, flows to, provides to, gets from, pulls from, pushes to) that are
