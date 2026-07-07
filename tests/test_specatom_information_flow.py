@@ -1580,17 +1580,19 @@ class InformationFlowValidationTests(unittest.TestCase):
             "The service writes to the database",
         )
 
-    def test_temporal_order_edge_has_item_level_source_provenance(self):
-        """Each TemporalOrderEdge object should cite the source span of the specific item where the edge was found."""
+    def test_temporal_order_edge_has_exact_source_provenance(self):
+        """Each TemporalOrderEdge object should cite the exact matched ordering phrase where possible."""
         doc = compile_source(
             "***functional specifications***\n"
             "- The pipeline reads from the source.\n"
-            "- The service runs before the database.\n",
+            "- Note: the service runs before the database, then records metrics.\n",
             "temporal-provenance.plain",
         )
         item_by_text = {item.raw_text: item for item in doc.items}
         pipeline_item = item_by_text["The pipeline reads from the source."]
-        service_item = item_by_text["The service runs before the database."]
+        temporal_item = item_by_text["Note: the service runs before the database, then records metrics."]
+        span_by_id = {span.id: span for span in doc.spans}
+        text_by_file = {plain_file.id: plain_file.text for plain_file in doc.files}
 
         temporal_edges = [
             obj for obj in doc.objects
@@ -1606,10 +1608,14 @@ class InformationFlowValidationTests(unittest.TestCase):
             self.assertEqual(len(provenance_checks), 1)
             self.assertEqual(provenance_checks[0].status, CheckStatus.PASS)
 
-        # Verify per-item span assignment.
-        # "service runs before database" -> service before database
+        # Verify exact phrase span assignment, not merely whole-item provenance.
         edge_obj = temporal_edges[0]
-        self.assertEqual(edge_obj.source_span_id, service_item.span.id)
+        self.assertNotEqual(edge_obj.source_span_id, temporal_item.span.id)
+        temporal_span = span_by_id[edge_obj.source_span_id]
+        self.assertEqual(
+            text_by_file[temporal_span.file_id][temporal_span.start_byte:temporal_span.end_byte],
+            "the service runs before the database",
+        )
 
         # Also verify the DataFlowEdge has exact, item-contained provenance.
         data_edges = [

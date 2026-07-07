@@ -1935,7 +1935,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
             r"(?P<target>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)",
             re.IGNORECASE,
         )
-        temporal_edges: list[tuple[str, str, str, str]] = []  # (before, after, verb, item_id)
+        temporal_edges: list[tuple[str, str, str, str, str]] = []  # (before, after, verb, item_id, span_id)
         for item in doc.items:
             for match in TEMPORAL_ORDER_RE.finditer(item.raw_text):
                 src = match.group("source").strip().lower()
@@ -1949,11 +1949,11 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                     before, after = tgt, src
                 else:
                     before, after = src, tgt
-                temporal_edges.append((before, after, verb, item.id))
+                temporal_edges.append((before, after, verb, item.id, exact_match_span(item, match.start(), match.end())))
 
         # Build temporal adjacency and detect cycles via DFS.
         temporal_adj: dict[str, set[str]] = {}
-        for before, after, _verb, _item_id in temporal_edges:
+        for before, after, _verb, _item_id, _span_id in temporal_edges:
             temporal_adj.setdefault(before, set()).add(after)
 
         WHITE_T, GRAY_T, BLACK_T = 0, 1, 2
@@ -1986,10 +1986,12 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                 unique_t_cycles.append(cycle)
 
         # Emit TemporalOrderEdge atoms for each extracted temporal edge.
-        for before, after, verb, item_id in temporal_edges:
+        # Each temporal edge cites the exact matched ordering phrase so temporal
+        # contradictions can be reviewed against the precise source text, not
+        # only the containing Plain item.
+        for before, after, verb, item_id, edge_span_id in temporal_edges:
             edge_id = stable_id("temporal-edge", before, after, "precedes", item_id)
             if edge_id not in existing_ids:
-                edge_span_id = item_by_id[item_id].span.id if item_id in item_by_id else first_span_id
                 doc.objects.append(
                     SpecObject(
                         edge_id,
@@ -2013,7 +2015,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
         if not temporal_edges:
             add_check(doc, temporal_obligation, CheckStatus.PASS, "no explicit temporal ordering statements found")
         elif not unique_t_cycles:
-            edge_summary = "; ".join(f"{b} before {a}" for b, a, _, _ in temporal_edges)
+            edge_summary = "; ".join(f"{b} before {a}" for b, a, _, _, _ in temporal_edges)
             add_check(doc, temporal_obligation, CheckStatus.PASS, f"temporal ordering is consistent (no impossible cycles): {edge_summary}")
         else:
             cycle_summaries = [" → ".join(cycle) for cycle in unique_t_cycles]
@@ -2044,7 +2046,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
         if edges and temporal_edges:
             # Build a set of (before, after) pairs from temporal edges.
             temporal_pairs: set[tuple[str, str]] = set()
-            for before, after, _verb, _item_id in temporal_edges:
+            for before, after, _verb, _item_id, _span_id in temporal_edges:
                 temporal_pairs.add((before, after))
 
             contradictions: list[tuple[str, str, str, str]] = []  # (data_src, data_tgt, temp_before, temp_after)
