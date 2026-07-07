@@ -82,6 +82,17 @@ FACT_SCHEMAS = {
     "MissingInformationFlowEvidence": FactSchema(3),
     "Blocks": FactSchema(3, obligation_refs=(2,)),
     "GeneratedFrom": FactSchema(3, object_refs=(2,)),
+    "Proposition": FactSchema(2),
+    "PropositionText": FactSchema(3),
+    "PropositionSubject": FactSchema(3),
+    "PropositionPredicate": FactSchema(3),
+    "PropositionObjectText": FactSchema(3),
+    "ActionTemplate": FactSchema(2),
+    "ActionText": FactSchema(3),
+    "ActionSubject": FactSchema(3),
+    "ActionVerb": FactSchema(3),
+    "ActionObject": FactSchema(3),
+    "UnresolvedSemanticConcept": FactSchema(3),
 }
 
 

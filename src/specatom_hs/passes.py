@@ -705,6 +705,177 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
     return doc
 
 
+
+# --- Phase 2 semantic-object slice ---
+SCOPE_RE = re.compile(r"\b(?:scope|context)\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
+EPISTEMIC_RE = re.compile(r"\b(?:epistemic(?: status)?|status)\s*:\s*(?P<status>[A-Za-z][A-Za-z -]{1,40})", re.IGNORECASE)
+SUPPORTED_EPISTEMIC_STATUSES = {"observed", "assumed", "hypothesis", "derived", "verified", "rejected", "unknown"}
+EVIDENCE_RE = re.compile(r"\bevidence\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
+INTERPRETATION_RE = re.compile(r"\binterpretation\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
+BRIDGE_RE = re.compile(
+    r"\bbridge\s*:\s*(?P<ontology>sumo|expo|hyperseed|external)\s*[:.]\s*(?P<target>[A-Za-z0-9_.-]+)(?:\s+(?:as|via|relation)\s+(?P<relation>[A-Za-z0-9_-]+))?",
+    re.IGNORECASE,
+)
+SUPPORTED_BRIDGE_ONTOLOGIES = {"sumo", "expo", "hyperseed"}
+
+
+def _line_for_source_offset(doc: SpecDocument, file_id: str, byte_offset: int) -> int:
+    text = next(plain_file.text for plain_file in doc.files if plain_file.id == file_id)
+    return text.count("\n", 0, byte_offset) + 1
+
+
+def _raw_match_span(doc: SpecDocument, item, match_start: int, match_end: int) -> str:
+    """Create/reuse an exact SourceSpan for a regex match in item.raw_text."""
+    file_text = next(plain_file.text for plain_file in doc.files if plain_file.id == item.file_id)
+    segment = file_text[item.span.start_byte:item.span.end_byte]
+    needle = item.raw_text[match_start:match_end]
+    relative = segment.find(needle)
+    if relative < 0:
+        start = item.span.start_byte
+        end = item.span.end_byte
+    else:
+        start = item.span.start_byte + relative
+        end = start + len(needle)
+    span_id = stable_id("span", item.file_id, start, end)
+    if span_id not in {span.id for span in doc.spans}:
+        doc.spans.append(
+            SourceSpan(
+                span_id,
+                item.file_id,
+                start,
+                end,
+                _line_for_source_offset(doc, item.file_id, start),
+                _line_for_source_offset(doc, item.file_id, max(start, end - 1)),
+            )
+        )
+    return span_id
+
+
+def _nearest_semantic_target(doc: SpecDocument, item_id: str) -> str | None:
+    candidates = [
+        stable_id("req", item_id),
+        stable_id("test", item_id),
+        stable_id("iflow-review", "document"),
+        stable_id("ml-methodology-review", "document"),
+        stable_id("security-privacy-review", "document"),
+        stable_id("obj", item_id),
+    ]
+    object_ids = {obj.id for obj in doc.objects}
+    return next((candidate for candidate in candidates if candidate in object_ids), None)
+
+
+def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
+    """Extract a conservative first slice of Phase 2 semantic objects.
+
+    Only explicit markers create semantic objects. Incomplete support remains
+    Unknown/question-bearing; no executable behavior or ontology identity is
+    inferred from ordinary prose.
+    """
+    existing_ids = {obj.id for obj in doc.objects}
+    evidence_by_item: dict[str, list[str]] = {}
+    interpretation_by_item: dict[str, list[str]] = {}
+
+    for item in doc.items:
+        target_id = _nearest_semantic_target(doc, item.id)
+        if not target_id:
+            continue
+        raw = item.raw_text
+
+        for match in SCOPE_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip()
+            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            oid = stable_id("scope", item.id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.SCOPE_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Scope", oid, target_id), ("ScopeText", oid, text), ("ScopedObject", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "scope-has-source-provenance", oid, "Every explicit Scope object must preserve exact source provenance and name its scoped target.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"scope applies to {target_id}")
+
+        for match in EPISTEMIC_RE.finditer(raw):
+            status = re.sub(r"\s+", "-", match.group("status").strip().lower())
+            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            oid = stable_id("epistemic", item.id, target_id, status)
+            if oid not in existing_ids:
+                doc.objects.append(SpecObject(oid, Role.EPISTEMIC_STATUS_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("EpistemicStatus", oid, status), ("GeneratedFrom", oid, target_id), ("SourceItem", oid, item.id)]))
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "epistemic-status-supported", oid, "Epistemic status labels must remain within the current conservative scaffold vocabulary.", span_id)
+            if status in SUPPORTED_EPISTEMIC_STATUSES:
+                add_check(doc, obligation, CheckStatus.PASS, status)
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"unsupported epistemic status: {status}")
+                qid = stable_id("question", "unsupported-epistemic-status", oid, status)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("UnsupportedEpistemicStatus", qid, status), ("QuestionText", qid, f"Map epistemic status '{status}' to the conservative scaffold vocabulary or keep it as a profile gap."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in EVIDENCE_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip()
+            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            oid = stable_id("evidence", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(SpecObject(oid, Role.EVIDENCE_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("Evidence", oid, target_id), ("EvidenceText", oid, text), ("EvidenceSupports", oid, target_id), ("SourceItem", oid, item.id)]))
+                existing_ids.add(oid)
+            evidence_by_item.setdefault(item.id, []).append(oid)
+            obligation = add_validation_obligation(doc, "evidence-has-source-provenance", oid, "Evidence objects must cite explicit source text and the object they support.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"evidence supports {target_id}")
+
+        for match in INTERPRETATION_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip()
+            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            oid = stable_id("interp", item.id, target_id, text)
+            if oid not in existing_ids:
+                facts = [("Interpretation", oid, target_id), ("InterpretationText", oid, text), ("InterpretationOf", oid, target_id), ("SourceItem", oid, item.id)]
+                doc.objects.append(SpecObject(oid, Role.INTERPRETATION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=facts))
+                existing_ids.add(oid)
+            interpretation_by_item.setdefault(item.id, []).append(oid)
+
+        for match in BRIDGE_RE.finditer(raw):
+            ontology = match.group("ontology").lower()
+            target = match.group("target")
+            relation = (match.group("relation") or "corresponds-to").lower()
+            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            oid = stable_id("bridge", item.id, target_id, ontology, target, relation)
+            if oid not in existing_ids:
+                doc.objects.append(SpecObject(oid, Role.BRIDGE_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("Bridge", oid, target_id, relation), ("BridgeOntology", oid, ontology), ("BridgeTarget", oid, target), ("BridgeRelation", oid, relation), ("SourceItem", oid, item.id)]))
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "bridge-profile-supported", oid, "Bridge objects are graded correspondences; only curated ontology profiles are exported without a question.", span_id)
+            if ontology in SUPPORTED_BRIDGE_ONTOLOGIES:
+                add_check(doc, obligation, CheckStatus.PASS, f"supported bridge ontology={ontology}; relation={relation}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"unsupported bridge ontology={ontology}")
+                qid = stable_id("question", "unsupported-bridge-ontology", oid, ontology)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("UnsupportedBridgeOntology", qid, ontology), ("QuestionText", qid, f"Should ontology '{ontology}' be added to the bridge profile or left as an unresolved correspondence?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+    for item_id, interpretation_ids in interpretation_by_item.items():
+        item = next(item for item in doc.items if item.id == item_id)
+        evidence_ids = evidence_by_item.get(item_id, [])
+        for interp_id in interpretation_ids:
+            interp = next(obj for obj in doc.objects if obj.id == interp_id)
+            obligation = add_validation_obligation(doc, "interpretation-has-explicit-evidence", interp_id, "Interpretations must cite explicit evidence before they are treated as supported semantic claims.", interp.source_span_id)
+            if evidence_ids:
+                for evidence_id in evidence_ids:
+                    fact = ("InterpretationEvidence", interp_id, evidence_id)
+                    if fact not in interp.facts:
+                        interp.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, f"linked evidence: {', '.join(evidence_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit evidence marker on the same Plain item")
+                qid = stable_id("question", "missing-interpretation-evidence", interp_id)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, item.span.id, facts=[("MissingInterpretationEvidence", qid, interp_id), ("QuestionText", qid, "What explicit evidence supports this interpretation?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+    return doc
+
 def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
     """Add conservative security/privacy obligation scaffolding.
 
@@ -2453,6 +2624,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
+    PassSpec("build-semantic-objects", "Create Phase 2 proposition and action-template semantic objects.", build_semantic_objects),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),

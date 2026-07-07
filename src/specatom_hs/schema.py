@@ -31,6 +31,7 @@ class Role(str, Enum):
     CONCEPT_OBJECT = "ConceptObject"
     CONCEPT_REFERENCE_OBJECT = "ConceptReferenceObject"
     PROPOSITION_OBJECT = "PropositionObject"
+    ACTION_TEMPLATE = "ActionTemplate"
     REQUIREMENT_OBJECT = "RequirementObject"
     OBLIGATION_OBJECT = "ObligationObject"
     VALIDATION_OBJECT = "ValidationObject"
