@@ -1996,6 +1996,58 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                     )
                     existing_ids.add(qid)
 
+        # --- Bidirectional edge review ---
+        # When A→B and B→A both exist in the DataFlowEdge graph, the pair
+        # has edges in both directions.  This may be intentional (request-
+        # response, feedback loop, bidirectional channel) but deserves review
+        # because it can also indicate ambiguity or a specification inconsistency.
+        BIDIRECTIONAL_ACK_RE = re.compile(
+            r"\b(bidirectional|two[- ]?way|request[- ]?response|feedback[- ]?loop|"
+            r"mutual|round[- ]?trip|ping[- ]?pong|dialogue|bi[- ]?directional)\b",
+            re.IGNORECASE,
+        )
+        bidirectional_pairs: list[tuple[str, str]] = []
+        checked_bidir: set[tuple[str, str]] = set()
+        for src in adjacency:
+            for tgt in adjacency.get(src, set()):
+                if (tgt, src) in checked_bidir or (src, tgt) in checked_bidir:
+                    continue
+                if tgt in adjacency and src in adjacency.get(tgt, set()):
+                    bidirectional_pairs.append((src, tgt))
+                    checked_bidir.add((src, tgt))
+
+        bidir_obligation = add_validation_obligation(
+            doc,
+            "information-flow-bidirectional-edge-reviewed",
+            review_id,
+            "When two components have data-flow edges in both directions, the spec should acknowledge whether this is intentional (e.g. request-response, feedback loop) or needs review for ambiguity.",
+            first_span_id,
+        )
+        if not bidirectional_pairs:
+            add_check(doc, bidir_obligation, CheckStatus.PASS, "no bidirectional edges found in the data-flow graph")
+        elif bool(BIDIRECTIONAL_ACK_RE.search(all_text)):
+            pair_summary = "; ".join(f"{s} ↔ {t}" for s, t in bidirectional_pairs)
+            add_check(doc, bidir_obligation, CheckStatus.PASS, f"bidirectional edges acknowledged in spec text: {pair_summary}")
+        else:
+            pair_summary = "; ".join(f"{s} ↔ {t}" for s, t in bidirectional_pairs)
+            add_check(doc, bidir_obligation, CheckStatus.UNKNOWN, f"bidirectional edges found without acknowledgment: {pair_summary}")
+            qid = stable_id("question", "information-flow", "information-flow-bidirectional-edge-reviewed", review_id)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        first_span_id,
+                        facts=[
+                            ("MissingInformationFlowEvidence", qid, "information-flow-bidirectional-edge-reviewed"),
+                            ("QuestionText", qid, f"Components have data-flow edges in both directions ({pair_summary}). Is this intentional (e.g. request-response, feedback loop) or should the spec clarify the directionality?"),
+                            ("Blocks", qid, bidir_obligation.id),
+                        ],
+                    )
+                )
+                existing_ids.add(qid)
+
     return doc
 
 

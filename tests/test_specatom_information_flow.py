@@ -1621,6 +1621,88 @@ class InformationFlowValidationTests(unittest.TestCase):
         # parts = ["information-flow-graph-summary", file_id, 0, 0, 0, 0, 0, 0, 0, 0, 0]
         self.assertEqual(parts[2:], [0, 0, 0, 0, 0, 0, 0, 0, 0], "all graph stats should be zero")
 
+    def test_bidirectional_edge_detected_and_unacknowledged(self):
+        """A→B and B→A edges trigger an Unknown blocking question without acknowledgment."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The service reads from the cache.\n"
+            "- The cache reads from the service.\n",
+            "bidirectional-unack.plain",
+        )
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+        bidir_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-bidirectional-edge-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(bidir_check.status, CheckStatus.UNKNOWN)
+        self.assertIn("service ↔ cache", bidir_check.evidence)
+        self.assertTrue(
+            any(
+                ("MissingInformationFlowEvidence", obj.id, "information-flow-bidirectional-edge-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, bidir_check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            ),
+            "bidirectional edge question not found",
+        )
+
+    def test_bidirectional_edge_acknowledged_passes(self):
+        """Bidirectional edges with acknowledgment (request-response, feedback loop, etc.) pass."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The service reads from the cache.\n"
+            "- The cache reads from the service.\n"
+            "- This is a request-response pattern.\n",
+            "bidirectional-ack.plain",
+        )
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+        bidir_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-bidirectional-edge-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(bidir_check.status, CheckStatus.PASS)
+        self.assertIn("service ↔ cache", bidir_check.evidence)
+
+    def test_bidirectional_edge_no_bidirectional_passes(self):
+        """A DAG with no bidirectional edges passes the check."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n"
+            "- The pipeline writes to the downstream sink.\n",
+            "bidirectional-none.plain",
+        )
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+        bidir_check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-bidirectional-edge-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(bidir_check.status, CheckStatus.PASS)
+        self.assertIn("no bidirectional edges", bidir_check.evidence)
+
+    def test_bidirectional_edge_atoms_exported_through_petta_profile(self):
+        """The bidirectional edge obligation and check are exported through the PeTTa reified profile."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The service reads from the cache.\n"
+            "- The cache reads from the service.\n",
+            "bidirectional-export.plain",
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertTrue(
+            any("information-flow-bidirectional-edge-reviewed" in atom for atom in atoms),
+            "bidirectional edge obligation should be in reified atoms",
+        )
+        self.assertFalse(any("bidirectional" in refusal.reason for refusal in refusals))
+
 
 if __name__ == "__main__":
     unittest.main()
