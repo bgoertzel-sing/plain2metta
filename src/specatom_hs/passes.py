@@ -419,24 +419,25 @@ DESTRUCTIVE_SAFETY_RE = re.compile(r"\b(confirm(?:ation)?|dry[- ]run|backup|roll
 # --- Information-flow validation patterns ---
 INFO_FLOW_SIGNAL_RE = re.compile(
     r"\b(input|output|consume|produce|read(?:s| from)?|write(?:s| to)?|receive(?:s| from)?|send(?:s| to)?|"
+    r"pull(?:s| from)?|push(?:es| to)?|"
     r"depend(?:s|ency|encies)?(?:\s+on)?|source(?:s| from)?|sink|feed(?:s| into)?|flow(?:s| from| to)?|"
-    r"upstream|downstream|pipeline|data flow|data dependency|ingest|emit|"
+    r"upstream|downstream|pipeline|data flow|data dependency|ingest(?:s)?|emit(?:s)?|"
     r"circular|cycle|mutual(?:ly)? depend|feedback loop|recursive(?:ly)? depend|bidirectional)\b",
     re.IGNORECASE,
 )
 INPUT_DECLARATION_RE = re.compile(
-    r"\b(input(?:s)?|consume(?:s)?|read(?:s)? from|receive(?:s)? from|ingest(?:s)?|"
+    r"\b(input(?:s)?|consume(?:s)?|read(?:s)? from|receive(?:s)? from|pull(?:s)? from|ingest(?:s)?|ingest(?:s)?\s+\w+\s+from|"
     r"upstream(?:\s+input|\s+source|\s+data))\b[^.;\n]{0,120}",
     re.IGNORECASE,
 )
 OUTPUT_DECLARATION_RE = re.compile(
-    r"\b(output(?:s)?|produce(?:s)?|write(?:s)? to|send(?:s)? to|sink(?:s)?|emit(?:s)?|"
+    r"\b(output(?:s)?|produce(?:s)?|write(?:s)? to|send(?:s)? to|push(?:es)? to|sink(?:s)?|emit(?:s)?|emit(?:s)?\s+\w+\s+to|"
     r"downstream(?:\s+output|\s+target|\s+data)?|feed(?:s)? into)\b[^.;\n]{0,120}",
     re.IGNORECASE,
 )
 DEPENDENCY_DIRECTION_RE = re.compile(
     r"\b(depend(?:s|ency|encies)?(?:\s+on)?|read(?:s| from)?|write(?:s| to)?|consume(?:s| from)?|"
-    r"produce(?:s| for)?|receive(?:s| from)?|send(?:s| to)?|feed(?:s| into)?|"
+    r"produce(?:s| for)?|receive(?:s| from)?|send(?:s| to)?|pull(?:s| from)?|push(?:es| to)?|ingest(?:s| from)?|emit(?:s| to)?|feed(?:s| into)?|"
     r"source(?:s| from)?|sink(?:s| to)?|upstream|downstream)\b",
     re.IGNORECASE,
 )
@@ -467,6 +468,11 @@ CIRCULAR_DEPENDENCY_EVIDENCE_RE = re.compile(
 #   "The pipeline reads from the upstream source"
 #   "The service consumes input from the message queue"
 #   "The worker receives events from the queue"
+#   "The source feeds into the pipeline"
+#   "The worker pulls events from the queue"
+#   "The publisher pushes events to the bus"
+#   "The collector ingests records from the archive"
+#   "The scheduler emits jobs to the queue"
 #   "Component A depends on component B"
 # The source and target are simple noun phrases (1–2 alphabetic words).
 # Stop words are filtered so conjunctions/articles are not treated as sources.
@@ -474,9 +480,9 @@ DATA_PATH_EDGE_RE = re.compile(
     r"(?:(?:The|the|A|a|An|an)\s+)?"
     r"(?P<source>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)"
     r"\s+"
-    r"(?P<verb>reads?\s+from|writes?\s+to|sends?\s+to|depends?\s+on"
-    r"|consumes?\s+\w+\s+from|receives?\s+\w+\s+from"
-    r"|produces?\s+\w+\s+to)"
+    r"(?P<verb>reads?\s+from|writes?\s+to|sends?\s+to|depends?\s+on|feeds?\s+into"
+    r"|consumes?\s+\w+\s+from|receives?\s+\w+\s+from|pulls?\s+\w+\s+from|ingests?\s+\w+\s+from"
+    r"|produces?\s+\w+\s+to|pushes?\s+\w+\s+to|emits?\s+\w+\s+to)"
     r"\s+"
     r"(?:(?:the|a|an)\s+)?"
     r"(?P<target>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)",
@@ -1164,10 +1170,15 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
         for match in DATA_PATH_EDGE_RE.finditer(item.raw_text):
             source = match.group("source").strip().lower()
             target = match.group("target").strip().lower()
+            match_end = match.end()
+            target_words = target.split()
+            if len(target_words) > 1 and target_words[-1] in (_EDGE_STOP_WORDS - {"a", "an", "the"}):
+                target = " ".join(target_words[:-1])
+                match_end = match.start("target") + len(target)
             if source in _EDGE_STOP_WORDS or target in _EDGE_STOP_WORDS:
                 continue
             direction = _normalize_direction(match.group("verb"))
-            edges.append((source, target, direction, item.id, exact_match_span(item, match.start(), match.end())))
+            edges.append((source, target, direction, item.id, exact_match_span(item, match.start(), match_end)))
 
     # Emit DataFlowEdge atoms for each extracted edge.
     # Each edge carries the exact source span of the matched edge phrase, not
@@ -1715,18 +1726,17 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                 existing_ids.add(qid)
 
         # --- Isolated component detection ---
-        # Components mentioned with broader data-flow verbs (feeds into, flows
-        # to, provides to, gets from, pulls from, pushes to) that are
-        # NOT part of the explicit DATA_PATH_EDGE_RE verb set should still appear
-        # in at least one DataFlowEdge.  A component mentioned with these broader
-        # verbs but not connected to any explicit edge may indicate an
-        # underspecified dependency or missing declaration.
+        # Components mentioned with broader data-flow verbs (flows to,
+        # provides to, gets from) that are NOT part of the explicit
+        # DATA_PATH_EDGE_RE verb set should still appear in at least one
+        # DataFlowEdge.  A component mentioned with these broader verbs but not
+        # connected to any explicit edge may indicate an underspecified
+        # dependency or missing declaration.
         ISOLATED_COMPONENT_RE = re.compile(
             r"(?:(?:The|the|A|a|An|an)\s+)?"
             r"(?P<component>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)"
-            r"\s+(?:feeds?\s+into|flows?\s+(?:from|to|into)"
-            r"|provides?\s+\w+\s+to|gets?\s+\w+\s+from"
-            r"|pulls?\s+\w+\s+from|pushes?\s+\w+\s+to)\b",
+            r"\s+(?:flows?\s+(?:from|to|into)"
+            r"|provides?\s+\w+\s+to|gets?\s+\w+\s+from)\b",
             re.IGNORECASE,
         )
         mentioned_components: set[str] = set()
