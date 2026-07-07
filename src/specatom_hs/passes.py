@@ -82,8 +82,6 @@ def build_concept_table(doc: SpecDocument) -> SpecDocument:
         cursor = 0
         at_line_start = True
         for offset, ch in enumerate(segment):
-            if cursor == raw_index:
-                return item.span.start_byte + offset
             if at_line_start:
                 if ch.isspace() and ch != "\n":
                     continue
@@ -92,6 +90,8 @@ def build_concept_table(doc: SpecDocument) -> SpecDocument:
                 if ch == " ":
                     continue
                 at_line_start = False
+            if cursor == raw_index:
+                return item.span.start_byte + offset
             if cursor < len(item.raw_text) and ch == item.raw_text[cursor]:
                 cursor += 1
             if ch == "\n":
@@ -1013,6 +1013,55 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
     review_id = stable_id("infoflow", doc.files[0].id if doc.files else "document")
     all_text = "\n".join(item.raw_text for item in doc.items)
     item_by_id = {item.id: item for item in doc.items}
+    file_text = {plain_file.id: plain_file.text for plain_file in doc.files}
+    span_ids = {span.id for span in doc.spans}
+
+    def raw_index_to_source_offset(item, raw_index: int) -> int:
+        """Map an index in an item's normalized raw text back to source bytes."""
+        segment = file_text[item.file_id][item.span.start_byte:item.span.end_byte]
+        cursor = 0
+        at_line_start = True
+        for offset, ch in enumerate(segment):
+            if at_line_start:
+                if ch.isspace() and ch != "\n":
+                    continue
+                if ch == "-":
+                    continue
+                if ch == " ":
+                    continue
+                at_line_start = False
+            if cursor == raw_index:
+                return item.span.start_byte + offset
+            if cursor < len(item.raw_text) and ch == item.raw_text[cursor]:
+                cursor += 1
+            if ch == "\n":
+                at_line_start = True
+        if cursor == raw_index:
+            return item.span.end_byte
+        raise ValueError(f"could not align raw index {raw_index} for item {item.id}")
+
+    def line_for_offset(file_id: str, byte_offset: int) -> int:
+        """Return a 1-based line number for a byte offset in the source text."""
+        return file_text[file_id].count("\n", 0, byte_offset) + 1
+
+    def exact_match_span(item, match_start: int, match_end: int) -> str:
+        """Create or reuse an exact SourceSpan for a regex match in item.raw_text."""
+        start = raw_index_to_source_offset(item, match_start)
+        end = raw_index_to_source_offset(item, match_end)
+        span_id = stable_id("span", item.file_id, start, end)
+        if span_id not in span_ids:
+            doc.spans.append(
+                SourceSpan(
+                    span_id,
+                    item.file_id,
+                    start,
+                    end,
+                    line_for_offset(item.file_id, start),
+                    line_for_offset(item.file_id, max(start, end - 1)),
+                )
+            )
+            span_ids.add(span_id)
+        return span_id
 
     if review_id not in existing_ids:
         doc.objects.append(
@@ -1108,7 +1157,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
     # Extract explicit edges like "pipeline reads from upstream source" and
     # create DataFlowEdge atoms. This is conservative: it does not infer edges
     # from vague wording like "data flows from one component to another".
-    edges: list[tuple[str, str, str, str]] = []  # (source, target, direction, item_id)
+    edges: list[tuple[str, str, str, str, str]] = []  # (source, target, direction, item_id, span_id)
     for item in candidate_items:
         for match in DATA_PATH_EDGE_RE.finditer(item.raw_text):
             source = match.group("source").strip().lower()
@@ -1116,15 +1165,14 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
             if source in _EDGE_STOP_WORDS or target in _EDGE_STOP_WORDS:
                 continue
             direction = _normalize_direction(match.group("verb"))
-            edges.append((source, target, direction, item.id))
+            edges.append((source, target, direction, item.id, exact_match_span(item, match.start(), match.end())))
 
     # Emit DataFlowEdge atoms for each extracted edge.
-    # Each edge carries the source span of the specific item where it was found,
-    # not the first candidate item's span, for precise provenance.
-    for source, target, direction, item_id in edges:
+    # Each edge carries the exact source span of the matched edge phrase, not
+    # merely the first candidate item or whole item, for precise provenance.
+    for source, target, direction, item_id, edge_span_id in edges:
         edge_id = stable_id("edge", source, target, direction, item_id)
         if edge_id not in existing_ids:
-            edge_span_id = item_by_id[item_id].span.id if item_id in item_by_id else first_span_id
             doc.objects.append(
                 SpecObject(
                     edge_id,
@@ -1148,7 +1196,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
         first_span_id,
     )
     if edges:
-        edge_summary = "; ".join(f"{s} {d} {t}" for s, t, d, _ in edges)
+        edge_summary = "; ".join(f"{s} {d} {t}" for s, t, d, _item, _span in edges)
         add_check(doc, data_path_obligation, CheckStatus.PASS, f"explicit data-path edges found: {edge_summary}")
     else:
         add_check(doc, data_path_obligation, CheckStatus.UNKNOWN, "data-flow or dependency wording found but no explicit component-level data-path edges extracted")
@@ -1179,7 +1227,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
         re.IGNORECASE,
     )
     adjacency: dict[str, set[str]] = {}
-    for source, target, _direction, _item_id in edges:
+    for source, target, _direction, _item_id, _span_id in edges:
         adjacency.setdefault(source, set()).add(target)
 
     transitive_pairs: list[tuple[str, str]] = []
@@ -1317,7 +1365,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
 
     out_degree: dict[str, int] = {}
     in_degree: dict[str, int] = {}
-    for source, target, _direction, _item_id in edges:
+    for source, target, _direction, _item_id, _span_id in edges:
         out_degree[source] = out_degree.get(source, 0) + 1
         in_degree[target] = in_degree.get(target, 0) + 1
 
@@ -1910,7 +1958,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                 temporal_pairs.add((before, after))
 
             contradictions: list[tuple[str, str, str, str]] = []  # (data_src, data_tgt, temp_before, temp_after)
-            for source, target, direction, _item_id in edges:
+            for source, target, direction, _item_id, _span_id in edges:
                 s = source.lower().strip()
                 t = target.lower().strip()
                 # Data flows source → target (source sends/writes/depends-on target).

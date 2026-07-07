@@ -1467,17 +1467,16 @@ class InformationFlowValidationTests(unittest.TestCase):
         self.assertTrue(any(atom.startswith("(MissingInformationFlowEvidence") for atom in atoms))
         self.assertFalse(any("MissingInformationFlowEvidence" in refusal.reason for refusal in refusals))
 
-    def test_data_flow_edge_has_item_level_source_provenance(self):
-        """Each DataFlowEdge object should cite the source span of the specific item where the edge was found."""
+    def test_data_flow_edge_has_exact_source_provenance(self):
+        """Each DataFlowEdge object should cite the exact matched source phrase."""
         doc = compile_source(
             "***functional specifications***\n"
-            "- The pipeline reads from the source.\n"
+            "- Intro text. The pipeline reads from the source, then validates it.\n"
             "- The service writes to the database.\n",
             "edge-provenance.plain",
         )
-        item_by_text = {item.raw_text: item for item in doc.items}
-        pipeline_item = item_by_text["The pipeline reads from the source."]
-        service_item = item_by_text["The service writes to the database."]
+        text_by_file = {plain_file.id: plain_file.text for plain_file in doc.files}
+        span_by_id = {span.id: span for span in doc.spans}
 
         edge_objects = [
             obj for obj in doc.objects
@@ -1493,14 +1492,23 @@ class InformationFlowValidationTests(unittest.TestCase):
             self.assertEqual(len(provenance_checks), 1)
             self.assertEqual(provenance_checks[0].status, CheckStatus.PASS)
 
-        # Verify each edge's source span matches the expected item.
+        # Verify each edge's source span slices the exact matched edge phrase,
+        # not the whole Plain item.
         edge_by_source = {}
         for edge_obj in edge_objects:
             edge_fact = next(f for f in edge_obj.facts if str(f[0]) == "DataFlowEdge")
             edge_by_source[edge_fact[2]] = edge_obj
 
-        self.assertEqual(edge_by_source["pipeline"].source_span_id, pipeline_item.span.id)
-        self.assertEqual(edge_by_source["service"].source_span_id, service_item.span.id)
+        pipeline_span = span_by_id[edge_by_source["pipeline"].source_span_id]
+        service_span = span_by_id[edge_by_source["service"].source_span_id]
+        self.assertEqual(
+            text_by_file[pipeline_span.file_id][pipeline_span.start_byte:pipeline_span.end_byte],
+            "The pipeline reads from the source",
+        )
+        self.assertEqual(
+            text_by_file[service_span.file_id][service_span.start_byte:service_span.end_byte],
+            "The service writes to the database",
+        )
 
     def test_temporal_order_edge_has_item_level_source_provenance(self):
         """Each TemporalOrderEdge object should cite the source span of the specific item where the edge was found."""
@@ -1533,13 +1541,13 @@ class InformationFlowValidationTests(unittest.TestCase):
         edge_obj = temporal_edges[0]
         self.assertEqual(edge_obj.source_span_id, service_item.span.id)
 
-        # Also verify the DataFlowEdge has per-item provenance.
+        # Also verify the DataFlowEdge has exact, item-contained provenance.
         data_edges = [
             obj for obj in doc.objects
             if any(fact and str(fact[0]) == "DataFlowEdge" for fact in obj.facts)
         ]
         self.assertEqual(len(data_edges), 1)
-        self.assertEqual(data_edges[0].source_span_id, pipeline_item.span.id)
+        self.assertNotEqual(data_edges[0].source_span_id, pipeline_item.span.id)
 
     def test_edge_provenance_validation_fails_for_missing_source_span(self):
         """An edge object without a source span should fail the edge-provenance validation."""

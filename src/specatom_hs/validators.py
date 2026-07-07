@@ -441,15 +441,29 @@ def _validate_check_records(doc: SpecDocument) -> None:
 
 
 def _validate_edge_source_provenance(doc: SpecDocument) -> None:
-    """Check that DataFlowEdge and TemporalOrderEdge objects cite per-item source spans.
+    """Check that edge objects cite source spans inside indexed PlainItems.
 
-    Edge objects should carry the source span of the specific item where the edge
-    was extracted, not a generic first-item span.  This check verifies that edge
-    objects have a source span that belongs to an indexed PlainItem, making edge
-    provenance auditable and traceable back to the exact source text.
+    Edge objects should carry the exact match span when available, or at least a
+    source span contained in the specific item where the edge was extracted, not
+    a generic first-item span. This keeps edge provenance auditable and traceable
+    back to the exact source text.
     """
-    item_span_ids = {item.span.id for item in doc.items}
+    spans_by_id = {span.id: span for span in doc.spans}
+    item_spans = [item.span for item in doc.items]
     edge_predicates = {"DataFlowEdge", "TemporalOrderEdge"}
+
+    def containing_item_span_id(span_id: str | None) -> str | None:
+        if not span_id or span_id not in spans_by_id:
+            return None
+        span = spans_by_id[span_id]
+        for item_span in item_spans:
+            if (
+                span.file_id == item_span.file_id
+                and item_span.start_byte <= span.start_byte
+                and span.end_byte <= item_span.end_byte
+            ):
+                return item_span.id
+        return None
 
     for obj in doc.objects:
         has_edge_fact = any(fact and str(fact[0]) in edge_predicates for fact in obj.facts)
@@ -459,13 +473,18 @@ def _validate_edge_source_provenance(doc: SpecDocument) -> None:
             doc,
             "edge-has-item-level-source-provenance",
             obj.id,
-            "DataFlowEdge and TemporalOrderEdge objects should cite the source span of the specific item where the edge was found, not a generic first-item span.",
+            "DataFlowEdge and TemporalOrderEdge objects should cite an exact or item-contained source span for the specific item where the edge was found, not a generic first-item span.",
             obj.source_span_id,
         )
-        if obj.source_span_id and obj.source_span_id in item_span_ids:
-            add_check(doc, obligation, CheckStatus.PASS, f"source_span={obj.source_span_id} belongs to an indexed item")
+        container_id = containing_item_span_id(obj.source_span_id)
+        if container_id:
+            if obj.source_span_id == container_id:
+                evidence = f"source_span={obj.source_span_id} is the indexed item span"
+            else:
+                evidence = f"source_span={obj.source_span_id} is contained in indexed item span {container_id}"
+            add_check(doc, obligation, CheckStatus.PASS, evidence)
         elif obj.source_span_id:
-            add_check(doc, obligation, CheckStatus.UNKNOWN, f"source_span={obj.source_span_id} does not belong to an indexed item")
+            add_check(doc, obligation, CheckStatus.UNKNOWN, f"source_span={obj.source_span_id} is not contained in an indexed item span")
         else:
             add_check(doc, obligation, CheckStatus.FAIL, "missing source span for edge object")
 
