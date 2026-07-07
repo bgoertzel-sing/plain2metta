@@ -1217,6 +1217,48 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
             )
             existing_ids.add(qid)
 
+    # --- Self-dependency detection ---
+    # A direct edge from a component to itself is a degenerate one-node cycle.
+    # Flag it separately from the broader graph cycle detector so reviewers get
+    # a crisp question about whether the self-edge is intentional stateful
+    # feedback, recursion, or simply a mistaken dependency declaration.
+    SELF_DEPENDENCY_ACK_RE = re.compile(
+        r"\b(self[- ]?dependency|self[- ]?loop|self[- ]?edge|recursive|recursion|feedback loop|fixed point|iteration)\b",
+        re.IGNORECASE,
+    )
+    self_dependencies = sorted({source for source, target, _direction, _item_id, _span_id in edges if source == target})
+    self_dependency_obligation = add_validation_obligation(
+        doc,
+        "information-flow-self-dependency-reviewed",
+        review_id,
+        "Specs with a component-level data-path edge from a component to itself should explicitly state whether the self-dependency is intentional and how it terminates or stabilizes.",
+        first_span_id,
+    )
+    if not self_dependencies:
+        add_check(doc, self_dependency_obligation, CheckStatus.PASS, "no self-dependency edges detected")
+    elif SELF_DEPENDENCY_ACK_RE.search(all_text):
+        summary = ", ".join(self_dependencies)
+        add_check(doc, self_dependency_obligation, CheckStatus.PASS, f"self-dependency acknowledged in source text: {summary}")
+    else:
+        summary = ", ".join(self_dependencies)
+        add_check(doc, self_dependency_obligation, CheckStatus.UNKNOWN, f"self-dependency edge(s) detected but not acknowledged: {summary}")
+        qid = stable_id("question", "information-flow", "information-flow-self-dependency-reviewed", review_id)
+        if qid not in existing_ids:
+            doc.objects.append(
+                SpecObject(
+                    qid,
+                    Role.QUESTION_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    first_span_id,
+                    facts=[
+                        ("MissingInformationFlowEvidence", qid, "information-flow-self-dependency-reviewed"),
+                        ("QuestionText", qid, f"The following component(s) have data-path edges to themselves ({summary}). Is this intentional recursion/feedback/state update? What termination, fixed-point, or stability condition applies?"),
+                        ("Blocks", qid, self_dependency_obligation.id),
+                    ],
+                )
+            )
+            existing_ids.add(qid)
+
     # --- Transitive dependency chain detection ---
     # Build adjacency list from extracted edges and detect transitive chains:
     # if A→B and B→C exist, then A transitively depends on C.  If the spec

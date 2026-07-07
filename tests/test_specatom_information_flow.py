@@ -318,6 +318,76 @@ class InformationFlowValidationTests(unittest.TestCase):
         edge_atoms = [obj for obj in doc.objects if any(f[0] == "DataFlowEdge" for f in obj.facts)]
         self.assertEqual(len(edge_atoms), 0)
 
+    def test_self_dependency_detected_and_unacknowledged(self):
+        """A component-level edge from a component to itself gets its own Unknown review question."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The cache depends on cache.\n",
+            "self-dependency-unack.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-self-dependency-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.UNKNOWN)
+        self.assertIn("cache", check.evidence.lower())
+        self.assertTrue(
+            any(
+                ("MissingInformationFlowEvidence", obj.id, "information-flow-self-dependency-reviewed") in obj.facts
+                and any(fact == ("Blocks", obj.id, check.obligation_id) for fact in obj.facts)
+                for obj in doc.objects
+                if obj.role == Role.QUESTION_OBJECT
+            ),
+            "self-dependency question not found",
+        )
+
+    def test_self_dependency_acknowledged_passes(self):
+        """Explicit recursion/feedback wording acknowledges a self-dependency edge."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The cache depends on cache.\n"
+            "- This self-dependency is an intentional fixed point iteration.\n",
+            "self-dependency-ack.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-self-dependency-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.PASS)
+        self.assertIn("acknowledged", check.evidence.lower())
+
+    def test_no_self_dependency_passes(self):
+        """Ordinary edges pass the self-dependency review."""
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- The pipeline reads from the upstream source.\n",
+            "self-dependency-none.plain",
+        )
+
+        review = next(
+            obj for obj in doc.objects
+            if ("InformationFlowReview", obj.id) in obj.facts
+        )
+
+        check = next(
+            c for c in doc.checks
+            if c.property == "information-flow-self-dependency-reviewed" and c.target_id == review.id
+        )
+        self.assertEqual(check.status, CheckStatus.PASS)
+        self.assertIn("no self-dependency", check.evidence.lower())
+
     def test_transitive_dependency_detected_and_unacknowledged(self):
         """When A→B and B→C edges exist, a transitive A→C dependency is detected and produces Unknown without acknowledgement."""
         doc = compile_source(
