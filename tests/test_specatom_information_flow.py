@@ -224,12 +224,13 @@ class InformationFlowValidationTests(unittest.TestCase):
             "- The pipeline reads from the upstream source.\n"
             "- The pipeline writes to the downstream sink.\n"
             "- The service consumes input from the message queue.\n"
+            "- The worker receives events from the task queue.\n"
             "- Component A depends on component B.\n",
             "data-path-edges.plain",
         )
 
         edge_atoms = [obj for obj in doc.objects if any(f[0] == "DataFlowEdge" for f in obj.facts)]
-        self.assertGreaterEqual(len(edge_atoms), 4, f"expected at least 4 edges, got {len(edge_atoms)}")
+        self.assertGreaterEqual(len(edge_atoms), 5, f"expected at least 5 edges, got {len(edge_atoms)}")
 
         # Verify edge contents match ground truth.
         edges = []
@@ -241,6 +242,7 @@ class InformationFlowValidationTests(unittest.TestCase):
         self.assertIn(("pipeline", "upstream source", "reads-from"), edges)
         self.assertIn(("pipeline", "downstream sink", "writes-to"), edges)
         self.assertIn(("service", "message queue", "consumes-from"), edges)
+        self.assertIn(("worker", "task queue", "receives-from"), edges)
         self.assertIn(("component a", "component b", "depends-on"), edges)
 
     def test_data_path_check_passes_with_explicit_edges(self):
@@ -1004,7 +1006,7 @@ class InformationFlowValidationTests(unittest.TestCase):
         doc = compile_source(
             "***functional specifications***\n"
             "- The pipeline reads from the upstream source.\n"
-            "- The monitor receives data from the alert system.\n",
+            "- The monitor flows to alerting.\n",
             "isolated-component.plain",
         )
 
@@ -1014,7 +1016,7 @@ class InformationFlowValidationTests(unittest.TestCase):
         )
 
         # 'pipeline' appears in an explicit edge (pipeline reads-from upstream source)
-        # but 'monitor' uses 'receives data from' which is a broader data-flow verb
+        # but 'monitor' uses 'flows to', which is a broader data-flow verb
         # that does not produce a DataFlowEdge.  So 'monitor' is isolated.
         isolated_checks = [c for c in doc.checks if c.property == "information-flow-isolated-component-reviewed"]
         self.assertTrue(len(isolated_checks) >= 1, "isolated component check should exist when edges are present")
@@ -1060,7 +1062,7 @@ class InformationFlowValidationTests(unittest.TestCase):
         doc = compile_source(
             "***functional specifications***\n"
             "- The pipeline reads from the upstream source.\n"
-            "- The monitor receives data from the alert system.\n",
+            "- The monitor flows to alerting.\n",
             "isolated-export.plain",
         )
 
@@ -1542,7 +1544,8 @@ class InformationFlowValidationTests(unittest.TestCase):
         doc = compile_source(
             "***functional specifications***\n"
             "- Intro text. The pipeline reads from the source, then validates it.\n"
-            "- The service writes to the database.\n",
+            "- The service writes to the database.\n"
+            "- Background: the worker receives events from the task queue before processing.\n",
             "edge-provenance.plain",
         )
         text_by_file = {plain_file.id: plain_file.text for plain_file in doc.files}
@@ -1552,7 +1555,7 @@ class InformationFlowValidationTests(unittest.TestCase):
             obj for obj in doc.objects
             if any(fact and str(fact[0]) == "DataFlowEdge" for fact in obj.facts)
         ]
-        self.assertEqual(len(edge_objects), 2)
+        self.assertEqual(len(edge_objects), 3)
 
         for edge_obj in edge_objects:
             provenance_checks = [
@@ -1571,6 +1574,7 @@ class InformationFlowValidationTests(unittest.TestCase):
 
         pipeline_span = span_by_id[edge_by_source["pipeline"].source_span_id]
         service_span = span_by_id[edge_by_source["service"].source_span_id]
+        worker_span = span_by_id[edge_by_source["worker"].source_span_id]
         self.assertEqual(
             text_by_file[pipeline_span.file_id][pipeline_span.start_byte:pipeline_span.end_byte],
             "The pipeline reads from the source",
@@ -1578,6 +1582,10 @@ class InformationFlowValidationTests(unittest.TestCase):
         self.assertEqual(
             text_by_file[service_span.file_id][service_span.start_byte:service_span.end_byte],
             "The service writes to the database",
+        )
+        self.assertEqual(
+            text_by_file[worker_span.file_id][worker_span.start_byte:worker_span.end_byte],
+            "the worker receives events from the task queue",
         )
 
     def test_temporal_order_edge_has_exact_source_provenance(self):

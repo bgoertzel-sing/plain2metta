@@ -466,6 +466,7 @@ CIRCULAR_DEPENDENCY_EVIDENCE_RE = re.compile(
 # Detect explicit component-level data-path edges like:
 #   "The pipeline reads from the upstream source"
 #   "The service consumes input from the message queue"
+#   "The worker receives events from the queue"
 #   "Component A depends on component B"
 # The source and target are simple noun phrases (1–2 alphabetic words).
 # Stop words are filtered so conjunctions/articles are not treated as sources.
@@ -474,7 +475,8 @@ DATA_PATH_EDGE_RE = re.compile(
     r"(?P<source>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)"
     r"\s+"
     r"(?P<verb>reads?\s+from|writes?\s+to|sends?\s+to|depends?\s+on"
-    r"|consumes?\s+\w+\s+from|produces?\s+\w+\s+to)"
+    r"|consumes?\s+\w+\s+from|receives?\s+\w+\s+from"
+    r"|produces?\s+\w+\s+to)"
     r"\s+"
     r"(?:(?:the|a|an)\s+)?"
     r"(?P<target>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)",
@@ -493,7 +495,7 @@ _EDGE_STOP_WORDS = frozenset({
 def _normalize_direction(verb: str) -> str:
     """Normalize a matched verb phrase to a direction string.
 
-    'reads from' -> 'reads-from', 'consumes input from' -> 'consumes-from', etc.
+    'reads from' -> 'reads-from', 'receives events from' -> 'receives-from', etc.
     """
     parts = verb.lower().split()
     return f"{parts[0]}-{parts[-1]}"
@@ -1713,8 +1715,8 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                 existing_ids.add(qid)
 
         # --- Isolated component detection ---
-        # Components mentioned with broader data-flow verbs (receives from, feeds
-        # into, flows to, provides to, gets from, pulls from, pushes to) that are
+        # Components mentioned with broader data-flow verbs (feeds into, flows
+        # to, provides to, gets from, pulls from, pushes to) that are
         # NOT part of the explicit DATA_PATH_EDGE_RE verb set should still appear
         # in at least one DataFlowEdge.  A component mentioned with these broader
         # verbs but not connected to any explicit edge may indicate an
@@ -1722,8 +1724,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
         ISOLATED_COMPONENT_RE = re.compile(
             r"(?:(?:The|the|A|a|An|an)\s+)?"
             r"(?P<component>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)"
-            r"\s+(?:receives?\s+\w+\s+from|sends?\s+\w+\s+to"
-            r"|feeds?\s+into|flows?\s+(?:from|to|into)"
+            r"\s+(?:feeds?\s+into|flows?\s+(?:from|to|into)"
             r"|provides?\s+\w+\s+to|gets?\s+\w+\s+from"
             r"|pulls?\s+\w+\s+from|pushes?\s+\w+\s+to)\b",
             re.IGNORECASE,
