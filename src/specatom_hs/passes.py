@@ -724,7 +724,7 @@ WITNESS_CONCRETE_RE = re.compile(r"\b(?:commit|sha256|hash|log|report|test|fixtu
 WITNESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate code later)\b", re.IGNORECASE)
 PROCESS_RE = re.compile(r"\bprocess\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 RESOURCE_RE = re.compile(r"\bresource(?:s)?\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
-SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|rationale|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|question|assumption|invariant|constraint)\s*:)|[;\n]|$"
+SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|rationale|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|risk|mitigation|question|assumption|invariant|constraint)\s*:)|[;\n]|$"
 INVARIANT_RE = re.compile(
     r"\binvariant\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
     re.IGNORECASE,
@@ -741,6 +741,15 @@ QUESTION_RE = re.compile(
     r"\bquestion\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
     re.IGNORECASE,
 )
+RISK_RE = re.compile(
+    r"\brisk\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+MITIGATION_RE = re.compile(
+    r"\bmitigation\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+RISK_MITIGATION_TEXT_RE = re.compile(r"\b(?:mitigation|mitigated by|control|guardrail|fallback|rollback|monitor|alert|rate limit|backpressure|review|approval|audit|isolate|sandbox)\b", re.IGNORECASE)
 PROCESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate later|placeholder)\b", re.IGNORECASE)
 PROCESS_CONCRETE_RE = re.compile(r"\b(?:run|runs|execute|executes|validate|validates|review|reviews|compile|compiles|build|builds|deploy|deploys|schedule|scheduled|cron|batch|pipeline|workflow|operator|approval|rollback|manual|automated)\b", re.IGNORECASE)
 RESOURCE_UNSUPPORTED_RE = PROCESS_UNSUPPORTED_RE
@@ -1188,6 +1197,70 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                 qid = stable_id("question", "missing-resource-requirement", oid, text)
                 if qid not in existing_ids:
                     doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingResourceRequirement", qid, oid), ("QuestionText", qid, "Clarify the concrete capacity, budget, storage, service dependency, artifact, or access resource needed, or keep it as an explicit unsupported placeholder."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        risk_mitigation_ids: list[str] = []
+        for match in MITIGATION_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("risk-mitigation", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("RiskMitigation", oid, target_id), ("RiskMitigationText", oid, text), ("MitigatesRiskFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            risk_mitigation_ids.append(oid)
+            obligation = add_validation_obligation(doc, "risk-mitigation-has-source-provenance", oid, "Explicit mitigation markers must preserve source provenance and name the object whose risk they mitigate.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"mitigation applies to {target_id}")
+
+        for match in RISK_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("risk", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Risk", oid, target_id), ("RiskText", oid, text), ("RiskFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "risk-has-explicit-mitigation", oid, "Explicit risks must remain reviewable and cite same-item mitigation/control evidence before being treated as handled.", span_id)
+            risk_obj = next(obj for obj in doc.objects if obj.id == oid)
+            if risk_mitigation_ids or RISK_MITIGATION_TEXT_RE.search(text):
+                for mitigation_id in risk_mitigation_ids:
+                    fact = ("RiskMitigatedBy", oid, mitigation_id)
+                    if fact not in risk_obj.facts:
+                        risk_obj.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, "risk mitigation/control wording found" if not risk_mitigation_ids else f"linked mitigation: {', '.join(risk_mitigation_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit mitigation/control marker on the same Plain item")
+                qid = stable_id("question", "missing-risk-mitigation", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingRiskMitigation", qid, oid), ("QuestionText", qid, "What explicit mitigation, control, rollback, monitoring, or acceptance rationale handles this risk?"), ("Blocks", qid, obligation.id)]))
                     existing_ids.add(qid)
 
         for match in QUESTION_RE.finditer(raw):
@@ -2987,7 +3060,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
-    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Rationale/Interpretation/Bridge/Revision/Witness/Process/Resource/Question/Assumption/Invariant/Constraint objects.", build_semantic_objects),
+    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Rationale/Interpretation/Bridge/Revision/Witness/Process/Resource/Risk/Question/Assumption/Invariant/Constraint objects.", build_semantic_objects),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),

@@ -513,6 +513,57 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn("(MissingConstraintEvidence ", "\n".join(atoms))
         self.assertFalse(any("MissingConstraintEvidence" in refusal.reason for refusal in refusals))
 
+    def test_explicit_risk_marker_requires_mitigation(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R18] Import partner files. Risk: malformed uploads exhaust parser memory.\n"
+            "***acceptance tests***\n"
+            "- [covers:R18] Large malformed upload is rejected.\n",
+            "semantic_risk_unknown.plain",
+        )
+
+        risk = next(obj for obj in doc.objects if any(fact[0] == "Risk" for fact in obj.facts))
+        facts = {fact[0]: fact for fact in risk.facts}
+        self.assertEqual(facts["RiskText"][2], "malformed uploads exhaust parser memory")
+        self.assertTrue(any(check.property == "risk-has-explicit-mitigation" and check.status == CheckStatus.UNKNOWN for check in doc.checks))
+        self.assertTrue(
+            any(
+                obj.role == Role.QUESTION_OBJECT and any(fact[0] == "MissingRiskMitigation" for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertIn("(MissingRiskMitigation ", "\n".join(atoms))
+        self.assertFalse(any("Risk" in refusal.reason for refusal in refusals))
+
+    def test_explicit_risk_marker_links_same_item_mitigation(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R19] Run batch import. Risk: queue backlog delays user reports. "
+            "Mitigation: monitor backlog alerts and apply worker backpressure.\n"
+            "***acceptance tests***\n"
+            "- [covers:R19] Backlog alert appears before the SLA window expires.\n"
+        )
+        doc = compile_source(source, "semantic_risk_mitigated.plain")
+        risk = next(obj for obj in doc.objects if any(fact[0] == "Risk" for fact in obj.facts))
+        mitigation = next(obj for obj in doc.objects if any(fact[0] == "RiskMitigation" for fact in obj.facts))
+        risk_facts = {fact[0]: fact for fact in risk.facts}
+        mitigation_facts = {fact[0]: fact for fact in mitigation.facts}
+        risk_span = next(span for span in doc.spans if span.id == risk.source_span_id)
+        mitigation_span = next(span for span in doc.spans if span.id == mitigation.source_span_id)
+
+        self.assertEqual(risk_facts["RiskText"][2], "queue backlog delays user reports")
+        self.assertEqual(mitigation_facts["RiskMitigationText"][2], "monitor backlog alerts and apply worker backpressure")
+        self.assertEqual(doc.files[0].text[risk_span.start_byte:risk_span.end_byte], "Risk: queue backlog delays user reports")
+        self.assertEqual(doc.files[0].text[mitigation_span.start_byte:mitigation_span.end_byte], "Mitigation: monitor backlog alerts and apply worker backpressure")
+        self.assertTrue(any(fact == ("RiskMitigatedBy", risk.id, mitigation.id) for fact in risk.facts))
+        self.assertTrue(any(check.property == "risk-has-explicit-mitigation" and check.status == CheckStatus.PASS for check in doc.checks))
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(Risk ", joined)
+        self.assertIn("(RiskMitigation ", joined)
+        self.assertFalse(any("Risk" in refusal.reason for refusal in refusals))
+
 
 if __name__ == "__main__":
     unittest.main()
