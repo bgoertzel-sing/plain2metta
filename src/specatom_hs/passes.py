@@ -718,6 +718,7 @@ BRIDGE_RE = re.compile(
     re.IGNORECASE,
 )
 SUPPORTED_BRIDGE_ONTOLOGIES = {"sumo", "expo", "hyperseed"}
+SUPPORTED_BRIDGE_RELATIONS = {"corresponds-to", "related", "analogy", "refines", "approximates", "contextual"}
 
 
 def _line_for_source_offset(doc: SpecDocument, file_id: str, byte_offset: int) -> int:
@@ -913,6 +914,16 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                 qid = stable_id("question", "unsupported-bridge-ontology", oid, ontology)
                 if qid not in existing_ids:
                     doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("UnsupportedBridgeOntology", qid, ontology), ("QuestionText", qid, f"Should ontology '{ontology}' be added to the bridge profile or left as an unresolved correspondence?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+            relation_obligation = add_validation_obligation(doc, "bridge-relation-conservative", oid, "Bridge relations must stay conservative graded correspondences; identity/equivalence claims require human review.", span_id)
+            if relation in SUPPORTED_BRIDGE_RELATIONS:
+                add_check(doc, relation_obligation, CheckStatus.PASS, f"conservative bridge relation={relation}")
+            else:
+                add_check(doc, relation_obligation, CheckStatus.UNKNOWN, f"unsupported bridge relation={relation}")
+                qid = stable_id("question", "unsupported-bridge-relation", oid, relation)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("UnsupportedBridgeRelation", qid, relation), ("QuestionText", qid, f"Should bridge relation '{relation}' be weakened to a conservative correspondence or accepted as a reviewed profile extension?"), ("Blocks", qid, relation_obligation.id)]))
                     existing_ids.add(qid)
 
     for item_id, interpretation_ids in interpretation_by_item.items():

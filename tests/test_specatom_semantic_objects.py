@@ -73,6 +73,29 @@ class SemanticObjectTests(unittest.TestCase):
             )
         )
 
+    def test_identity_bridge_relation_becomes_review_question(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R9] Model session state. Evidence: design note. Bridge: SUMO.Process as identical.\n"
+            "***acceptance tests***\n"
+            "- [covers:R9] Session state can be inspected.\n",
+            "semantic_bridge_relation_unknown.plain",
+        )
+        bridge = next(obj for obj in doc.objects if obj.role == Role.BRIDGE_OBJECT)
+        bridge_facts = {fact[0]: fact for fact in bridge.facts}
+
+        self.assertEqual(bridge_facts["BridgeRelation"][2], "identical")
+        self.assertTrue(any(check.property == "bridge-relation-conservative" and check.status == CheckStatus.UNKNOWN for check in doc.checks))
+        self.assertTrue(
+            any(
+                obj.role == Role.QUESTION_OBJECT and any(fact == ("UnsupportedBridgeRelation", obj.id, "identical") for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertIn("(UnsupportedBridgeRelation ", "\n".join(atoms))
+        self.assertFalse(any("UnsupportedBridgeRelation" in refusal.reason for refusal in refusals))
+
     def test_petta_profile_exports_supported_semantic_facts(self):
         doc = compile_source(
             "***requirements***\n"

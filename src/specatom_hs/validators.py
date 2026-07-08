@@ -103,6 +103,7 @@ FACT_SCHEMAS = {
     "UnsupportedEpistemicStatus": FactSchema(3),
     "MissingInterpretationEvidence": FactSchema(3, object_refs=(2,)),
     "UnsupportedBridgeOntology": FactSchema(3),
+    "UnsupportedBridgeRelation": FactSchema(3),
 }
 
 
