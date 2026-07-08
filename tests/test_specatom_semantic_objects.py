@@ -447,6 +447,50 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn("(MissingInvariantEvidence ", "\n".join(atoms))
         self.assertFalse(any("MissingInvariantEvidence" in refusal.reason for refusal in refusals))
 
+    def test_explicit_constraint_marker_links_same_item_evidence_and_exports(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R21] Limit export size. Evidence: platform quota. "
+            "Constraint: exports must stay below 100MB per request. Question: Is the quota tenant-specific?\n"
+            "***acceptance tests***\n"
+            "- [covers:R21] Oversized exports are rejected.\n"
+        )
+        doc = compile_source(source, "semantic_constraint.plain")
+        constraint = next(obj for obj in doc.objects if any(fact[0] == "Constraint" for fact in obj.facts))
+        facts = {fact[0]: fact for fact in constraint.facts}
+        span = next(span for span in doc.spans if span.id == constraint.source_span_id)
+
+        self.assertEqual(constraint.role, Role.OBLIGATION_OBJECT)
+        self.assertEqual(facts["ConstraintText"][2], "exports must stay below 100MB per request")
+        self.assertEqual(doc.files[0].text[span.start_byte:span.end_byte], "Constraint: exports must stay below 100MB per request")
+        self.assertTrue(any(fact[0] == "ConstraintEvidence" for fact in constraint.facts))
+        self.assertTrue(any(check.property == "constraint-has-explicit-evidence" and check.status == CheckStatus.PASS for check in doc.checks))
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(Constraint ", joined)
+        self.assertIn("(ConstraintEvidence ", joined)
+        self.assertFalse(any("Constraint" in refusal.reason for refusal in refusals))
+
+    def test_constraint_without_evidence_becomes_blocking_question(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R22] Limit export size. Constraint: exports must stay below 100MB per request.\n"
+            "***acceptance tests***\n"
+            "- [covers:R22] Oversized exports are rejected.\n",
+            "semantic_constraint_unknown.plain",
+        )
+
+        self.assertTrue(any(check.property == "constraint-has-explicit-evidence" and check.status == CheckStatus.UNKNOWN for check in doc.checks))
+        self.assertTrue(
+            any(
+                obj.role == Role.QUESTION_OBJECT and any(fact[0] == "MissingConstraintEvidence" for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertIn("(MissingConstraintEvidence ", "\n".join(atoms))
+        self.assertFalse(any("MissingConstraintEvidence" in refusal.reason for refusal in refusals))
+
 
 if __name__ == "__main__":
     unittest.main()
