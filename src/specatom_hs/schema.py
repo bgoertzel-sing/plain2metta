@@ -43,6 +43,8 @@ class Role(str, Enum):
     INTERPRETATION_OBJECT = "InterpretationObject"
     BRIDGE_OBJECT = "BridgeObject"
     REVISION_OBJECT = "RevisionObject"
+    PROCESS_OBJECT = "ProcessObject"
+    RESOURCE_OBJECT = "ResourceObject"
 
 
 class CheckStatus(str, Enum):

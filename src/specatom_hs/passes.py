@@ -721,6 +721,12 @@ REVISION_RE = re.compile(r"\brevision\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 WITNESS_RE = re.compile(r"\b(?:witness|backend artifact|artifact)\s*:\s*(?P<text>[^;\n]+)", re.IGNORECASE)
 WITNESS_CONCRETE_RE = re.compile(r"\b(?:commit|sha256|hash|log|report|test|fixture|script|path|file|example|artifact|dataset|snapshot|https?://|[\w./-]+\.(?:py|metta|json|md|txt|plain|log|csv))\b", re.IGNORECASE)
 WITNESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate code later)\b", re.IGNORECASE)
+PROCESS_RE = re.compile(r"\bprocess\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
+RESOURCE_RE = re.compile(r"\bresource(?:s)?\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
+PROCESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate later|placeholder)\b", re.IGNORECASE)
+PROCESS_CONCRETE_RE = re.compile(r"\b(?:run|runs|execute|executes|validate|validates|review|reviews|compile|compiles|build|builds|deploy|deploys|schedule|scheduled|cron|batch|pipeline|workflow|operator|approval|rollback|manual|automated)\b", re.IGNORECASE)
+RESOURCE_UNSUPPORTED_RE = PROCESS_UNSUPPORTED_RE
+RESOURCE_CONCRETE_RE = re.compile(r"\b(?:\d+(?:\.\d+)?\s*(?:cpu|cpus|core|cores|gb|mb|tb|kb|hour|hours|minute|minutes|day|days|worker|workers|node|nodes|replica|replicas|request|requests|slot|slots)|budget|quota|capacity|memory|storage|disk|gpu|database|queue|cluster|service account|credential|secret|dataset|artifact|file|path)\b", re.IGNORECASE)
 SUPPORTED_BRIDGE_ONTOLOGIES = {"sumo", "expo", "hyperseed"}
 SUPPORTED_BRIDGE_RELATIONS = {"corresponds-to", "related", "analogy", "refines", "approximates", "contextual"}
 
@@ -982,6 +988,56 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                 qid = stable_id("question", "missing-witness-artifact", oid, text)
                 if qid not in existing_ids:
                     doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingWitnessArtifact", qid, oid), ("QuestionText", qid, "Name the concrete file, commit, test log, dataset snapshot, or backend artifact that witnesses this claim, or leave it as an explicit unsupported placeholder."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in PROCESS_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip()
+            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            oid = stable_id("process", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.PROCESS_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Process", oid, target_id), ("ProcessText", oid, text), ("ProcessFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "process-definition-reviewable", oid, "Explicit process markers must describe a reviewable operational/procedural placeholder; TODO/raw-text-only placeholders stay Unknown.", span_id)
+            if PROCESS_CONCRETE_RE.search(text) and not PROCESS_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable process placeholder: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"non-concrete process placeholder: {text}")
+                qid = stable_id("question", "missing-process-definition", oid, text)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingProcessDefinition", qid, oid), ("QuestionText", qid, "Clarify the concrete operational process, schedule, approval workflow, or execution procedure, or keep it as an explicit unsupported placeholder."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in RESOURCE_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip()
+            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            oid = stable_id("resource", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.RESOURCE_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Resource", oid, target_id), ("ResourceText", oid, text), ("ResourceFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "resource-requirement-reviewable", oid, "Explicit resource markers must describe concrete reviewable capacity, budget, storage, service, or artifact requirements; TODO/raw-text-only placeholders stay Unknown.", span_id)
+            if RESOURCE_CONCRETE_RE.search(text) and not RESOURCE_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable resource requirement: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"non-concrete resource requirement: {text}")
+                qid = stable_id("question", "missing-resource-requirement", oid, text)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingResourceRequirement", qid, oid), ("QuestionText", qid, "Clarify the concrete capacity, budget, storage, service dependency, artifact, or access resource needed, or keep it as an explicit unsupported placeholder."), ("Blocks", qid, obligation.id)]))
                     existing_ids.add(qid)
 
     for item_id, interpretation_ids in interpretation_by_item.items():
@@ -2752,7 +2808,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
-    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Interpretation/Bridge/Revision/Witness objects.", build_semantic_objects),
+    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Interpretation/Bridge/Revision/Witness/Process/Resource objects.", build_semantic_objects),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),

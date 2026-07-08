@@ -281,6 +281,59 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertEqual(file_text[span.start_byte:span.end_byte], "Evidence: second-line review note")
         self.assertEqual(span.start_line, 3)
 
+    def test_explicit_process_and_resource_markers_export_when_reviewable(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R14] Run the nightly import. Process: scheduled cron validates the batch before deploy. "
+            "Resource: 2 CPUs, 4GB memory, and dataset snapshot path.\n"
+            "***acceptance tests***\n"
+            "- [covers:R14] Import job reports validation status.\n"
+        )
+        doc = compile_source(source, "semantic_process_resource.plain")
+        process = next(obj for obj in doc.objects if obj.role == Role.PROCESS_OBJECT)
+        resource = next(obj for obj in doc.objects if obj.role == Role.RESOURCE_OBJECT)
+        process_facts = {fact[0]: fact for fact in process.facts}
+        resource_facts = {fact[0]: fact for fact in resource.facts}
+
+        self.assertEqual(process_facts["ProcessText"][2], "scheduled cron validates the batch before deploy")
+        self.assertEqual(resource_facts["ResourceText"][2], "2 CPUs, 4GB memory, and dataset snapshot path")
+        self.assertTrue(any(check.property == "process-definition-reviewable" and check.status == CheckStatus.PASS for check in doc.checks))
+        self.assertTrue(any(check.property == "resource-requirement-reviewable" and check.status == CheckStatus.PASS for check in doc.checks))
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(Process ", joined)
+        self.assertIn("(Resource ", joined)
+        self.assertFalse(any("Process" in refusal.reason or "Resource" in refusal.reason for refusal in refusals))
+
+    def test_process_and_resource_placeholders_become_blocking_questions(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R15] Provision the reviewer. Process: TODO decide later. Resource: unknown capacity.\n"
+            "***acceptance tests***\n"
+            "- [covers:R15] Reviewer provisioning is reported.\n",
+            "semantic_process_resource_unknown.plain",
+        )
+
+        self.assertTrue(any(check.property == "process-definition-reviewable" and check.status == CheckStatus.UNKNOWN for check in doc.checks))
+        self.assertTrue(any(check.property == "resource-requirement-reviewable" and check.status == CheckStatus.UNKNOWN for check in doc.checks))
+        self.assertTrue(
+            any(
+                obj.role == Role.QUESTION_OBJECT and any(fact[0] == "MissingProcessDefinition" for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+        self.assertTrue(
+            any(
+                obj.role == Role.QUESTION_OBJECT and any(fact[0] == "MissingResourceRequirement" for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(MissingProcessDefinition ", joined)
+        self.assertIn("(MissingResourceRequirement ", joined)
+        self.assertFalse(any("MissingProcessDefinition" in refusal.reason or "MissingResourceRequirement" in refusal.reason for refusal in refusals))
+
 
 if __name__ == "__main__":
     unittest.main()
