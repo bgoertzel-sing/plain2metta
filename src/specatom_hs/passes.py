@@ -712,6 +712,7 @@ EPISTEMIC_RE = re.compile(r"\b(?:epistemic(?: status)?|status)\s*:\s*(?P<status>
 SUPPORTED_EPISTEMIC_STATUSES = {"observed", "assumed", "hypothesis", "derived", "verified", "rejected", "unknown"}
 CONFIDENCE_RE = re.compile(r"\bconfidence\s*:\s*(?P<value>[^.;\n]+)", re.IGNORECASE)
 EVIDENCE_RE = re.compile(r"\bevidence\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
+RATIONALE_RE = re.compile(r"\brationale\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 INTERPRETATION_RE = re.compile(r"\binterpretation\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 BRIDGE_RE = re.compile(
     r"\bbridge\s*:\s*(?P<ontology>[A-Za-z][A-Za-z0-9_-]*)\s*[:.]\s*(?P<target>[A-Za-z0-9_.-]+)(?:\s+(?:as|via|relation)\s+(?P<relation>[A-Za-z0-9_-]+))?",
@@ -723,7 +724,7 @@ WITNESS_CONCRETE_RE = re.compile(r"\b(?:commit|sha256|hash|log|report|test|fixtu
 WITNESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate code later)\b", re.IGNORECASE)
 PROCESS_RE = re.compile(r"\bprocess\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 RESOURCE_RE = re.compile(r"\bresource(?:s)?\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
-SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|question|assumption|invariant|constraint)\s*:)|[;\n]|$"
+SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|rationale|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|question|assumption|invariant|constraint)\s*:)|[;\n]|$"
 INVARIANT_RE = re.compile(
     r"\binvariant\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
     re.IGNORECASE,
@@ -918,6 +919,24 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
             evidence_by_item.setdefault(item.id, []).append(oid)
             obligation = add_validation_obligation(doc, "evidence-has-source-provenance", oid, "Evidence objects must cite explicit source text and the object they support.", span_id)
             add_check(doc, obligation, CheckStatus.PASS, f"evidence supports {target_id}")
+
+        for match in RATIONALE_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip()
+            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            oid = stable_id("rationale", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.EVIDENCE_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Rationale", oid, target_id), ("RationaleText", oid, text), ("RationaleFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "rationale-has-source-provenance", oid, "Explicit rationales must remain source-provenance-backed explanations rather than inferred semantics.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"rationale applies to {target_id}")
 
         for match in ASSUMPTION_RE.finditer(raw):
             text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
@@ -2968,7 +2987,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
-    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Interpretation/Bridge/Revision/Witness/Process/Resource/Question/Assumption/Invariant/Constraint objects.", build_semantic_objects),
+    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Rationale/Interpretation/Bridge/Revision/Witness/Process/Resource/Question/Assumption/Invariant/Constraint objects.", build_semantic_objects),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),

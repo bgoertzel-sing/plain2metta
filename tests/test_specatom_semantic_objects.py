@@ -180,6 +180,28 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn(" bridge-profile-supported ", joined)
         self.assertFalse(any("Scope" in refusal.reason or "Evidence" in refusal.reason or "Bridge" in refusal.reason for refusal in refusals))
 
+    def test_explicit_rationale_marker_becomes_source_spanned_explanation(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R14] Keep review gates conservative. Rationale: prevents raw text from being treated as executable semantics. "
+            "Evidence: design review note.\n"
+            "***acceptance tests***\n"
+            "- [covers:R14] RawTextOnly objects are refused by executable skeleton export.\n"
+        )
+        doc = compile_source(source, "semantic_rationale.plain")
+        rationale = next(obj for obj in doc.objects if any(fact[0] == "Rationale" for fact in obj.facts))
+        facts = {fact[0]: fact for fact in rationale.facts}
+        span = next(span for span in doc.spans if span.id == rationale.source_span_id)
+
+        self.assertEqual(facts["RationaleText"][2], "prevents raw text from being treated as executable semantics")
+        self.assertEqual(doc.files[0].text[span.start_byte:span.end_byte], "Rationale: prevents raw text from being treated as executable semantics")
+        self.assertTrue(any(check.property == "rationale-has-source-provenance" and check.status == CheckStatus.PASS for check in doc.checks))
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(Rationale ", joined)
+        self.assertIn("(RationaleText ", joined)
+        self.assertFalse(any("Rationale" in refusal.reason for refusal in refusals))
+
     def test_explicit_confidence_marker_normalizes_and_exports(self):
         doc = compile_source(
             "***requirements***\n"
