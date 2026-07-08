@@ -723,12 +723,16 @@ WITNESS_CONCRETE_RE = re.compile(r"\b(?:commit|sha256|hash|log|report|test|fixtu
 WITNESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate code later)\b", re.IGNORECASE)
 PROCESS_RE = re.compile(r"\bprocess\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 RESOURCE_RE = re.compile(r"\bresource(?:s)?\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
+INVARIANT_RE = re.compile(
+    r"\binvariant\s*:\s*(?P<text>.*?)(?=(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|question|assumption|invariant)\s*:)|[;\n]|$)",
+    re.IGNORECASE,
+)
 ASSUMPTION_RE = re.compile(
-    r"\bassumption\s*:\s*(?P<text>.*?)(?=(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|question|assumption)\s*:)|[;\n]|$)",
+    r"\bassumption\s*:\s*(?P<text>.*?)(?=(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|question|assumption|invariant)\s*:)|[;\n]|$)",
     re.IGNORECASE,
 )
 QUESTION_RE = re.compile(
-    r"\bquestion\s*:\s*(?P<text>.*?)(?=(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|question|assumption)\s*:)|[;\n]|$)",
+    r"\bquestion\s*:\s*(?P<text>.*?)(?=(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|question|assumption|invariant)\s*:)|[;\n]|$)",
     re.IGNORECASE,
 )
 PROCESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate later|placeholder)\b", re.IGNORECASE)
@@ -946,6 +950,44 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                 qid = stable_id("question", "missing-assumption-evidence", oid)
                 if qid not in existing_ids:
                     doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingAssumptionEvidence", qid, oid), ("QuestionText", qid, "What explicit evidence supports this assumption, or should it remain an unresolved assumption?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in INVARIANT_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("invariant", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.PROPOSITION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Invariant", oid, target_id), ("InvariantText", oid, text), ("InvariantFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "invariant-has-explicit-evidence", oid, "Explicit invariants must be preserved as reviewable propositions and cite same-item evidence before being treated as supported.", span_id)
+            evidence_ids = evidence_by_item.get(item.id, [])
+            if evidence_ids:
+                invariant = next(obj for obj in doc.objects if obj.id == oid)
+                for evidence_id in evidence_ids:
+                    fact = ("InvariantEvidence", oid, evidence_id)
+                    if fact not in invariant.facts:
+                        invariant.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, f"linked evidence: {', '.join(evidence_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit evidence marker on the same Plain item")
+                qid = stable_id("question", "missing-invariant-evidence", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingInvariantEvidence", qid, oid), ("QuestionText", qid, "What explicit evidence supports this invariant, or should it remain an unresolved invariant?"), ("Blocks", qid, obligation.id)]))
                     existing_ids.add(qid)
 
         for match in INTERPRETATION_RE.finditer(raw):
@@ -2883,7 +2925,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
-    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Interpretation/Bridge/Revision/Witness/Process/Resource/Question/Assumption objects.", build_semantic_objects),
+    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Interpretation/Bridge/Revision/Witness/Process/Resource/Question/Assumption/Invariant objects.", build_semantic_objects),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),

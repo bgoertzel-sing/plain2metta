@@ -403,6 +403,50 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn("(MissingAssumptionEvidence ", "\n".join(atoms))
         self.assertFalse(any("MissingAssumptionEvidence" in refusal.reason for refusal in refusals))
 
+    def test_explicit_invariant_marker_links_same_item_evidence_and_exports(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R19] Maintain account totals. Evidence: ledger design note. "
+            "Invariant: debits and credits balance after every posted transaction. Question: Who audits exceptions?\n"
+            "***acceptance tests***\n"
+            "- [covers:R19] Posting a transaction preserves total balance.\n"
+        )
+        doc = compile_source(source, "semantic_invariant.plain")
+        invariant = next(obj for obj in doc.objects if any(fact[0] == "Invariant" for fact in obj.facts))
+        facts = {fact[0]: fact for fact in invariant.facts}
+        span = next(span for span in doc.spans if span.id == invariant.source_span_id)
+
+        self.assertEqual(invariant.role, Role.PROPOSITION_OBJECT)
+        self.assertEqual(facts["InvariantText"][2], "debits and credits balance after every posted transaction")
+        self.assertEqual(doc.files[0].text[span.start_byte:span.end_byte], "Invariant: debits and credits balance after every posted transaction")
+        self.assertTrue(any(fact[0] == "InvariantEvidence" for fact in invariant.facts))
+        self.assertTrue(any(check.property == "invariant-has-explicit-evidence" and check.status == CheckStatus.PASS for check in doc.checks))
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(Invariant ", joined)
+        self.assertIn("(InvariantEvidence ", joined)
+        self.assertFalse(any("Invariant" in refusal.reason for refusal in refusals))
+
+    def test_invariant_without_evidence_becomes_blocking_question(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R20] Maintain account totals. Invariant: debits and credits balance after every posted transaction.\n"
+            "***acceptance tests***\n"
+            "- [covers:R20] Posting a transaction preserves total balance.\n",
+            "semantic_invariant_unknown.plain",
+        )
+
+        self.assertTrue(any(check.property == "invariant-has-explicit-evidence" and check.status == CheckStatus.UNKNOWN for check in doc.checks))
+        self.assertTrue(
+            any(
+                obj.role == Role.QUESTION_OBJECT and any(fact[0] == "MissingInvariantEvidence" for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertIn("(MissingInvariantEvidence ", "\n".join(atoms))
+        self.assertFalse(any("MissingInvariantEvidence" in refusal.reason for refusal in refusals))
+
 
 if __name__ == "__main__":
     unittest.main()
