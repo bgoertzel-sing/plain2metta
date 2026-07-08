@@ -91,6 +91,43 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn(" bridge-profile-supported ", joined)
         self.assertFalse(any("Scope" in refusal.reason or "Evidence" in refusal.reason or "Bridge" in refusal.reason for refusal in refusals))
 
+    def test_explicit_confidence_marker_normalizes_and_exports(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R7] Recommend a reviewer. Evidence: calibration run. Confidence: 83%. "
+            "Interpretation: reviewer score is a heuristic ranking.\n"
+            "***acceptance tests***\n"
+            "- [covers:R7] Recommendation includes a reviewer id.\n",
+            "semantic_confidence.plain",
+        )
+        confidence = next(obj for obj in doc.objects if any(fact[0] == "Confidence" for fact in obj.facts))
+        facts = {fact[0]: fact for fact in confidence.facts}
+
+        self.assertEqual(facts["ConfidenceValue"][2], "0.83")
+        self.assertTrue(any(check.property == "confidence-value-in-unit-interval" and check.status == CheckStatus.PASS for check in doc.checks))
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(Confidence ", joined)
+        self.assertIn("(ConfidenceValue ", joined)
+        self.assertFalse(any("Confidence" in refusal.reason for refusal in refusals))
+
+    def test_out_of_range_confidence_becomes_review_question(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R8] Rank candidates. Confidence: 120%. Evidence: informal guess.\n"
+            "***acceptance tests***\n"
+            "- [covers:R8] Ranking returns candidates.\n",
+            "semantic_confidence_unknown.plain",
+        )
+
+        self.assertTrue(any(check.property == "confidence-value-in-unit-interval" and check.status == CheckStatus.UNKNOWN for check in doc.checks))
+        self.assertTrue(
+            any(
+                obj.role == Role.QUESTION_OBJECT and any(fact == ("UnsupportedConfidenceValue", obj.id, "120%") for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+
     def test_semantic_marker_spans_follow_repeated_raw_text_occurrences(self):
         source = (
             "***requirements***\n"
