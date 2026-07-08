@@ -718,6 +718,9 @@ BRIDGE_RE = re.compile(
     re.IGNORECASE,
 )
 REVISION_RE = re.compile(r"\brevision\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
+WITNESS_RE = re.compile(r"\b(?:witness|backend artifact|artifact)\s*:\s*(?P<text>[^;\n]+)", re.IGNORECASE)
+WITNESS_CONCRETE_RE = re.compile(r"\b(?:commit|sha256|hash|log|report|test|fixture|script|path|file|example|artifact|dataset|snapshot|https?://|[\w./-]+\.(?:py|metta|json|md|txt|plain|log|csv))\b", re.IGNORECASE)
+WITNESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate code later)\b", re.IGNORECASE)
 SUPPORTED_BRIDGE_ONTOLOGIES = {"sumo", "expo", "hyperseed"}
 SUPPORTED_BRIDGE_RELATIONS = {"corresponds-to", "related", "analogy", "refines", "approximates", "contextual"}
 
@@ -949,6 +952,37 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                 existing_ids.add(oid)
             obligation = add_validation_obligation(doc, "revision-has-source-provenance", oid, "Explicit Revision objects must preserve exact source provenance and name the object being revised.", span_id)
             add_check(doc, obligation, CheckStatus.PASS, f"revision applies to {target_id}")
+
+        for match in WITNESS_RE.finditer(raw):
+            raw_text = match.group("text")
+            text = re.sub(r"\s+", " ", raw_text).strip().rstrip(".")
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("witness", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.BACKEND_ARTIFACT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Witness", oid, target_id), ("WitnessText", oid, text), ("WitnessFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "witness-artifact-reviewable", oid, "Explicit witness/backend-artifact markers must cite a concrete reviewable artifact; TODO/raw-text-only placeholders stay Unknown.", span_id)
+            if WITNESS_CONCRETE_RE.search(text) and not WITNESS_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable witness artifact: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"non-concrete witness artifact: {text}")
+                qid = stable_id("question", "missing-witness-artifact", oid, text)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingWitnessArtifact", qid, oid), ("QuestionText", qid, "Name the concrete file, commit, test log, dataset snapshot, or backend artifact that witnesses this claim, or leave it as an explicit unsupported placeholder."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
 
     for item_id, interpretation_ids in interpretation_by_item.items():
         item = next(item for item in doc.items if item.id == item_id)
@@ -2718,7 +2752,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
-    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Interpretation/Bridge/Revision objects.", build_semantic_objects),
+    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Interpretation/Bridge/Revision/Witness objects.", build_semantic_objects),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),

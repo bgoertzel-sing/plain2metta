@@ -119,6 +119,49 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn("(RevisionText ", joined)
         self.assertFalse(any("Revision" in refusal.reason for refusal in refusals))
 
+    def test_explicit_witness_marker_becomes_reviewable_backend_artifact(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R12] Keep CLI output reproducible. Evidence: demo run. "
+            "Witness: tests/test_cli.py::CliTests and out/demo.metta.\n"
+            "***acceptance tests***\n"
+            "- [covers:R12] Demo output regenerates.\n"
+        )
+        doc = compile_source(source, "semantic_witness.plain")
+        witness = next(obj for obj in doc.objects if obj.role == Role.BACKEND_ARTIFACT)
+        facts = {fact[0]: fact for fact in witness.facts}
+        span = next(span for span in doc.spans if span.id == witness.source_span_id)
+
+        self.assertEqual(facts["Witness"][2], facts["WitnessFor"][2])
+        self.assertEqual(facts["WitnessText"][2], "tests/test_cli.py::CliTests and out/demo.metta")
+        self.assertEqual(doc.files[0].text[span.start_byte:span.end_byte], "Witness: tests/test_cli.py::CliTests and out/demo.metta")
+        self.assertTrue(any(check.property == "witness-artifact-reviewable" and check.status == CheckStatus.PASS for check in doc.checks))
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(Witness ", joined)
+        self.assertIn("(WitnessText ", joined)
+        self.assertFalse(any("Witness" in refusal.reason for refusal in refusals))
+
+    def test_todo_witness_marker_becomes_blocking_question(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R13] Generate a worker skeleton. Witness: TODO generate code later.\n"
+            "***acceptance tests***\n"
+            "- [covers:R13] Skeleton path is listed.\n",
+            "semantic_witness_unknown.plain",
+        )
+
+        self.assertTrue(any(check.property == "witness-artifact-reviewable" and check.status == CheckStatus.UNKNOWN for check in doc.checks))
+        self.assertTrue(
+            any(
+                obj.role == Role.QUESTION_OBJECT and any(fact[0] == "MissingWitnessArtifact" for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertIn("(MissingWitnessArtifact ", "\n".join(atoms))
+        self.assertFalse(any("MissingWitnessArtifact" in refusal.reason for refusal in refusals))
+
     def test_petta_profile_exports_supported_semantic_facts(self):
         doc = compile_source(
             "***requirements***\n"
