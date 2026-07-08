@@ -723,8 +723,12 @@ WITNESS_CONCRETE_RE = re.compile(r"\b(?:commit|sha256|hash|log|report|test|fixtu
 WITNESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate code later)\b", re.IGNORECASE)
 PROCESS_RE = re.compile(r"\bprocess\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 RESOURCE_RE = re.compile(r"\bresource(?:s)?\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
+ASSUMPTION_RE = re.compile(
+    r"\bassumption\s*:\s*(?P<text>.*?)(?=(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|question|assumption)\s*:)|[;\n]|$)",
+    re.IGNORECASE,
+)
 QUESTION_RE = re.compile(
-    r"\bquestion\s*:\s*(?P<text>.*?)(?=(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|question)\s*:)|[;\n]|$)",
+    r"\bquestion\s*:\s*(?P<text>.*?)(?=(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|question|assumption)\s*:)|[;\n]|$)",
     re.IGNORECASE,
 )
 PROCESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate later|placeholder)\b", re.IGNORECASE)
@@ -905,6 +909,44 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
             evidence_by_item.setdefault(item.id, []).append(oid)
             obligation = add_validation_obligation(doc, "evidence-has-source-provenance", oid, "Evidence objects must cite explicit source text and the object they support.", span_id)
             add_check(doc, obligation, CheckStatus.PASS, f"evidence supports {target_id}")
+
+        for match in ASSUMPTION_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("assumption", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.ASSUMPTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Assumption", oid, target_id), ("AssumptionText", oid, text), ("AssumptionFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "assumption-has-explicit-evidence", oid, "Explicit assumptions must be preserved as reviewable claims and cite same-item evidence before being treated as supported.", span_id)
+            evidence_ids = evidence_by_item.get(item.id, [])
+            if evidence_ids:
+                assumption = next(obj for obj in doc.objects if obj.id == oid)
+                for evidence_id in evidence_ids:
+                    fact = ("AssumptionEvidence", oid, evidence_id)
+                    if fact not in assumption.facts:
+                        assumption.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, f"linked evidence: {', '.join(evidence_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit evidence marker on the same Plain item")
+                qid = stable_id("question", "missing-assumption-evidence", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingAssumptionEvidence", qid, oid), ("QuestionText", qid, "What explicit evidence supports this assumption, or should it remain an unresolved assumption?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
 
         for match in INTERPRETATION_RE.finditer(raw):
             text = re.sub(r"\s+", " ", match.group("text")).strip()
@@ -2841,7 +2883,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
-    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Interpretation/Bridge/Revision/Witness/Process/Resource/Question objects.", build_semantic_objects),
+    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Interpretation/Bridge/Revision/Witness/Process/Resource/Question/Assumption objects.", build_semantic_objects),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),

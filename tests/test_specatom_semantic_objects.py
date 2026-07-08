@@ -360,6 +360,49 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn("(QuestionsObject ", joined)
         self.assertFalse(any("ExplicitQuestion" in refusal.reason or "QuestionsObject" in refusal.reason for refusal in refusals))
 
+    def test_explicit_assumption_marker_links_same_item_evidence_and_exports(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R17] Cache reviewer hints. Evidence: product note. "
+            "Assumption: reviewer ids are stable for one release. Question: When do ids rotate?\n"
+            "***acceptance tests***\n"
+            "- [covers:R17] Cached hints include a release id.\n"
+        )
+        doc = compile_source(source, "semantic_assumption.plain")
+        assumption = next(obj for obj in doc.objects if obj.role == Role.ASSUMPTION_OBJECT)
+        facts = {fact[0]: fact for fact in assumption.facts}
+        span = next(span for span in doc.spans if span.id == assumption.source_span_id)
+
+        self.assertEqual(facts["AssumptionText"][2], "reviewer ids are stable for one release")
+        self.assertEqual(doc.files[0].text[span.start_byte:span.end_byte], "Assumption: reviewer ids are stable for one release")
+        self.assertTrue(any(fact[0] == "AssumptionEvidence" for fact in assumption.facts))
+        self.assertTrue(any(check.property == "assumption-has-explicit-evidence" and check.status == CheckStatus.PASS for check in doc.checks))
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(Assumption ", joined)
+        self.assertIn("(AssumptionEvidence ", joined)
+        self.assertFalse(any("Assumption" in refusal.reason for refusal in refusals))
+
+    def test_assumption_without_evidence_becomes_blocking_question(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R18] Cache reviewer hints. Assumption: reviewer ids never rotate.\n"
+            "***acceptance tests***\n"
+            "- [covers:R18] Cached hints include a reviewer id.\n",
+            "semantic_assumption_unknown.plain",
+        )
+
+        self.assertTrue(any(check.property == "assumption-has-explicit-evidence" and check.status == CheckStatus.UNKNOWN for check in doc.checks))
+        self.assertTrue(
+            any(
+                obj.role == Role.QUESTION_OBJECT and any(fact[0] == "MissingAssumptionEvidence" for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertIn("(MissingAssumptionEvidence ", "\n".join(atoms))
+        self.assertFalse(any("MissingAssumptionEvidence" in refusal.reason for refusal in refusals))
+
 
 if __name__ == "__main__":
     unittest.main()

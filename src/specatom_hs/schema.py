@@ -45,6 +45,7 @@ class Role(str, Enum):
     REVISION_OBJECT = "RevisionObject"
     PROCESS_OBJECT = "ProcessObject"
     RESOURCE_OBJECT = "ResourceObject"
+    ASSUMPTION_OBJECT = "AssumptionObject"
 
 
 class CheckStatus(str, Enum):
