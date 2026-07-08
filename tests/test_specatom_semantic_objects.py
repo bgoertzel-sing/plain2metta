@@ -334,6 +334,32 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn("(MissingResourceRequirement ", joined)
         self.assertFalse(any("MissingProcessDefinition" in refusal.reason or "MissingResourceRequirement" in refusal.reason for refusal in refusals))
 
+    def test_explicit_question_marker_becomes_blocking_review_item(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R16] Gate risky deployments. Question: Who approves emergency rollback? Evidence: runbook draft.\n"
+            "***acceptance tests***\n"
+            "- [covers:R16] Deployment gate lists an approver.\n"
+        )
+        doc = compile_source(source, "semantic_question.plain")
+        explicit_question = next(
+            obj for obj in doc.objects
+            if obj.role == Role.QUESTION_OBJECT and any(fact[0] == "ExplicitQuestion" for fact in obj.facts)
+        )
+        facts = {fact[0]: fact for fact in explicit_question.facts}
+        span = next(span for span in doc.spans if span.id == explicit_question.source_span_id)
+
+        self.assertEqual(facts["QuestionText"][2], "Who approves emergency rollback?")
+        self.assertEqual(facts["ExplicitQuestion"][2], facts["QuestionsObject"][2])
+        self.assertEqual(doc.files[0].text[span.start_byte:span.end_byte], "Question: Who approves emergency rollback?")
+        self.assertTrue(any(check.property == "explicit-question-needs-answer" and check.status == CheckStatus.UNKNOWN for check in doc.checks))
+        self.assertTrue(any(fact[0] == "Blocks" for fact in explicit_question.facts))
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(ExplicitQuestion ", joined)
+        self.assertIn("(QuestionsObject ", joined)
+        self.assertFalse(any("ExplicitQuestion" in refusal.reason or "QuestionsObject" in refusal.reason for refusal in refusals))
+
 
 if __name__ == "__main__":
     unittest.main()

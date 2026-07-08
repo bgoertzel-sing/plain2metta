@@ -115,6 +115,8 @@ FACT_SCHEMAS = {
     "ResourceText": FactSchema(3),
     "ResourceFor": FactSchema(3, object_refs=(2,)),
     "MissingResourceRequirement": FactSchema(3, object_refs=(2,)),
+    "ExplicitQuestion": FactSchema(3, object_refs=(2,)),
+    "QuestionsObject": FactSchema(3, object_refs=(2,)),
     "UnsupportedEpistemicStatus": FactSchema(3),
     "MissingInterpretationEvidence": FactSchema(3, object_refs=(2,)),
     "UnsupportedBridgeOntology": FactSchema(3),

@@ -723,6 +723,10 @@ WITNESS_CONCRETE_RE = re.compile(r"\b(?:commit|sha256|hash|log|report|test|fixtu
 WITNESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate code later)\b", re.IGNORECASE)
 PROCESS_RE = re.compile(r"\bprocess\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 RESOURCE_RE = re.compile(r"\bresource(?:s)?\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
+QUESTION_RE = re.compile(
+    r"\bquestion\s*:\s*(?P<text>.*?)(?=(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|interpretation|bridge|revision|witness|backend artifact|artifact|process|resources?|question)\s*:)|[;\n]|$)",
+    re.IGNORECASE,
+)
 PROCESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate later|placeholder)\b", re.IGNORECASE)
 PROCESS_CONCRETE_RE = re.compile(r"\b(?:run|runs|execute|executes|validate|validates|review|reviews|compile|compiles|build|builds|deploy|deploys|schedule|scheduled|cron|batch|pipeline|workflow|operator|approval|rollback|manual|automated)\b", re.IGNORECASE)
 RESOURCE_UNSUPPORTED_RE = PROCESS_UNSUPPORTED_RE
@@ -1039,6 +1043,35 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                 if qid not in existing_ids:
                     doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingResourceRequirement", qid, oid), ("QuestionText", qid, "Clarify the concrete capacity, budget, storage, service dependency, artifact, or access resource needed, or keep it as an explicit unsupported placeholder."), ("Blocks", qid, obligation.id)]))
                     existing_ids.add(qid)
+
+        for match in QUESTION_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            qid = stable_id("question", "explicit", item.id, target_id, text)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("ExplicitQuestion", qid, target_id), ("QuestionText", qid, text), ("QuestionsObject", qid, target_id), ("SourceItem", qid, item.id)],
+                    )
+                )
+                existing_ids.add(qid)
+            obligation = add_validation_obligation(doc, "explicit-question-needs-answer", qid, "Explicit Question markers are preserved as blocking review items until answered or resolved.", span_id)
+            add_check(doc, obligation, CheckStatus.UNKNOWN, f"explicit question awaiting answer: {text}")
+            question = next(obj for obj in doc.objects if obj.id == qid)
+            block_fact = ("Blocks", qid, obligation.id)
+            if block_fact not in question.facts:
+                question.facts.append(block_fact)
 
     for item_id, interpretation_ids in interpretation_by_item.items():
         item = next(item for item in doc.items if item.id == item_id)
@@ -2808,7 +2841,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
-    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Interpretation/Bridge/Revision/Witness/Process/Resource objects.", build_semantic_objects),
+    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Interpretation/Bridge/Revision/Witness/Process/Resource/Question objects.", build_semantic_objects),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),
