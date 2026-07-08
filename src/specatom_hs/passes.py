@@ -710,7 +710,7 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
 SCOPE_RE = re.compile(r"\b(?:scope|context)\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 EPISTEMIC_RE = re.compile(r"\b(?:epistemic(?: status)?|status)\s*:\s*(?P<status>[A-Za-z][A-Za-z -]{1,40})", re.IGNORECASE)
 SUPPORTED_EPISTEMIC_STATUSES = {"observed", "assumed", "hypothesis", "derived", "verified", "rejected", "unknown"}
-CONFIDENCE_RE = re.compile(r"\bconfidence\s*:\s*(?P<value>\d+(?:\.\d+)?%?)", re.IGNORECASE)
+CONFIDENCE_RE = re.compile(r"\bconfidence\s*:\s*(?P<value>[^.;\n]+)", re.IGNORECASE)
 EVIDENCE_RE = re.compile(r"\bevidence\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 INTERPRETATION_RE = re.compile(r"\binterpretation\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 BRIDGE_RE = re.compile(
@@ -842,35 +842,40 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                     existing_ids.add(qid)
 
         for match in CONFIDENCE_RE.finditer(raw):
-            raw_value = match.group("value").strip()
+            raw_value = re.sub(r"\s+", " ", match.group("value")).strip()
             span_id = _raw_match_span(doc, item, match.start(), match.end())
-            if raw_value.endswith("%"):
-                numeric_value = float(raw_value[:-1]) / 100.0
-            else:
-                numeric_value = float(raw_value)
-            normalized_value = f"{numeric_value:.6g}"
+            numeric_value = None
+            if re.fullmatch(r"\d+(?:\.\d+)?%?", raw_value):
+                if raw_value.endswith("%"):
+                    numeric_value = float(raw_value[:-1]) / 100.0
+                else:
+                    numeric_value = float(raw_value)
+            normalized_value = f"{numeric_value:.6g}" if numeric_value is not None else None
             oid = stable_id("confidence", item.id, target_id, raw_value)
             if oid not in existing_ids:
+                facts = [
+                    ("Confidence", oid, target_id),
+                    ("GeneratedFrom", oid, target_id),
+                    ("SourceItem", oid, item.id),
+                ]
+                if normalized_value is not None:
+                    facts.insert(1, ("ConfidenceValue", oid, normalized_value))
                 doc.objects.append(
                     SpecObject(
                         oid,
                         Role.EPISTEMIC_STATUS_OBJECT,
                         SemanticLevel.TEMPLATE_PARSED,
                         span_id,
-                        facts=[
-                            ("Confidence", oid, target_id),
-                            ("ConfidenceValue", oid, normalized_value),
-                            ("GeneratedFrom", oid, target_id),
-                            ("SourceItem", oid, item.id),
-                        ],
+                        facts=facts,
                     )
                 )
                 existing_ids.add(oid)
             obligation = add_validation_obligation(doc, "confidence-value-in-unit-interval", oid, "Explicit confidence annotations must normalize to a numeric value in [0,1]; unsupported scales stay reviewable instead of being treated as truth values.", span_id)
-            if 0.0 <= numeric_value <= 1.0:
-                add_check(doc, obligation, CheckStatus.PASS, normalized_value)
+            if numeric_value is not None and 0.0 <= numeric_value <= 1.0:
+                add_check(doc, obligation, CheckStatus.PASS, normalized_value or raw_value)
             else:
-                add_check(doc, obligation, CheckStatus.UNKNOWN, f"confidence outside [0,1]: {raw_value}")
+                evidence = f"confidence outside [0,1]: {raw_value}" if numeric_value is not None else f"non-numeric confidence scale: {raw_value}"
+                add_check(doc, obligation, CheckStatus.UNKNOWN, evidence)
                 qid = stable_id("question", "unsupported-confidence-value", oid, raw_value)
                 if qid not in existing_ids:
                     doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("UnsupportedConfidenceValue", qid, raw_value), ("QuestionText", qid, f"Normalize confidence '{raw_value}' to [0,1] or keep it as unsupported epistemic metadata."), ("Blocks", qid, obligation.id)]))

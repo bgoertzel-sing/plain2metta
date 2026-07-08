@@ -151,6 +151,35 @@ class SemanticObjectTests(unittest.TestCase):
             )
         )
 
+    def test_non_numeric_confidence_becomes_reviewable_object_and_question(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R10] Triage alerts. Confidence: high. Evidence: operator note.\n"
+            "***acceptance tests***\n"
+            "- [covers:R10] Alert includes triage reason.\n",
+            "semantic_confidence_nonnumeric.plain",
+        )
+        confidence = next(obj for obj in doc.objects if any(fact[0] == "Confidence" for fact in obj.facts))
+
+        self.assertFalse(any(fact[0] == "ConfidenceValue" for fact in confidence.facts))
+        self.assertTrue(
+            any(
+                check.property == "confidence-value-in-unit-interval"
+                and check.status == CheckStatus.UNKNOWN
+                and "non-numeric confidence scale: high" in check.evidence
+                for check in doc.checks
+            )
+        )
+        self.assertTrue(
+            any(
+                obj.role == Role.QUESTION_OBJECT and any(fact == ("UnsupportedConfidenceValue", obj.id, "high") for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertIn("(UnsupportedConfidenceValue ", "\n".join(atoms))
+        self.assertFalse(any("UnsupportedConfidenceValue" in refusal.reason for refusal in refusals))
+
     def test_semantic_marker_spans_follow_repeated_raw_text_occurrences(self):
         source = (
             "***requirements***\n"
