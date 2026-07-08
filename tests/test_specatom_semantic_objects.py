@@ -96,6 +96,29 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn("(UnsupportedBridgeRelation ", "\n".join(atoms))
         self.assertFalse(any("UnsupportedBridgeRelation" in refusal.reason for refusal in refusals))
 
+    def test_explicit_revision_marker_becomes_source_spanned_object(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R11] Keep the schema stable. Evidence: migration note. "
+            "Revision: replaces the old event payload wording.\n"
+            "***acceptance tests***\n"
+            "- [covers:R11] Existing payload examples still compile.\n"
+        )
+        doc = compile_source(source, "semantic_revision.plain")
+        revision = next(obj for obj in doc.objects if obj.role == Role.REVISION_OBJECT)
+        facts = {fact[0]: fact for fact in revision.facts}
+        span = next(span for span in doc.spans if span.id == revision.source_span_id)
+
+        self.assertEqual(facts["Revision"][2], facts["Revises"][2])
+        self.assertEqual(facts["RevisionText"][2], "replaces the old event payload wording")
+        self.assertEqual(doc.files[0].text[span.start_byte:span.end_byte], "Revision: replaces the old event payload wording")
+        self.assertTrue(any(check.property == "revision-has-source-provenance" and check.status == CheckStatus.PASS for check in doc.checks))
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(Revision ", joined)
+        self.assertIn("(RevisionText ", joined)
+        self.assertFalse(any("Revision" in refusal.reason for refusal in refusals))
+
     def test_petta_profile_exports_supported_semantic_facts(self):
         doc = compile_source(
             "***requirements***\n"

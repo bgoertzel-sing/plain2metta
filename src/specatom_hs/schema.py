@@ -42,6 +42,7 @@ class Role(str, Enum):
     EVIDENCE_OBJECT = "EvidenceObject"
     INTERPRETATION_OBJECT = "InterpretationObject"
     BRIDGE_OBJECT = "BridgeObject"
+    REVISION_OBJECT = "RevisionObject"
 
 
 class CheckStatus(str, Enum):
