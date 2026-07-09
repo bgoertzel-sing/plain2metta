@@ -724,7 +724,11 @@ WITNESS_CONCRETE_RE = re.compile(r"\b(?:commit|sha256|hash|log|report|test|fixtu
 WITNESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate code later)\b", re.IGNORECASE)
 PROCESS_RE = re.compile(r"\bprocess\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 RESOURCE_RE = re.compile(r"\bresource(?:s)?\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
-SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|rationale|interpretation|bridge|revision|decision|outcome|witness|backend artifact|artifact|process|resources?|risk|mitigation|question|assumption|invariant|constraint)\s*:)|[;\n]|$"
+SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|rationale|interpretation|bridge|revision|decision|outcome|witness|backend artifact|artifact|process|resources?|dependenc(?:y|ies)|risk|mitigation|question|assumption|invariant|constraint)\s*:)|[;\n]|$"
+DEPENDENCY_RE = re.compile(
+    r"\bdependenc(?:y|ies)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
 DECISION_RE = re.compile(
     r"\bdecision\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
     re.IGNORECASE,
@@ -762,6 +766,8 @@ PROCESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|r
 PROCESS_CONCRETE_RE = re.compile(r"\b(?:run|runs|execute|executes|validate|validates|review|reviews|compile|compiles|build|builds|deploy|deploys|schedule|scheduled|cron|batch|pipeline|workflow|operator|approval|rollback|manual|automated)\b", re.IGNORECASE)
 RESOURCE_UNSUPPORTED_RE = PROCESS_UNSUPPORTED_RE
 RESOURCE_CONCRETE_RE = re.compile(r"\b(?:\d+(?:\.\d+)?\s*(?:cpu|cpus|core|cores|gb|mb|tb|kb|hour|hours|minute|minutes|day|days|worker|workers|node|nodes|replica|replicas|request|requests|slot|slots)|budget|quota|capacity|memory|storage|disk|gpu|database|queue|cluster|service account|credential|secret|dataset|artifact|file|path)\b", re.IGNORECASE)
+DEPENDENCY_UNSUPPORTED_RE = PROCESS_UNSUPPORTED_RE
+DEPENDENCY_CONCRETE_RE = re.compile(r"\b(?:api|endpoint|service|database|db|queue|topic|bucket|cache|redis|postgres|mysql|s3|kafka|webhook|file|path|dataset|artifact|library|package|version|container|image|cluster|service account|credential|secret|commit|hash|https?://|[\w./-]+\.(?:py|metta|json|md|txt|plain|log|csv|yaml|yml))\b", re.IGNORECASE)
 SUPPORTED_BRIDGE_ONTOLOGIES = {"sumo", "expo", "hyperseed"}
 SUPPORTED_BRIDGE_RELATIONS = {"corresponds-to", "related", "analogy", "refines", "approximates", "contextual"}
 
@@ -1255,6 +1261,38 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                 qid = stable_id("question", "missing-resource-requirement", oid, text)
                 if qid not in existing_ids:
                     doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingResourceRequirement", qid, oid), ("QuestionText", qid, "Clarify the concrete capacity, budget, storage, service dependency, artifact, or access resource needed, or keep it as an explicit unsupported placeholder."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in DEPENDENCY_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("dependency", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.RESOURCE_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Dependency", oid, target_id), ("DependencyText", oid, text), ("DependencyFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "dependency-requirement-reviewable", oid, "Explicit dependency markers must name concrete services, files, APIs, packages, datasets, credentials, or artifacts; TODO/raw-text-only placeholders stay Unknown.", span_id)
+            if DEPENDENCY_CONCRETE_RE.search(text) and not DEPENDENCY_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable dependency requirement: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"non-concrete dependency requirement: {text}")
+                qid = stable_id("question", "missing-dependency-detail", oid, text)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingDependencyDetail", qid, oid), ("QuestionText", qid, "Clarify the concrete service, API, file, package, dataset, credential, or artifact dependency, or keep it as an explicit unsupported placeholder."), ("Blocks", qid, obligation.id)]))
                     existing_ids.add(qid)
 
         risk_mitigation_ids: list[str] = []
@@ -3118,7 +3156,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
-    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Rationale/Interpretation/Bridge/Revision/Decision/Outcome/Witness/Process/Resource/Risk/Question/Assumption/Invariant/Constraint objects.", build_semantic_objects),
+    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Rationale/Interpretation/Bridge/Revision/Decision/Outcome/Witness/Process/Resource/Dependency/Risk/Question/Assumption/Invariant/Constraint objects.", build_semantic_objects),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),

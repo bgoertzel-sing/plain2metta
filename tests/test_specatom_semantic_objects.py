@@ -405,6 +405,50 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn("(MissingResourceRequirement ", joined)
         self.assertFalse(any("MissingProcessDefinition" in refusal.reason or "MissingResourceRequirement" in refusal.reason for refusal in refusals))
 
+    def test_explicit_dependency_marker_exports_when_reviewable(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R25] Load reviewer context. Dependency: Redis cache service and config/context.yaml. "
+            "Outcome: context load is deterministic.\n"
+            "***acceptance tests***\n"
+            "- [covers:R25] Context loader reports dependency status.\n"
+        )
+        doc = compile_source(source, "semantic_dependency.plain")
+        dependency = next(obj for obj in doc.objects if any(fact[0] == "Dependency" for fact in obj.facts))
+        facts = {fact[0]: fact for fact in dependency.facts}
+        span = next(span for span in doc.spans if span.id == dependency.source_span_id)
+
+        self.assertEqual(dependency.role, Role.RESOURCE_OBJECT)
+        self.assertEqual(facts["DependencyText"][2], "Redis cache service and config/context.yaml")
+        self.assertEqual(facts["Dependency"][2], facts["DependencyFor"][2])
+        self.assertEqual(doc.files[0].text[span.start_byte:span.end_byte], "Dependency: Redis cache service and config/context.yaml")
+        self.assertTrue(any(check.property == "dependency-requirement-reviewable" and check.status == CheckStatus.PASS for check in doc.checks))
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(Dependency ", joined)
+        self.assertIn("(DependencyText ", joined)
+        self.assertFalse(any("Dependency" in refusal.reason for refusal in refusals))
+
+    def test_vague_dependency_marker_becomes_blocking_question(self):
+        doc = compile_source(
+            "***requirements***\n"
+            "- [id:R26] Load reviewer context. Dependency: TODO decide integration later.\n"
+            "***acceptance tests***\n"
+            "- [covers:R26] Context loader reports dependency status.\n",
+            "semantic_dependency_unknown.plain",
+        )
+
+        self.assertTrue(any(check.property == "dependency-requirement-reviewable" and check.status == CheckStatus.UNKNOWN for check in doc.checks))
+        self.assertTrue(
+            any(
+                obj.role == Role.QUESTION_OBJECT and any(fact[0] == "MissingDependencyDetail" for fact in obj.facts)
+                for obj in doc.objects
+            )
+        )
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertIn("(MissingDependencyDetail ", "\n".join(atoms))
+        self.assertFalse(any("MissingDependencyDetail" in refusal.reason for refusal in refusals))
+
     def test_explicit_question_marker_becomes_blocking_review_item(self):
         source = (
             "***requirements***\n"
