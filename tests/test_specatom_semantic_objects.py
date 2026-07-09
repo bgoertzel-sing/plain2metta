@@ -34,6 +34,97 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertTrue(any(check.property == "interpretation-has-explicit-evidence" and check.status == CheckStatus.PASS for check in doc.checks))
         self.assertTrue(any(check.property == "bridge-profile-supported" and check.status == CheckStatus.PASS for check in doc.checks))
 
+    def test_interpretation_marker_preserves_file_path_before_following_marker(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R29] Keep interpretation references inspectable. "
+            "Evidence: reviewer note. "
+            "Interpretation: see docs/interpretation.v1.md and out/semantic-map.metta. "
+            "Bridge: Hyperseed.Concept via related.\n"
+            "***acceptance tests***\n"
+            "- [covers:R29] Interpretation references are exported.\n"
+        )
+        doc = compile_source(source, "semantic_interpretation_boundary.plain")
+        interpretation = next(obj for obj in doc.objects if obj.role == Role.INTERPRETATION_OBJECT)
+        bridge = next(obj for obj in doc.objects if obj.role == Role.BRIDGE_OBJECT)
+        interp_facts = {fact[0]: fact for fact in interpretation.facts}
+        interp_span = next(span for span in doc.spans if span.id == interpretation.source_span_id)
+        bridge_span = next(span for span in doc.spans if span.id == bridge.source_span_id)
+
+        self.assertEqual(interp_facts["InterpretationText"][2], "see docs/interpretation.v1.md and out/semantic-map.metta")
+        self.assertEqual(doc.files[0].text[interp_span.start_byte:interp_span.end_byte], "Interpretation: see docs/interpretation.v1.md and out/semantic-map.metta")
+        self.assertEqual(doc.files[0].text[bridge_span.start_byte:bridge_span.end_byte], "Bridge: Hyperseed.Concept via related")
+        self.assertLess(interp_span.end_byte, bridge_span.start_byte)
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(InterpretationText ", joined)
+        self.assertIn("(BridgeTarget ", joined)
+        self.assertFalse(any("Interpretation" in refusal.reason or "Bridge" in refusal.reason for refusal in refusals))
+
+    def test_scope_and_confidence_markers_preserve_periods_before_following_marker(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R30] Keep scoped profile notes inspectable. "
+            "Scope: profile docs/v0.2.review.md and out/profile-scope.metta. "
+            "Confidence: 83%. Evidence: profile review.\n"
+            "***acceptance tests***\n"
+            "- [covers:R30] Scope and confidence atoms are exported.\n"
+        )
+        doc = compile_source(source, "semantic_scope_confidence_boundary.plain")
+        scope = next(obj for obj in doc.objects if obj.role == Role.SCOPE_OBJECT)
+        confidence = next(
+            obj
+            for obj in doc.objects
+            if obj.role == Role.EPISTEMIC_STATUS_OBJECT and any(fact[0] == "Confidence" for fact in obj.facts)
+        )
+        evidence = next(obj for obj in doc.objects if obj.role == Role.EVIDENCE_OBJECT)
+        scope_facts = {fact[0]: fact for fact in scope.facts}
+        confidence_facts = {fact[0]: fact for fact in confidence.facts}
+        scope_span = next(span for span in doc.spans if span.id == scope.source_span_id)
+        confidence_span = next(span for span in doc.spans if span.id == confidence.source_span_id)
+        evidence_span = next(span for span in doc.spans if span.id == evidence.source_span_id)
+
+        self.assertEqual(scope_facts["ScopeText"][2], "profile docs/v0.2.review.md and out/profile-scope.metta")
+        self.assertEqual(confidence_facts["ConfidenceValue"][2], "0.83")
+        self.assertEqual(doc.files[0].text[scope_span.start_byte:scope_span.end_byte], "Scope: profile docs/v0.2.review.md and out/profile-scope.metta")
+        self.assertEqual(doc.files[0].text[confidence_span.start_byte:confidence_span.end_byte], "Confidence: 83%")
+        self.assertEqual(doc.files[0].text[evidence_span.start_byte:evidence_span.end_byte], "Evidence: profile review")
+        self.assertLess(scope_span.end_byte, confidence_span.start_byte)
+        self.assertLess(confidence_span.end_byte, evidence_span.start_byte)
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(ScopeText ", joined)
+        self.assertIn("(ConfidenceValue ", joined)
+        self.assertFalse(any("Scope" in refusal.reason or "Confidence" in refusal.reason for refusal in refusals))
+
+    def test_epistemic_status_marker_stops_before_following_evidence_marker(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R31] Keep epistemic statuses separate from review evidence. "
+            "Epistemic status: verified. Evidence: docs/status.v1.md.\n"
+            "***acceptance tests***\n"
+            "- [covers:R31] Epistemic status and evidence atoms are exported separately.\n"
+        )
+        doc = compile_source(source, "semantic_epistemic_boundary.plain")
+        epistemic = next(
+            obj
+            for obj in doc.objects
+            if obj.role == Role.EPISTEMIC_STATUS_OBJECT and any(fact[0] == "EpistemicStatus" for fact in obj.facts)
+        )
+        evidence = next(obj for obj in doc.objects if obj.role == Role.EVIDENCE_OBJECT)
+        epistemic_facts = {fact[0]: fact for fact in epistemic.facts}
+        epistemic_span = next(span for span in doc.spans if span.id == epistemic.source_span_id)
+        evidence_span = next(span for span in doc.spans if span.id == evidence.source_span_id)
+
+        self.assertEqual(epistemic_facts["EpistemicStatus"][2], "verified")
+        self.assertEqual(doc.files[0].text[epistemic_span.start_byte:epistemic_span.end_byte], "Epistemic status: verified")
+        self.assertEqual(doc.files[0].text[evidence_span.start_byte:evidence_span.end_byte], "Evidence: docs/status.v1.md")
+        self.assertLess(epistemic_span.end_byte, evidence_span.start_byte)
+        self.assertTrue(any(check.property == "epistemic-status-supported" and check.status == CheckStatus.PASS for check in doc.checks))
+        atoms, refusals = emit_reified_atoms(doc)
+        self.assertIn("(EpistemicStatus ", "\n".join(atoms))
+        self.assertFalse(any("EpistemicStatus" in refusal.reason for refusal in refusals))
+
     def test_incomplete_semantic_support_becomes_unknown_questions(self):
         doc = compile_source(
             "***requirements***\n"
@@ -277,6 +368,32 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn("(RationaleText ", joined)
         self.assertFalse(any("Rationale" in refusal.reason for refusal in refusals))
 
+    def test_rationale_marker_preserves_file_path_before_following_marker(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R28] Keep design reasons inspectable. "
+            "Rationale: see docs/v01-profile.md and out/design-note.metta. "
+            "Evidence: architecture review.\n"
+            "***acceptance tests***\n"
+            "- [covers:R28] Rationale text is exported.\n"
+        )
+        doc = compile_source(source, "semantic_rationale_boundary.plain")
+        rationale = next(obj for obj in doc.objects if any(fact[0] == "Rationale" for fact in obj.facts))
+        evidence = next(obj for obj in doc.objects if obj.role == Role.EVIDENCE_OBJECT)
+        rationale_facts = {fact[0]: fact for fact in rationale.facts}
+        rationale_span = next(span for span in doc.spans if span.id == rationale.source_span_id)
+        evidence_span = next(span for span in doc.spans if span.id == evidence.source_span_id)
+
+        self.assertEqual(rationale_facts["RationaleText"][2], "see docs/v01-profile.md and out/design-note.metta")
+        self.assertEqual(doc.files[0].text[rationale_span.start_byte:rationale_span.end_byte], "Rationale: see docs/v01-profile.md and out/design-note.metta")
+        self.assertEqual(doc.files[0].text[evidence_span.start_byte:evidence_span.end_byte], "Evidence: architecture review")
+        self.assertLess(rationale_span.end_byte, evidence_span.start_byte)
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(RationaleText ", joined)
+        self.assertIn("(EvidenceText ", joined)
+        self.assertFalse(any("Rationale" in refusal.reason or "Evidence" in refusal.reason for refusal in refusals))
+
     def test_explicit_confidence_marker_normalizes_and_exports(self):
         doc = compile_source(
             "***requirements***\n"
@@ -377,6 +494,32 @@ class SemanticObjectTests(unittest.TestCase):
 
         self.assertEqual(file_text[span.start_byte:span.end_byte], "Evidence: second-line review note")
         self.assertEqual(span.start_line, 3)
+
+    def test_evidence_marker_preserves_file_path_before_following_marker(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R27] Keep audit evidence inspectable. "
+            "Evidence: tests/test_cli.py::CliTests and out/demo.metta. "
+            "Outcome: reviewer sees the generated atoms.\n"
+            "***acceptance tests***\n"
+            "- [covers:R27] Audit evidence is listed.\n"
+        )
+        doc = compile_source(source, "semantic_evidence_boundary.plain")
+        evidence = next(obj for obj in doc.objects if obj.role == Role.EVIDENCE_OBJECT)
+        outcome = next(obj for obj in doc.objects if any(fact[0] == "Outcome" for fact in obj.facts))
+        evidence_facts = {fact[0]: fact for fact in evidence.facts}
+        evidence_span = next(span for span in doc.spans if span.id == evidence.source_span_id)
+        outcome_span = next(span for span in doc.spans if span.id == outcome.source_span_id)
+
+        self.assertEqual(evidence_facts["EvidenceText"][2], "tests/test_cli.py::CliTests and out/demo.metta")
+        self.assertEqual(doc.files[0].text[evidence_span.start_byte:evidence_span.end_byte], "Evidence: tests/test_cli.py::CliTests and out/demo.metta")
+        self.assertEqual(doc.files[0].text[outcome_span.start_byte:outcome_span.end_byte], "Outcome: reviewer sees the generated atoms")
+        self.assertLess(evidence_span.end_byte, outcome_span.start_byte)
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(EvidenceText ", joined)
+        self.assertIn("(OutcomeText ", joined)
+        self.assertFalse(any("Evidence" in refusal.reason or "Outcome" in refusal.reason for refusal in refusals))
 
     def test_explicit_process_and_resource_markers_export_when_reviewable(self):
         source = (

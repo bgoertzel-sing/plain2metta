@@ -707,19 +707,40 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
 
 
 # --- Phase 2 semantic-object slice ---
-SCOPE_RE = re.compile(r"\b(?:scope|context)\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
-EPISTEMIC_RE = re.compile(r"\b(?:epistemic(?: status)?|status)\s*:\s*(?P<status>[A-Za-z][A-Za-z -]{1,40})", re.IGNORECASE)
+SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|rationale|interpretation|bridge|revision|decision|outcome|witness|backend artifact|artifact|process|resources?|dependenc(?:y|ies)|risk|mitigation|question|assumption|invariant|constraint)\s*:)|[;\n]|$"
+SCOPE_RE = re.compile(
+    r"\b(?:scope|context)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+EPISTEMIC_RE = re.compile(
+    r"\b(?:epistemic(?: status)?|status)\s*:\s*(?P<status>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
 SUPPORTED_EPISTEMIC_STATUSES = {"observed", "assumed", "hypothesis", "derived", "verified", "rejected", "unknown"}
-CONFIDENCE_RE = re.compile(r"\bconfidence\s*:\s*(?P<value>[^.;\n]+)", re.IGNORECASE)
-EVIDENCE_RE = re.compile(r"\bevidence\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
-RATIONALE_RE = re.compile(r"\brationale\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
-INTERPRETATION_RE = re.compile(r"\binterpretation\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
+CONFIDENCE_RE = re.compile(
+    r"\bconfidence\s*:\s*(?P<value>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+EVIDENCE_RE = re.compile(
+    r"\bevidence\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+RATIONALE_RE = re.compile(
+    r"\brationale\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+INTERPRETATION_RE = re.compile(
+    r"\binterpretation\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
 BRIDGE_RE = re.compile(
     r"\bbridge\s*:\s*(?P<ontology>[A-Za-z][A-Za-z0-9_-]*)\s*[:.]\s*(?P<target>[A-Za-z0-9_.-]+)(?:\s+(?:as|via|relation)\s+(?P<relation>[A-Za-z0-9_-]+))?",
     re.IGNORECASE,
 )
-REVISION_RE = re.compile(r"\brevision\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
-SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|rationale|interpretation|bridge|revision|decision|outcome|witness|backend artifact|artifact|process|resources?|dependenc(?:y|ies)|risk|mitigation|question|assumption|invariant|constraint)\s*:)|[;\n]|$"
+REVISION_RE = re.compile(
+    r"\brevision\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
 WITNESS_RE = re.compile(
     r"\b(?:witness|backend artifact|artifact)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
     re.IGNORECASE,
@@ -778,6 +799,16 @@ SUPPORTED_BRIDGE_RELATIONS = {"corresponds-to", "related", "analogy", "refines",
 def _line_for_source_offset(doc: SpecDocument, file_id: str, byte_offset: int) -> int:
     text = next(plain_file.text for plain_file in doc.files if plain_file.id == file_id)
     return text.count("\n", 0, byte_offset) + 1
+
+
+def _trim_marker_text_and_end(raw: str, match, group_name: str) -> tuple[str, int]:
+    text = re.sub(r"\s+", " ", match.group(group_name)).strip().rstrip(".")
+    effective_end = match.end(group_name)
+    while effective_end > match.start(group_name) and raw[effective_end - 1].isspace():
+        effective_end -= 1
+    if effective_end > match.start(group_name) and raw[effective_end - 1] == ".":
+        effective_end -= 1
+    return text, effective_end
 
 
 def _raw_match_span(doc: SpecDocument, item, match_start: int, match_end: int) -> str:
@@ -861,8 +892,10 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
         raw = item.raw_text
 
         for match in SCOPE_RE.finditer(raw):
-            text = re.sub(r"\s+", " ", match.group("text")).strip()
-            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
             oid = stable_id("scope", item.id, text)
             if oid not in existing_ids:
                 doc.objects.append(
@@ -879,8 +912,11 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
             add_check(doc, obligation, CheckStatus.PASS, f"scope applies to {target_id}")
 
         for match in EPISTEMIC_RE.finditer(raw):
-            status = re.sub(r"\s+", "-", match.group("status").strip().lower())
-            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            raw_status, effective_end = _trim_marker_text_and_end(raw, match, "status")
+            if not raw_status:
+                continue
+            status = re.sub(r"\s+", "-", raw_status.lower())
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
             oid = stable_id("epistemic", item.id, target_id, status)
             if oid not in existing_ids:
                 doc.objects.append(SpecObject(oid, Role.EPISTEMIC_STATUS_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("EpistemicStatus", oid, status), ("GeneratedFrom", oid, target_id), ("SourceItem", oid, item.id)]))
@@ -896,8 +932,10 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                     existing_ids.add(qid)
 
         for match in CONFIDENCE_RE.finditer(raw):
-            raw_value = re.sub(r"\s+", " ", match.group("value")).strip()
-            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            raw_value, effective_end = _trim_marker_text_and_end(raw, match, "value")
+            if not raw_value:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
             numeric_value = None
             if re.fullmatch(r"\d+(?:\.\d+)?%?", raw_value):
                 if raw_value.endswith("%"):
@@ -936,8 +974,15 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                     existing_ids.add(qid)
 
         for match in EVIDENCE_RE.finditer(raw):
-            text = re.sub(r"\s+", " ", match.group("text")).strip()
-            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
             oid = stable_id("evidence", item.id, target_id, text)
             if oid not in existing_ids:
                 doc.objects.append(SpecObject(oid, Role.EVIDENCE_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("Evidence", oid, target_id), ("EvidenceText", oid, text), ("EvidenceSupports", oid, target_id), ("SourceItem", oid, item.id)]))
@@ -947,8 +992,15 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
             add_check(doc, obligation, CheckStatus.PASS, f"evidence supports {target_id}")
 
         for match in RATIONALE_RE.finditer(raw):
-            text = re.sub(r"\s+", " ", match.group("text")).strip()
-            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
             oid = stable_id("rationale", item.id, target_id, text)
             if oid not in existing_ids:
                 doc.objects.append(
@@ -1079,8 +1131,15 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                     existing_ids.add(qid)
 
         for match in INTERPRETATION_RE.finditer(raw):
-            text = re.sub(r"\s+", " ", match.group("text")).strip()
-            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
             oid = stable_id("interp", item.id, target_id, text)
             if oid not in existing_ids:
                 facts = [("Interpretation", oid, target_id), ("InterpretationText", oid, text), ("InterpretationOf", oid, target_id), ("SourceItem", oid, item.id)]
@@ -1118,8 +1177,10 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                     existing_ids.add(qid)
 
         for match in REVISION_RE.finditer(raw):
-            text = re.sub(r"\s+", " ", match.group("text")).strip()
-            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
             oid = stable_id("revision", item.id, target_id, text)
             if oid not in existing_ids:
                 doc.objects.append(
