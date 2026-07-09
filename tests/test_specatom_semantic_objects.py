@@ -191,6 +191,32 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn("(WitnessText ", joined)
         self.assertFalse(any("Witness" in refusal.reason for refusal in refusals))
 
+    def test_witness_marker_stops_before_following_semantic_marker(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R25] Keep audit evidence inspectable. "
+            "Witness: tests/test_cli.py::CliTests and out/demo.metta. "
+            "Outcome: reviewer sees the generated atoms.\n"
+            "***acceptance tests***\n"
+            "- [covers:R25] Audit evidence is listed.\n"
+        )
+        doc = compile_source(source, "semantic_witness_boundary.plain")
+        witness = next(obj for obj in doc.objects if obj.role == Role.BACKEND_ARTIFACT)
+        outcome = next(obj for obj in doc.objects if any(fact[0] == "Outcome" for fact in obj.facts))
+        witness_facts = {fact[0]: fact for fact in witness.facts}
+        witness_span = next(span for span in doc.spans if span.id == witness.source_span_id)
+        outcome_span = next(span for span in doc.spans if span.id == outcome.source_span_id)
+
+        self.assertEqual(witness_facts["WitnessText"][2], "tests/test_cli.py::CliTests and out/demo.metta")
+        self.assertEqual(doc.files[0].text[witness_span.start_byte:witness_span.end_byte], "Witness: tests/test_cli.py::CliTests and out/demo.metta")
+        self.assertEqual(doc.files[0].text[outcome_span.start_byte:outcome_span.end_byte], "Outcome: reviewer sees the generated atoms")
+        self.assertLess(witness_span.end_byte, outcome_span.start_byte)
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(WitnessText ", joined)
+        self.assertIn("(OutcomeText ", joined)
+        self.assertFalse(any("Witness" in refusal.reason or "Outcome" in refusal.reason for refusal in refusals))
+
     def test_todo_witness_marker_becomes_blocking_question(self):
         doc = compile_source(
             "***requirements***\n"

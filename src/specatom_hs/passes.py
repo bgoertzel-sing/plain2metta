@@ -719,12 +719,15 @@ BRIDGE_RE = re.compile(
     re.IGNORECASE,
 )
 REVISION_RE = re.compile(r"\brevision\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
-WITNESS_RE = re.compile(r"\b(?:witness|backend artifact|artifact)\s*:\s*(?P<text>[^;\n]+)", re.IGNORECASE)
+SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|rationale|interpretation|bridge|revision|decision|outcome|witness|backend artifact|artifact|process|resources?|dependenc(?:y|ies)|risk|mitigation|question|assumption|invariant|constraint)\s*:)|[;\n]|$"
+WITNESS_RE = re.compile(
+    r"\b(?:witness|backend artifact|artifact)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
 WITNESS_CONCRETE_RE = re.compile(r"\b(?:commit|sha256|hash|log|report|test|fixture|script|path|file|example|artifact|dataset|snapshot|https?://|[\w./-]+\.(?:py|metta|json|md|txt|plain|log|csv))\b", re.IGNORECASE)
 WITNESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate code later)\b", re.IGNORECASE)
 PROCESS_RE = re.compile(r"\bprocess\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 RESOURCE_RE = re.compile(r"\bresource(?:s)?\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
-SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|rationale|interpretation|bridge|revision|decision|outcome|witness|backend artifact|artifact|process|resources?|dependenc(?:y|ies)|risk|mitigation|question|assumption|invariant|constraint)\s*:)|[;\n]|$"
 DEPENDENCY_RE = re.compile(
     r"\bdependenc(?:y|ies)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
     re.IGNORECASE,
