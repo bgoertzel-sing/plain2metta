@@ -143,6 +143,31 @@ class SemanticObjectTests(unittest.TestCase):
         self.assertIn("(DecisionText ", joined)
         self.assertFalse(any("Decision" in refusal.reason for refusal in refusals))
 
+    def test_explicit_outcome_marker_becomes_source_spanned_proposition(self):
+        source = (
+            "***requirements***\n"
+            "- [id:R24] Keep diagnostics inspectable. Decision: emit grouped review atoms. "
+            "Outcome: reviewers can compare the validation summary without executing code. "
+            "Evidence: diagnostics fixture.\n"
+            "***acceptance tests***\n"
+            "- [covers:R24] Diagnostics include Pass Unknown and question counts.\n"
+        )
+        doc = compile_source(source, "semantic_outcome.plain")
+        outcome = next(obj for obj in doc.objects if any(fact[0] == "Outcome" for fact in obj.facts))
+        facts = {fact[0]: fact for fact in outcome.facts}
+        span = next(span for span in doc.spans if span.id == outcome.source_span_id)
+
+        self.assertEqual(outcome.role, Role.PROPOSITION_OBJECT)
+        self.assertEqual(facts["OutcomeText"][2], "reviewers can compare the validation summary without executing code")
+        self.assertEqual(facts["Outcome"][2], facts["OutcomeFor"][2])
+        self.assertEqual(doc.files[0].text[span.start_byte:span.end_byte], "Outcome: reviewers can compare the validation summary without executing code")
+        self.assertTrue(any(check.property == "outcome-has-source-provenance" and check.status == CheckStatus.PASS for check in doc.checks))
+        atoms, refusals = emit_reified_atoms(doc)
+        joined = "\n".join(atoms)
+        self.assertIn("(Outcome ", joined)
+        self.assertIn("(OutcomeText ", joined)
+        self.assertFalse(any("Outcome" in refusal.reason for refusal in refusals))
+
     def test_explicit_witness_marker_becomes_reviewable_backend_artifact(self):
         source = (
             "***requirements***\n"

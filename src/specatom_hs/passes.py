@@ -724,9 +724,13 @@ WITNESS_CONCRETE_RE = re.compile(r"\b(?:commit|sha256|hash|log|report|test|fixtu
 WITNESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate code later)\b", re.IGNORECASE)
 PROCESS_RE = re.compile(r"\bprocess\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
 RESOURCE_RE = re.compile(r"\bresource(?:s)?\s*:\s*(?P<text>[^.;\n]+)", re.IGNORECASE)
-SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|rationale|interpretation|bridge|revision|decision|witness|backend artifact|artifact|process|resources?|risk|mitigation|question|assumption|invariant|constraint)\s*:)|[;\n]|$"
+SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|rationale|interpretation|bridge|revision|decision|outcome|witness|backend artifact|artifact|process|resources?|risk|mitigation|question|assumption|invariant|constraint)\s*:)|[;\n]|$"
 DECISION_RE = re.compile(
     r"\bdecision\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+OUTCOME_RE = re.compile(
+    r"\boutcome\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
     re.IGNORECASE,
 )
 INVARIANT_RE = re.compile(
@@ -1146,6 +1150,31 @@ def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
                 existing_ids.add(oid)
             obligation = add_validation_obligation(doc, "decision-has-source-provenance", oid, "Explicit Decision markers must preserve source provenance and name the object whose design choice they record without inferring execution semantics.", span_id)
             add_check(doc, obligation, CheckStatus.PASS, f"decision applies to {target_id}")
+
+        for match in OUTCOME_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("outcome", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.PROPOSITION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Outcome", oid, target_id), ("OutcomeText", oid, text), ("OutcomeFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "outcome-has-source-provenance", oid, "Explicit Outcome markers must preserve source provenance as observed/reported results without inferring verification or execution semantics.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"outcome applies to {target_id}")
 
         for match in WITNESS_RE.finditer(raw):
             raw_text = match.group("text")
@@ -3089,7 +3118,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
-    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Rationale/Interpretation/Bridge/Revision/Decision/Witness/Process/Resource/Risk/Question/Assumption/Invariant/Constraint objects.", build_semantic_objects),
+    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Rationale/Interpretation/Bridge/Revision/Decision/Outcome/Witness/Process/Resource/Risk/Question/Assumption/Invariant/Constraint objects.", build_semantic_objects),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),
