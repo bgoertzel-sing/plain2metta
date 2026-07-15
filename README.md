@@ -1,6 +1,11 @@
-# specatom-hs
+# Plain2Metta
 
-Local-only prototype scaffold for SpecAtom-HS, a source-preserving Plain-like specification IR before any executable code generation.
+Plain2Metta is a source-preserving, fail-closed compiler and validation toolkit
+for translating Plain-like specifications into reviewable SpecAtom-HS JSON and
+PeTTa/MeTTa reified atoms before any executable code generation.
+
+The public repository is named **Plain2Metta**. The internal intermediate
+representation and Python package retain the technical name `specatom_hs`.
 
 This repository currently contains two layers:
 
@@ -33,7 +38,7 @@ This repository currently contains two layers:
 - deep English semantics;
 - inferred semantic objects without explicit markers;
 - executable skeleton generation from raw text;
-- remote/published repository workflows.
+- automatic publication, deployment, or executable generation workflows.
 
 ## Run tests
 
