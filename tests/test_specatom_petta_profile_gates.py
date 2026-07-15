@@ -230,6 +230,44 @@ class PettaProfileGateTests(unittest.TestCase):
                 self.assertTrue(any(r.reason == reason for r in reified_refusals))
                 self.assertTrue(any(r.reason == f"unsafe-profile-fact:{reason}" for r in executable_refusals))
 
+    def test_refuses_structured_object_references_before_id_resolution(self):
+        for value in (["requirement-1"], {"id": "requirement-1"}):
+            with self.subTest(value=value):
+                coverage = SpecObject(
+                    "coverage-structured-reference",
+                    Role.VALIDATION_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    "span-structured-reference",
+                    facts=[("Covers", "coverage-structured-reference", value)],
+                )
+                requirement = SpecObject(
+                    "requirement-1",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    "span-requirement-1",
+                    facts=[("Requirement", "requirement-1")],
+                )
+
+                atoms, reified_refusals = emit_reified_atoms(
+                    SpecDocument(objects=[coverage, requirement])
+                )
+                executable_refusals = refuse_executable_skeleton(
+                    [coverage, requirement]
+                )
+                reason = (
+                    "unsupported-fact-argument-type:Covers:position-2:"
+                    f"{type(value).__name__}"
+                )
+
+                self.assertFalse(any(atom.startswith("(Covers ") for atom in atoms))
+                self.assertTrue(any(r.reason == reason for r in reified_refusals))
+                self.assertTrue(
+                    any(
+                        r.reason == f"unsafe-profile-fact:{reason}"
+                        for r in executable_refusals
+                    )
+                )
+
     def test_refuses_none_object_reference_for_reified_and_executable_profiles(self):
         requirement = SpecObject(
             "requirement-1",
