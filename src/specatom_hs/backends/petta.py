@@ -71,8 +71,17 @@ def _profile_fact_refusal(obj: SpecObject, fact: tuple) -> BackendRefusal | None
         return BackendRefusal("petta_reified_v0", f"unsupported-fact-predicate:{predicate}", obj.id, obj.semantic_level.value)
     if len(fact) != schema.arity:
         return BackendRefusal("petta_reified_v0", f"unsupported-fact-arity:{predicate}:expected-{schema.arity}:got-{len(fact)}", obj.id, obj.semantic_level.value)
-    if schema.subject_pos is not None and str(fact[schema.subject_pos]) != obj.id:
-        return BackendRefusal("petta_reified_v0", f"fact-subject-mismatch:{predicate}:expected-{obj.id}:got-{fact[schema.subject_pos]}", obj.id, obj.semantic_level.value)
+    if schema.subject_pos is not None:
+        subject = fact[schema.subject_pos]
+        if not isinstance(subject, str):
+            return BackendRefusal(
+                "petta_reified_v0",
+                f"unsupported-fact-subject-type:{predicate}:position-{schema.subject_pos}:{type(subject).__name__}",
+                obj.id,
+                obj.semantic_level.value,
+            )
+        if subject != obj.id:
+            return BackendRefusal("petta_reified_v0", f"fact-subject-mismatch:{predicate}:expected-{obj.id}:got-{subject}", obj.id, obj.semantic_level.value)
     for position, value in enumerate(fact[1:], start=1):
         if not isinstance(value, (str, int, float, bool)) and value is not None:
             return BackendRefusal("petta_reified_v0", f"unsupported-fact-argument-type:{predicate}:position-{position}:{type(value).__name__}", obj.id, obj.semantic_level.value)

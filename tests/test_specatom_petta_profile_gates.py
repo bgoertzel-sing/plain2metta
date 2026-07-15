@@ -253,6 +253,37 @@ class PettaProfileGateTests(unittest.TestCase):
                 self.assertTrue(any(r.reason == "non-finite-fact-argument:RequirementLabel:position-2" for r in reified_refusals))
                 self.assertTrue(any(r.reason == "unsafe-profile-fact:non-finite-fact-argument:RequirementLabel:position-2" for r in executable_refusals))
 
+    def test_refuses_non_string_fact_subject_despite_apparent_matching_id(self):
+        for object_id, subject in (("1", 1), ("1.5", 1.5), ("True", True)):
+            with self.subTest(object_id=object_id, subject=subject):
+                candidate = SpecObject(
+                    object_id,
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    "span-subject",
+                    facts=[("RequirementLabel", subject, "label")],
+                )
+
+                atoms, reified_refusals = emit_reified_atoms(
+                    SpecDocument(objects=[candidate])
+                )
+                executable_refusals = refuse_executable_skeleton([candidate])
+                reason = (
+                    "unsupported-fact-subject-type:RequirementLabel:position-1:"
+                    f"{type(subject).__name__}"
+                )
+
+                self.assertFalse(
+                    any(atom.startswith("(RequirementLabel ") for atom in atoms)
+                )
+                self.assertTrue(any(r.reason == reason for r in reified_refusals))
+                self.assertTrue(
+                    any(
+                        r.reason == f"unsafe-profile-fact:{reason}"
+                        for r in executable_refusals
+                    )
+                )
+
     def test_refuses_structured_fact_arguments_for_reified_and_executable_profiles(self):
         for value in (["nested"], {"nested": "value"}):
             with self.subTest(value=value):
