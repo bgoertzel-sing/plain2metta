@@ -11,6 +11,28 @@ def obj(level):
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_quotes_semicolons_in_source_and_fact_text(self):
+        doc = compile_source(
+            "***functional specifications***\n"
+            "- Requirement: preserve alpha; do not treat beta as a comment.\n",
+            "semicolon.plain",
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        rendered = "\n".join(atoms)
+
+        self.assertIn(
+            '"Requirement: preserve alpha; do not treat beta as a comment."',
+            rendered,
+        )
+        self.assertNotIn(
+            "Requirement: preserve alpha; do not treat beta as a comment.)",
+            rendered,
+        )
+        self.assertFalse(
+            any("RequirementText" in refusal.reason for refusal in refusals)
+        )
+
     def test_refuses_executable_skeleton_from_raw_text_only(self):
         refusals = refuse_executable_skeleton([obj(SemanticLevel.RAW_TEXT_ONLY)])
         self.assertEqual(len(refusals), 1)
