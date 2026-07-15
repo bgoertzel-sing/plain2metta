@@ -195,6 +195,24 @@ class PettaProfileGateTests(unittest.TestCase):
         self.assertTrue(any(r.reason == "empty-fact-argument:RequirementLabel:position-2" for r in reified_refusals))
         self.assertTrue(any(r.reason == "unsafe-profile-fact:empty-fact-argument:RequirementLabel:position-2" for r in executable_refusals))
 
+    def test_refuses_non_finite_scalar_fact_arguments_for_reified_and_executable_profiles(self):
+        for value in (float("nan"), float("inf"), float("-inf")):
+            with self.subTest(value=value):
+                candidate = SpecObject(
+                    "obj-non-finite-value",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    "span-non-finite-value",
+                    facts=[("RequirementLabel", "obj-non-finite-value", value)],
+                )
+
+                atoms, reified_refusals = emit_reified_atoms(SpecDocument(objects=[candidate]))
+                executable_refusals = refuse_executable_skeleton([candidate])
+
+                self.assertNotIn("(RequirementLabel ", "\n".join(atoms))
+                self.assertTrue(any(r.reason == "non-finite-fact-argument:RequirementLabel:position-2" for r in reified_refusals))
+                self.assertTrue(any(r.reason == "unsafe-profile-fact:non-finite-fact-argument:RequirementLabel:position-2" for r in executable_refusals))
+
     def test_refuses_none_object_reference_for_reified_and_executable_profiles(self):
         requirement = SpecObject(
             "requirement-1",

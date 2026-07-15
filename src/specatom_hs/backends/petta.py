@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import heapq
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -71,6 +72,8 @@ def _profile_fact_refusal(obj: SpecObject, fact: tuple) -> BackendRefusal | None
             continue
         if value is None or not str(value).strip():
             return BackendRefusal("petta_reified_v0", f"empty-fact-argument:{predicate}:position-{position}", obj.id, obj.semantic_level.value)
+        if isinstance(value, float) and not math.isfinite(value):
+            return BackendRefusal("petta_reified_v0", f"non-finite-fact-argument:{predicate}:position-{position}", obj.id, obj.semantic_level.value)
     return None
 
 
