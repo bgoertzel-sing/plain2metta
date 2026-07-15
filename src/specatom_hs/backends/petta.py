@@ -44,7 +44,12 @@ def _atom(parts: Iterable[object]) -> str:
         # Semicolons start comments in MeTTa source.  Leaving one bare can
         # silently truncate a generated atom, so treat it as syntax just like
         # parentheses and quotes.
-        if not s or any(ch.isspace() for ch in s) or any(ch in s for ch in '();"'):
+        if (
+            not s
+            or any(ch.isspace() for ch in s)
+            or any(ord(ch) < 32 or ord(ch) == 127 for ch in s)
+            or any(ch in s for ch in '();"')
+        ):
             return json.dumps(s)
         return s
     return "(" + " ".join(enc(p) for p in parts) + ")"

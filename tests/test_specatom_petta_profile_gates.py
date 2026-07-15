@@ -11,6 +11,24 @@ def obj(level):
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_quotes_ascii_control_characters_in_fact_text(self):
+        requirement = SpecObject(
+            "requirement",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            "span-1",
+            facts=[("RequirementText", "requirement", "alpha\x00beta\x07gamma")],
+        )
+
+        atoms, refusals = emit_reified_atoms(SpecDocument(objects=[requirement]))
+
+        self.assertIn(
+            '(RequirementText requirement "alpha\\u0000beta\\u0007gamma")',
+            atoms,
+        )
+        self.assertFalse(any("RequirementText" in refusal.reason for refusal in refusals))
+        self.assertFalse(any("\x00" in atom or "\x07" in atom for atom in atoms))
+
     def test_quotes_semicolons_in_source_and_fact_text(self):
         doc = compile_source(
             "***functional specifications***\n"
