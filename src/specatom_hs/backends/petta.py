@@ -57,6 +57,13 @@ def _atom(parts: Iterable[object]) -> str:
 
 def reified_atom_for_object(obj: SpecObject) -> str | BackendRefusal:
     """Emit a basic reified atom only for PeTTa-supported semantic levels."""
+    if not isinstance(obj.id, str):
+        return BackendRefusal(
+            "petta_reified_v0",
+            f"unsupported-object-id-type-for-reified-emission:{type(obj.id).__name__}",
+            str(obj.id),
+            obj.semantic_level.value,
+        )
     if obj.semantic_level not in SUPPORTED_REIFIED_LEVELS:
         return BackendRefusal("petta_reified_v0", "unsupported-semantic-level-for-reified-emission", obj.id, obj.semantic_level.value)
     return _atom(["spec-object", obj.id, obj.role.value, obj.semantic_level.value])
@@ -329,6 +336,8 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
     declared_objects: dict[str, SpecObject] = {}
     duplicate_object_ids: set[str] = set()
     for obj in object_list:
+        if not isinstance(obj.id, str):
+            continue
         if obj.id in declared_objects:
             duplicate_object_ids.add(obj.id)
         else:
@@ -336,6 +345,16 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
     declared_object_ids = set(declared_objects)
     refusals: list[BackendRefusal] = []
     for obj in object_list:
+        if not isinstance(obj.id, str):
+            refusals.append(
+                BackendRefusal(
+                    "petta_executable_skeleton_v0",
+                    f"unsupported-object-id-type-for-executable-skeleton:{type(obj.id).__name__}",
+                    str(obj.id),
+                    obj.semantic_level.value,
+                )
+            )
+            continue
         if not obj.id or not obj.id.strip():
             refusals.append(BackendRefusal("petta_executable_skeleton_v0", "missing-object-id-for-executable-skeleton", obj.id, obj.semantic_level.value))
             continue

@@ -284,6 +284,40 @@ class PettaProfileGateTests(unittest.TestCase):
                     )
                 )
 
+    def test_refuses_non_string_object_ids_without_aliasing_or_crashing(self):
+        for object_id in (1, 1.5, True):
+            with self.subTest(object_id=object_id):
+                candidate = SpecObject(
+                    object_id,
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    "span-object-id",
+                    facts=[("Requirement", object_id)],
+                )
+
+                atoms, reified_refusals = emit_reified_atoms(
+                    SpecDocument(objects=[candidate])
+                )
+                executable_refusals = refuse_executable_skeleton([candidate])
+                type_name = type(object_id).__name__
+
+                self.assertFalse(any(atom.startswith("(spec-object ") for atom in atoms))
+                self.assertFalse(any(atom.startswith("(Requirement ") for atom in atoms))
+                self.assertTrue(
+                    any(
+                        refusal.reason
+                        == f"unsupported-object-id-type-for-reified-emission:{type_name}"
+                        for refusal in reified_refusals
+                    )
+                )
+                self.assertEqual(
+                    [refusal.reason for refusal in executable_refusals],
+                    [
+                        "unsupported-object-id-type-for-executable-skeleton:"
+                        f"{type_name}"
+                    ],
+                )
+
     def test_refuses_structured_fact_arguments_for_reified_and_executable_profiles(self):
         for value in (["nested"], {"nested": "value"}):
             with self.subTest(value=value):
