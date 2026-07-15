@@ -6,6 +6,7 @@ refused unless all input objects already have a backend-safe semantic level.
 
 from __future__ import annotations
 
+import heapq
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -63,6 +64,13 @@ def _profile_fact_refusal(obj: SpecObject, fact: tuple) -> BackendRefusal | None
         return BackendRefusal("petta_reified_v0", f"unsupported-fact-arity:{predicate}:expected-{schema.arity}:got-{len(fact)}", obj.id, obj.semantic_level.value)
     if schema.subject_pos is not None and str(fact[schema.subject_pos]) != obj.id:
         return BackendRefusal("petta_reified_v0", f"fact-subject-mismatch:{predicate}:expected-{obj.id}:got-{fact[schema.subject_pos]}", obj.id, obj.semantic_level.value)
+    for position, value in enumerate(fact[1:], start=1):
+        if position in schema.object_refs:
+            if value is None or not str(value).strip():
+                return BackendRefusal("petta_reified_v0", f"empty-object-reference:{predicate}:position-{position}", obj.id, obj.semantic_level.value)
+            continue
+        if value is None or not str(value).strip():
+            return BackendRefusal("petta_reified_v0", f"empty-fact-argument:{predicate}:position-{position}", obj.id, obj.semantic_level.value)
     return None
 
 
@@ -288,11 +296,261 @@ def emit_metta_file(doc: SpecDocument, path: str) -> None:
 
 
 def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRefusal]:
-    """Return refusal records for every object unsafe for executable skeletons."""
+    """Return refusal records for every object unsafe for executable skeletons.
+
+    A backend-safe semantic-level label is necessary but not sufficient: facts must
+    also satisfy the frozen reified profile before executable lowering is allowed.
+    """
+    object_list = list(objects)
+    declared_objects: dict[str, SpecObject] = {}
+    duplicate_object_ids: set[str] = set()
+    for obj in object_list:
+        if obj.id in declared_objects:
+            duplicate_object_ids.add(obj.id)
+        else:
+            declared_objects[obj.id] = obj
+    declared_object_ids = set(declared_objects)
     refusals: list[BackendRefusal] = []
-    for obj in objects:
+    for obj in object_list:
+        if not obj.id or not obj.id.strip():
+            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "missing-object-id-for-executable-skeleton", obj.id, obj.semantic_level.value))
+            continue
+        if obj.id in duplicate_object_ids:
+            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "duplicate-object-id-for-executable-skeleton", obj.id, obj.semantic_level.value))
+            continue
         if obj.semantic_level == SemanticLevel.RAW_TEXT_ONLY:
             refusals.append(BackendRefusal("petta_executable_skeleton_v0", "raw-text-only-skeleton-forbidden", obj.id, obj.semantic_level.value))
-        elif obj.semantic_level not in EXECUTABLE_SAFE_LEVELS:
+            continue
+        if obj.semantic_level not in EXECUTABLE_SAFE_LEVELS:
             refusals.append(BackendRefusal("petta_executable_skeleton_v0", "unsupported-semantic-level-for-executable-skeleton", obj.id, obj.semantic_level.value))
+            continue
+        if not obj.source_span_id or not obj.source_span_id.strip():
+            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "missing-source-provenance-for-executable-skeleton", obj.id, obj.semantic_level.value))
+            continue
+        if not obj.facts:
+            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "missing-profile-facts-for-executable-skeleton", obj.id, obj.semantic_level.value))
+            continue
+        # Refusal records are diagnostics, so their order must not depend on the
+        # insertion order used to construct otherwise-equivalent fact lists.
+        for fact in sorted(obj.facts, key=lambda candidate: tuple(str(part) for part in candidate)):
+            predicate = str(fact[0]) if fact else ""
+            schema = FACT_SCHEMAS.get(predicate)
+            if schema is not None and len(fact) == schema.arity:
+                empty_reference = next(
+                    (position for position in schema.object_refs if fact[position] is None or not str(fact[position]).strip()),
+                    None,
+                )
+                if empty_reference is not None:
+                    refusals.append(
+                        BackendRefusal(
+                            "petta_executable_skeleton_v0",
+                            f"unsafe-profile-fact:empty-object-reference:{predicate}",
+                            obj.id,
+                            obj.semantic_level.value,
+                        )
+                    )
+                    continue
+            profile_refusal = _profile_fact_refusal(obj, fact)
+            if profile_refusal is not None:
+                refusals.append(
+                    BackendRefusal(
+                        "petta_executable_skeleton_v0",
+                        f"unsafe-profile-fact:{profile_refusal.reason}",
+                        obj.id,
+                        obj.semantic_level.value,
+                    )
+                )
+                continue
+            schema = FACT_SCHEMAS[str(fact[0])]
+            for position in schema.object_refs:
+                referenced_id = str(fact[position])
+                if not referenced_id.strip():
+                    refusals.append(
+                        BackendRefusal(
+                            "petta_executable_skeleton_v0",
+                            f"unsafe-profile-fact:empty-object-reference:{fact[0]}",
+                            obj.id,
+                            obj.semantic_level.value,
+                        )
+                    )
+                    continue
+                if referenced_id not in declared_object_ids:
+                    refusals.append(
+                        BackendRefusal(
+                            "petta_executable_skeleton_v0",
+                            f"unsafe-profile-fact:dangling-object-reference:{fact[0]}:{referenced_id}",
+                            obj.id,
+                            obj.semantic_level.value,
+                        )
+                    )
+                    continue
+                if referenced_id in duplicate_object_ids:
+                    refusals.append(
+                        BackendRefusal(
+                            "petta_executable_skeleton_v0",
+                            f"unsafe-profile-fact:ambiguous-object-reference:{fact[0]}:{referenced_id}",
+                            obj.id,
+                            obj.semantic_level.value,
+                        )
+                    )
+                    continue
+                referenced_object = declared_objects[referenced_id]
+                if referenced_object.semantic_level not in EXECUTABLE_SAFE_LEVELS:
+                    refusals.append(
+                        BackendRefusal(
+                            "petta_executable_skeleton_v0",
+                            f"unsafe-profile-fact:unsafe-object-reference-semantic-level:{fact[0]}:{referenced_id}:{referenced_object.semantic_level.value}",
+                            obj.id,
+                            obj.semantic_level.value,
+                        )
+                    )
+                    continue
+                if not referenced_object.source_span_id or not referenced_object.source_span_id.strip():
+                    refusals.append(
+                        BackendRefusal(
+                            "petta_executable_skeleton_v0",
+                            f"unsafe-profile-fact:unsafe-object-reference-missing-source-provenance:{fact[0]}:{referenced_id}",
+                            obj.id,
+                            obj.semantic_level.value,
+                        )
+                    )
+                    continue
+                if not referenced_object.facts:
+                    refusals.append(
+                        BackendRefusal(
+                            "petta_executable_skeleton_v0",
+                            f"unsafe-profile-fact:unsafe-object-reference-missing-profile-facts:{fact[0]}:{referenced_id}",
+                            obj.id,
+                            obj.semantic_level.value,
+                        )
+                    )
+                    continue
+                referenced_fact_refusal = min(
+                    (
+                        profile_refusal
+                        for referenced_fact in referenced_object.facts
+                        if (profile_refusal := _profile_fact_refusal(referenced_object, referenced_fact)) is not None
+                        and not profile_refusal.reason.startswith("empty-object-reference:")
+                    ),
+                    key=lambda refusal: refusal.reason,
+                    default=None,
+                )
+                if referenced_fact_refusal is not None:
+                    refusals.append(
+                        BackendRefusal(
+                            "petta_executable_skeleton_v0",
+                            f"unsafe-profile-fact:unsafe-object-reference-profile:{fact[0]}:{referenced_id}:{referenced_fact_refusal.reason}",
+                            obj.id,
+                            obj.semantic_level.value,
+                        )
+                    )
+                    continue
+                nested_unsafe_reference = min(
+                    (
+                        (str(referenced_fact[0]), str(referenced_fact[position]))
+                        for referenced_fact in referenced_object.facts
+                        for position in FACT_SCHEMAS[str(referenced_fact[0])].object_refs
+                        if str(referenced_fact[position]) not in declared_object_ids
+                    ),
+                    default=None,
+                )
+                if nested_unsafe_reference is not None:
+                    nested_predicate, nested_id = nested_unsafe_reference
+                    refusals.append(
+                        BackendRefusal(
+                            "petta_executable_skeleton_v0",
+                            f"unsafe-profile-fact:unsafe-object-reference-transitive-dangling:{fact[0]}:{referenced_id}:{nested_predicate}:{nested_id}",
+                            obj.id,
+                            obj.semantic_level.value,
+                        )
+                    )
+                    continue
+                nested_unsafe_target = min(
+                    (
+                        (str(referenced_fact[0]), nested_id, declared_objects[nested_id].semantic_level.value)
+                        for referenced_fact in referenced_object.facts
+                        for position in FACT_SCHEMAS[str(referenced_fact[0])].object_refs
+                        if (nested_id := str(referenced_fact[position])) in declared_object_ids
+                        and nested_id not in duplicate_object_ids
+                        and declared_objects[nested_id].semantic_level not in EXECUTABLE_SAFE_LEVELS
+                    ),
+                    default=None,
+                )
+                if nested_unsafe_target is not None:
+                    nested_predicate, nested_id, nested_level = nested_unsafe_target
+                    refusals.append(
+                        BackendRefusal(
+                            "petta_executable_skeleton_v0",
+                            f"unsafe-profile-fact:unsafe-object-reference-transitive-semantic-level:{fact[0]}:{referenced_id}:{nested_predicate}:{nested_id}:{nested_level}",
+                            obj.id,
+                            obj.semantic_level.value,
+                        )
+                    )
+                    continue
+
+                # Immediate target checks are not enough for longer chains such as
+                # coverage -> requirement -> generated artifact -> RawTextOnly.
+                # Walk only profile-valid, unambiguous references and conservatively
+                # refuse the originating fact when any deeper target is unsafe.
+                pending_paths = [((referenced_id,), referenced_id)]
+                deep_unsafe_target = None
+                while pending_paths and deep_unsafe_target is None:
+                    path, current_id = heapq.heappop(pending_paths)
+                    if not current_id.strip():
+                        deep_unsafe_target = (path, "MissingObjectId")
+                        break
+                    if current_id in path[:-1]:
+                        deep_unsafe_target = (path, "ReferenceCycle")
+                        break
+                    if current_id in duplicate_object_ids:
+                        deep_unsafe_target = (path, "AmbiguousReference")
+                        break
+                    if current_id not in declared_object_ids:
+                        if len(path) > 1:
+                            deep_unsafe_target = (path, "DanglingReference")
+                        continue
+                    current = declared_objects[current_id]
+                    if len(path) > 1:
+                        if current.semantic_level not in EXECUTABLE_SAFE_LEVELS:
+                            deep_unsafe_target = (path, current.semantic_level.value)
+                            break
+                        if not current.source_span_id or not current.source_span_id.strip():
+                            deep_unsafe_target = (path, "MissingSourceProvenance")
+                            break
+                        if not current.facts:
+                            deep_unsafe_target = (path, "MissingProfileFacts")
+                            break
+                        current_fact_refusal = min(
+                            (
+                                refusal
+                                for current_fact in current.facts
+                                if (refusal := _profile_fact_refusal(current, current_fact)) is not None
+                            ),
+                            key=lambda refusal: refusal.reason,
+                            default=None,
+                        )
+                        if current_fact_refusal is not None:
+                            deep_unsafe_target = (path, f"UnsafeProfile:{current_fact_refusal.reason}")
+                            break
+                    current_references = sorted(
+                        (
+                            (str(current_fact[0]), str(current_fact[current_position]))
+                            for current_fact in current.facts
+                            for current_position in FACT_SCHEMAS[str(current_fact[0])].object_refs
+                        ),
+                        key=lambda reference: (reference[1], reference[0]),
+                    )
+                    for current_predicate, target_id in current_references:
+                        target_path = path + (target_id,)
+                        heapq.heappush(pending_paths, (target_path, target_id))
+                if deep_unsafe_target is not None:
+                    unsafe_path, unsafe_level = deep_unsafe_target
+                    refusals.append(
+                        BackendRefusal(
+                            "petta_executable_skeleton_v0",
+                            f"unsafe-profile-fact:unsafe-object-reference-deep-semantic-level:{fact[0]}:{'->'.join(unsafe_path)}:{unsafe_level}",
+                            obj.id,
+                            obj.semantic_level.value,
+                        )
+                    )
     return refusals
