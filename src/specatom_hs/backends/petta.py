@@ -36,6 +36,14 @@ class BackendRefusal:
     semantic_level: str | None = None
 
 
+def _semantic_level_value(obj: SpecObject) -> str | None:
+    """Return diagnostic text without trusting runtime schema annotations."""
+    level = obj.semantic_level
+    if isinstance(level, SemanticLevel):
+        return level.value
+    return None if level is None else str(level)
+
+
 def _atom(parts: Iterable[object]) -> str:
     def enc(part: object) -> str:
         if isinstance(part, (int, float)):
@@ -62,29 +70,36 @@ def reified_atom_for_object(obj: SpecObject) -> str | BackendRefusal:
             "petta_reified_v0",
             f"unsupported-object-id-type-for-reified-emission:{type(obj.id).__name__}",
             str(obj.id),
-            obj.semantic_level.value,
+            _semantic_level_value(obj),
         )
     if not isinstance(obj.role, Role):
         return BackendRefusal(
             "petta_reified_v0",
             f"unsupported-object-role-type-for-reified-emission:{type(obj.role).__name__}",
             obj.id,
-            obj.semantic_level.value,
+            _semantic_level_value(obj),
+        )
+    if not isinstance(obj.semantic_level, SemanticLevel):
+        return BackendRefusal(
+            "petta_reified_v0",
+            f"unsupported-semantic-level-type-for-reified-emission:{type(obj.semantic_level).__name__}",
+            obj.id,
+            _semantic_level_value(obj),
         )
     if obj.semantic_level not in SUPPORTED_REIFIED_LEVELS:
-        return BackendRefusal("petta_reified_v0", "unsupported-semantic-level-for-reified-emission", obj.id, obj.semantic_level.value)
-    return _atom(["spec-object", obj.id, obj.role.value, obj.semantic_level.value])
+        return BackendRefusal("petta_reified_v0", "unsupported-semantic-level-for-reified-emission", obj.id, _semantic_level_value(obj))
+    return _atom(["spec-object", obj.id, obj.role.value, _semantic_level_value(obj)])
 
 
 def _profile_fact_refusal(obj: SpecObject, fact: tuple) -> BackendRefusal | None:
     if not fact:
-        return BackendRefusal("petta_reified_v0", "empty-fact-tuple", obj.id, obj.semantic_level.value)
+        return BackendRefusal("petta_reified_v0", "empty-fact-tuple", obj.id, _semantic_level_value(obj))
     predicate = str(fact[0])
     schema = FACT_SCHEMAS.get(predicate)
     if predicate not in SUPPORTED_REIFIED_FACTS or schema is None:
-        return BackendRefusal("petta_reified_v0", f"unsupported-fact-predicate:{predicate}", obj.id, obj.semantic_level.value)
+        return BackendRefusal("petta_reified_v0", f"unsupported-fact-predicate:{predicate}", obj.id, _semantic_level_value(obj))
     if len(fact) != schema.arity:
-        return BackendRefusal("petta_reified_v0", f"unsupported-fact-arity:{predicate}:expected-{schema.arity}:got-{len(fact)}", obj.id, obj.semantic_level.value)
+        return BackendRefusal("petta_reified_v0", f"unsupported-fact-arity:{predicate}:expected-{schema.arity}:got-{len(fact)}", obj.id, _semantic_level_value(obj))
     if schema.subject_pos is not None:
         subject = fact[schema.subject_pos]
         if not isinstance(subject, str):
@@ -92,23 +107,23 @@ def _profile_fact_refusal(obj: SpecObject, fact: tuple) -> BackendRefusal | None
                 "petta_reified_v0",
                 f"unsupported-fact-subject-type:{predicate}:position-{schema.subject_pos}:{type(subject).__name__}",
                 obj.id,
-                obj.semantic_level.value,
+                _semantic_level_value(obj),
             )
         if subject != obj.id:
-            return BackendRefusal("petta_reified_v0", f"fact-subject-mismatch:{predicate}:expected-{obj.id}:got-{subject}", obj.id, obj.semantic_level.value)
+            return BackendRefusal("petta_reified_v0", f"fact-subject-mismatch:{predicate}:expected-{obj.id}:got-{subject}", obj.id, _semantic_level_value(obj))
     for position, value in enumerate(fact[1:], start=1):
         if not isinstance(value, (str, int, float, bool)) and value is not None:
-            return BackendRefusal("petta_reified_v0", f"unsupported-fact-argument-type:{predicate}:position-{position}:{type(value).__name__}", obj.id, obj.semantic_level.value)
+            return BackendRefusal("petta_reified_v0", f"unsupported-fact-argument-type:{predicate}:position-{position}:{type(value).__name__}", obj.id, _semantic_level_value(obj))
         if position in schema.object_refs:
             if value is not None and not isinstance(value, str):
-                return BackendRefusal("petta_reified_v0", f"unsupported-object-reference-type:{predicate}:position-{position}:{type(value).__name__}", obj.id, obj.semantic_level.value)
+                return BackendRefusal("petta_reified_v0", f"unsupported-object-reference-type:{predicate}:position-{position}:{type(value).__name__}", obj.id, _semantic_level_value(obj))
             if value is None or not str(value).strip():
-                return BackendRefusal("petta_reified_v0", f"empty-object-reference:{predicate}:position-{position}", obj.id, obj.semantic_level.value)
+                return BackendRefusal("petta_reified_v0", f"empty-object-reference:{predicate}:position-{position}", obj.id, _semantic_level_value(obj))
             continue
         if value is None or not str(value).strip():
-            return BackendRefusal("petta_reified_v0", f"empty-fact-argument:{predicate}:position-{position}", obj.id, obj.semantic_level.value)
+            return BackendRefusal("petta_reified_v0", f"empty-fact-argument:{predicate}:position-{position}", obj.id, _semantic_level_value(obj))
         if isinstance(value, float) and not math.isfinite(value):
-            return BackendRefusal("petta_reified_v0", f"non-finite-fact-argument:{predicate}:position-{position}", obj.id, obj.semantic_level.value)
+            return BackendRefusal("petta_reified_v0", f"non-finite-fact-argument:{predicate}:position-{position}", obj.id, _semantic_level_value(obj))
     return None
 
 
@@ -358,12 +373,12 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                     "petta_executable_skeleton_v0",
                     f"unsupported-object-id-type-for-executable-skeleton:{type(obj.id).__name__}",
                     str(obj.id),
-                    obj.semantic_level.value,
+                    _semantic_level_value(obj),
                 )
             )
             continue
         if not obj.id or not obj.id.strip():
-            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "missing-object-id-for-executable-skeleton", obj.id, obj.semantic_level.value))
+            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "missing-object-id-for-executable-skeleton", obj.id, _semantic_level_value(obj)))
             continue
         if not isinstance(obj.role, Role):
             refusals.append(
@@ -371,24 +386,34 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                     "petta_executable_skeleton_v0",
                     f"unsupported-object-role-type-for-executable-skeleton:{type(obj.role).__name__}",
                     obj.id,
-                    obj.semantic_level.value,
+                    _semantic_level_value(obj),
+                )
+            )
+            continue
+        if not isinstance(obj.semantic_level, SemanticLevel):
+            refusals.append(
+                BackendRefusal(
+                    "petta_executable_skeleton_v0",
+                    f"unsupported-semantic-level-type-for-executable-skeleton:{type(obj.semantic_level).__name__}",
+                    obj.id,
+                    _semantic_level_value(obj),
                 )
             )
             continue
         if obj.id in duplicate_object_ids:
-            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "duplicate-object-id-for-executable-skeleton", obj.id, obj.semantic_level.value))
+            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "duplicate-object-id-for-executable-skeleton", obj.id, _semantic_level_value(obj)))
             continue
         if obj.semantic_level == SemanticLevel.RAW_TEXT_ONLY:
-            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "raw-text-only-skeleton-forbidden", obj.id, obj.semantic_level.value))
+            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "raw-text-only-skeleton-forbidden", obj.id, _semantic_level_value(obj)))
             continue
         if obj.semantic_level not in EXECUTABLE_SAFE_LEVELS:
-            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "unsupported-semantic-level-for-executable-skeleton", obj.id, obj.semantic_level.value))
+            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "unsupported-semantic-level-for-executable-skeleton", obj.id, _semantic_level_value(obj)))
             continue
         if not obj.source_span_id or not obj.source_span_id.strip():
-            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "missing-source-provenance-for-executable-skeleton", obj.id, obj.semantic_level.value))
+            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "missing-source-provenance-for-executable-skeleton", obj.id, _semantic_level_value(obj)))
             continue
         if not obj.facts:
-            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "missing-profile-facts-for-executable-skeleton", obj.id, obj.semantic_level.value))
+            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "missing-profile-facts-for-executable-skeleton", obj.id, _semantic_level_value(obj)))
             continue
         # Refusal records are diagnostics, so their order must not depend on the
         # insertion order used to construct otherwise-equivalent fact lists.
@@ -406,7 +431,7 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                             "petta_executable_skeleton_v0",
                             f"unsafe-profile-fact:empty-object-reference:{predicate}",
                             obj.id,
-                            obj.semantic_level.value,
+                            _semantic_level_value(obj),
                         )
                     )
                     continue
@@ -417,7 +442,7 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                         "petta_executable_skeleton_v0",
                         f"unsafe-profile-fact:{profile_refusal.reason}",
                         obj.id,
-                        obj.semantic_level.value,
+                        _semantic_level_value(obj),
                     )
                 )
                 continue
@@ -430,7 +455,7 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                             "petta_executable_skeleton_v0",
                             f"unsafe-profile-fact:empty-object-reference:{fact[0]}",
                             obj.id,
-                            obj.semantic_level.value,
+                            _semantic_level_value(obj),
                         )
                     )
                     continue
@@ -440,7 +465,7 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                             "petta_executable_skeleton_v0",
                             f"unsafe-profile-fact:dangling-object-reference:{fact[0]}:{referenced_id}",
                             obj.id,
-                            obj.semantic_level.value,
+                            _semantic_level_value(obj),
                         )
                     )
                     continue
@@ -450,7 +475,7 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                             "petta_executable_skeleton_v0",
                             f"unsafe-profile-fact:ambiguous-object-reference:{fact[0]}:{referenced_id}",
                             obj.id,
-                            obj.semantic_level.value,
+                            _semantic_level_value(obj),
                         )
                     )
                     continue
@@ -459,9 +484,9 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                     refusals.append(
                         BackendRefusal(
                             "petta_executable_skeleton_v0",
-                            f"unsafe-profile-fact:unsafe-object-reference-semantic-level:{fact[0]}:{referenced_id}:{referenced_object.semantic_level.value}",
+                            f"unsafe-profile-fact:unsafe-object-reference-semantic-level:{fact[0]}:{referenced_id}:{_semantic_level_value(referenced_object)}",
                             obj.id,
-                            obj.semantic_level.value,
+                            _semantic_level_value(obj),
                         )
                     )
                     continue
@@ -471,7 +496,7 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                             "petta_executable_skeleton_v0",
                             f"unsafe-profile-fact:unsafe-object-reference-missing-source-provenance:{fact[0]}:{referenced_id}",
                             obj.id,
-                            obj.semantic_level.value,
+                            _semantic_level_value(obj),
                         )
                     )
                     continue
@@ -481,7 +506,7 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                             "petta_executable_skeleton_v0",
                             f"unsafe-profile-fact:unsafe-object-reference-missing-profile-facts:{fact[0]}:{referenced_id}",
                             obj.id,
-                            obj.semantic_level.value,
+                            _semantic_level_value(obj),
                         )
                     )
                     continue
@@ -501,7 +526,7 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                             "petta_executable_skeleton_v0",
                             f"unsafe-profile-fact:unsafe-object-reference-profile:{fact[0]}:{referenced_id}:{referenced_fact_refusal.reason}",
                             obj.id,
-                            obj.semantic_level.value,
+                            _semantic_level_value(obj),
                         )
                     )
                     continue
@@ -521,13 +546,13 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                             "petta_executable_skeleton_v0",
                             f"unsafe-profile-fact:unsafe-object-reference-transitive-dangling:{fact[0]}:{referenced_id}:{nested_predicate}:{nested_id}",
                             obj.id,
-                            obj.semantic_level.value,
+                            _semantic_level_value(obj),
                         )
                     )
                     continue
                 nested_unsafe_target = min(
                     (
-                        (str(referenced_fact[0]), nested_id, declared_objects[nested_id].semantic_level.value)
+                        (str(referenced_fact[0]), nested_id, _semantic_level_value(declared_objects[nested_id]))
                         for referenced_fact in referenced_object.facts
                         for position in FACT_SCHEMAS[str(referenced_fact[0])].object_refs
                         if (nested_id := str(referenced_fact[position])) in declared_object_ids
@@ -543,7 +568,7 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                             "petta_executable_skeleton_v0",
                             f"unsafe-profile-fact:unsafe-object-reference-transitive-semantic-level:{fact[0]}:{referenced_id}:{nested_predicate}:{nested_id}:{nested_level}",
                             obj.id,
-                            obj.semantic_level.value,
+                            _semantic_level_value(obj),
                         )
                     )
                     continue
@@ -572,7 +597,7 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                     current = declared_objects[current_id]
                     if len(path) > 1:
                         if current.semantic_level not in EXECUTABLE_SAFE_LEVELS:
-                            deep_unsafe_target = (path, current.semantic_level.value)
+                            deep_unsafe_target = (path, _semantic_level_value(current))
                             break
                         if not current.source_span_id or not current.source_span_id.strip():
                             deep_unsafe_target = (path, "MissingSourceProvenance")
@@ -610,7 +635,7 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                             "petta_executable_skeleton_v0",
                             f"unsafe-profile-fact:unsafe-object-reference-deep-semantic-level:{fact[0]}:{'->'.join(unsafe_path)}:{unsafe_level}",
                             obj.id,
-                            obj.semantic_level.value,
+                            _semantic_level_value(obj),
                         )
                     )
     return refusals
