@@ -318,6 +318,40 @@ class PettaProfileGateTests(unittest.TestCase):
                     ],
                 )
 
+    def test_refuses_non_enum_object_roles_without_emitting_facts(self):
+        for role in ("RequirementObject", None, 7):
+            with self.subTest(role=role):
+                candidate = SpecObject(
+                    "obj-invalid-role",
+                    role,
+                    SemanticLevel.BACKEND_LOWERED,
+                    "span-invalid-role",
+                    facts=[("Requirement", "obj-invalid-role")],
+                )
+
+                atoms, reified_refusals = emit_reified_atoms(
+                    SpecDocument(objects=[candidate])
+                )
+                executable_refusals = refuse_executable_skeleton([candidate])
+                type_name = type(role).__name__
+
+                self.assertFalse(any(atom.startswith("(spec-object ") for atom in atoms))
+                self.assertFalse(any(atom.startswith("(Requirement ") for atom in atoms))
+                self.assertEqual(
+                    [refusal.reason for refusal in reified_refusals],
+                    [
+                        "unsupported-object-role-type-for-reified-emission:"
+                        f"{type_name}"
+                    ],
+                )
+                self.assertEqual(
+                    [refusal.reason for refusal in executable_refusals],
+                    [
+                        "unsupported-object-role-type-for-executable-skeleton:"
+                        f"{type_name}"
+                    ],
+                )
+
     def test_refuses_structured_fact_arguments_for_reified_and_executable_profiles(self):
         for value in (["nested"], {"nested": "value"}):
             with self.subTest(value=value):
