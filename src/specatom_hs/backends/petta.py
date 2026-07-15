@@ -66,6 +66,8 @@ def _profile_fact_refusal(obj: SpecObject, fact: tuple) -> BackendRefusal | None
     if schema.subject_pos is not None and str(fact[schema.subject_pos]) != obj.id:
         return BackendRefusal("petta_reified_v0", f"fact-subject-mismatch:{predicate}:expected-{obj.id}:got-{fact[schema.subject_pos]}", obj.id, obj.semantic_level.value)
     for position, value in enumerate(fact[1:], start=1):
+        if not isinstance(value, (str, int, float, bool)) and value is not None:
+            return BackendRefusal("petta_reified_v0", f"unsupported-fact-argument-type:{predicate}:position-{position}:{type(value).__name__}", obj.id, obj.semantic_level.value)
         if position in schema.object_refs:
             if value is None or not str(value).strip():
                 return BackendRefusal("petta_reified_v0", f"empty-object-reference:{predicate}:position-{position}", obj.id, obj.semantic_level.value)

@@ -213,6 +213,23 @@ class PettaProfileGateTests(unittest.TestCase):
                 self.assertTrue(any(r.reason == "non-finite-fact-argument:RequirementLabel:position-2" for r in reified_refusals))
                 self.assertTrue(any(r.reason == "unsafe-profile-fact:non-finite-fact-argument:RequirementLabel:position-2" for r in executable_refusals))
 
+    def test_refuses_structured_fact_arguments_for_reified_and_executable_profiles(self):
+        for value in (["nested"], {"nested": "value"}):
+            with self.subTest(value=value):
+                unsafe = SpecObject(
+                    "obj-structured-value",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    "span-structured-value",
+                    facts=[("RequirementLabel", "obj-structured-value", value)],
+                )
+                atoms, reified_refusals = emit_reified_atoms(SpecDocument(objects=[unsafe]))
+                executable_refusals = refuse_executable_skeleton([unsafe])
+                reason = f"unsupported-fact-argument-type:RequirementLabel:position-2:{type(value).__name__}"
+                self.assertNotIn(f"(RequirementLabel obj-structured-value {value})", atoms)
+                self.assertTrue(any(r.reason == reason for r in reified_refusals))
+                self.assertTrue(any(r.reason == f"unsafe-profile-fact:{reason}" for r in executable_refusals))
+
     def test_refuses_none_object_reference_for_reified_and_executable_profiles(self):
         requirement = SpecObject(
             "requirement-1",
