@@ -91,7 +91,14 @@ def reified_atom_for_object(obj: SpecObject) -> str | BackendRefusal:
     return _atom(["spec-object", obj.id, obj.role.value, _semantic_level_value(obj)])
 
 
-def _profile_fact_refusal(obj: SpecObject, fact: tuple) -> BackendRefusal | None:
+def _profile_fact_refusal(obj: SpecObject, fact: object) -> BackendRefusal | None:
+    if not isinstance(fact, tuple):
+        return BackendRefusal(
+            "petta_reified_v0",
+            f"unsupported-fact-record-type:{type(fact).__name__}",
+            obj.id,
+            _semantic_level_value(obj),
+        )
     if not fact:
         return BackendRefusal("petta_reified_v0", "empty-fact-tuple", obj.id, _semantic_level_value(obj))
     predicate = str(fact[0])
@@ -134,7 +141,7 @@ def _compute_information_flow_summary(doc: SpecDocument) -> dict[str, int]:
 
     for obj in doc.objects:
         for fact in obj.facts:
-            if not fact or len(fact) < 2:
+            if not isinstance(fact, tuple) or len(fact) < 2:
                 continue
             predicate = str(fact[0])
             if predicate == "DataFlowEdge" and len(fact) == 5:
@@ -417,7 +424,26 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
             continue
         # Refusal records are diagnostics, so their order must not depend on the
         # insertion order used to construct otherwise-equivalent fact lists.
-        for fact in sorted(obj.facts, key=lambda candidate: tuple(str(part) for part in candidate)):
+        for fact in sorted(
+            obj.facts,
+            key=lambda candidate: (
+                type(candidate).__name__,
+                tuple(str(part) for part in candidate)
+                if isinstance(candidate, tuple)
+                else (str(candidate),),
+            ),
+        ):
+            if not isinstance(fact, tuple):
+                profile_refusal = _profile_fact_refusal(obj, fact)
+                refusals.append(
+                    BackendRefusal(
+                        "petta_executable_skeleton_v0",
+                        f"unsafe-profile-fact:{profile_refusal.reason}",
+                        obj.id,
+                        _semantic_level_value(obj),
+                    )
+                )
+                continue
             predicate = str(fact[0]) if fact else ""
             schema = FACT_SCHEMAS.get(predicate)
             if schema is not None and len(fact) == schema.arity:

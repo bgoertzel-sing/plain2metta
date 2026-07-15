@@ -403,6 +403,34 @@ class PettaProfileGateTests(unittest.TestCase):
                 self.assertTrue(any(r.reason == reason for r in reified_refusals))
                 self.assertTrue(any(r.reason == f"unsafe-profile-fact:{reason}" for r in executable_refusals))
 
+    def test_refuses_malformed_fact_records_without_crashing(self):
+        for fact in (["Requirement", "obj-malformed-fact"], "Requirement", {0: "Requirement"}, None):
+            with self.subTest(fact=fact):
+                unsafe = SpecObject(
+                    "obj-malformed-fact",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    "span-malformed-fact",
+                    facts=[fact],
+                )
+
+                atoms, reified_refusals = emit_reified_atoms(
+                    SpecDocument(objects=[unsafe])
+                )
+                executable_refusals = refuse_executable_skeleton([unsafe])
+                reason = f"unsupported-fact-record-type:{type(fact).__name__}"
+
+                self.assertFalse(
+                    any(atom.startswith("(Requirement ") for atom in atoms)
+                )
+                self.assertEqual(
+                    [refusal.reason for refusal in reified_refusals], [reason]
+                )
+                self.assertEqual(
+                    [refusal.reason for refusal in executable_refusals],
+                    [f"unsafe-profile-fact:{reason}"],
+                )
+
     def test_refuses_structured_object_references_before_id_resolution(self):
         for value in (["requirement-1"], {"id": "requirement-1"}):
             with self.subTest(value=value):
