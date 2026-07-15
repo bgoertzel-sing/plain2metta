@@ -323,6 +323,44 @@ class PettaProfileGateTests(unittest.TestCase):
         self.assertTrue(any(r.reason == "empty-object-reference:GeneratedFrom:position-2" for r in reified_refusals))
         self.assertTrue(any(r.reason == "unsafe-profile-fact:empty-object-reference:GeneratedFrom" for r in executable_refusals))
 
+    def test_refuses_non_string_object_references_before_id_resolution(self):
+        for value in (1, 1.5, True):
+            with self.subTest(value=value):
+                coverage = SpecObject(
+                    "coverage-non-string-reference",
+                    Role.VALIDATION_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    "span-non-string-reference",
+                    facts=[("Covers", "coverage-non-string-reference", value)],
+                )
+                apparent_target = SpecObject(
+                    str(value),
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    "span-apparent-target",
+                    facts=[("Requirement", str(value))],
+                )
+
+                atoms, reified_refusals = emit_reified_atoms(
+                    SpecDocument(objects=[coverage, apparent_target])
+                )
+                executable_refusals = refuse_executable_skeleton(
+                    [coverage, apparent_target]
+                )
+                reason = (
+                    "unsupported-object-reference-type:Covers:position-2:"
+                    f"{type(value).__name__}"
+                )
+
+                self.assertFalse(any(atom.startswith("(Covers ") for atom in atoms))
+                self.assertTrue(any(r.reason == reason for r in reified_refusals))
+                self.assertTrue(
+                    any(
+                        r.reason == f"unsafe-profile-fact:{reason}"
+                        for r in executable_refusals
+                    )
+                )
+
     def test_refuses_executable_skeleton_with_dangling_object_reference(self):
         lowered = SpecObject(
             "coverage",

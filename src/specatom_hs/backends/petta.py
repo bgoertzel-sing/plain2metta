@@ -77,6 +77,8 @@ def _profile_fact_refusal(obj: SpecObject, fact: tuple) -> BackendRefusal | None
         if not isinstance(value, (str, int, float, bool)) and value is not None:
             return BackendRefusal("petta_reified_v0", f"unsupported-fact-argument-type:{predicate}:position-{position}:{type(value).__name__}", obj.id, obj.semantic_level.value)
         if position in schema.object_refs:
+            if value is not None and not isinstance(value, str):
+                return BackendRefusal("petta_reified_v0", f"unsupported-object-reference-type:{predicate}:position-{position}:{type(value).__name__}", obj.id, obj.semantic_level.value)
             if value is None or not str(value).strip():
                 return BackendRefusal("petta_reified_v0", f"empty-object-reference:{predicate}:position-{position}", obj.id, obj.semantic_level.value)
             continue
