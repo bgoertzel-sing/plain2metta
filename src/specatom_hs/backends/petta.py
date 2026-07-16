@@ -72,6 +72,13 @@ def reified_atom_for_object(obj: SpecObject) -> str | BackendRefusal:
             str(obj.id),
             _semantic_level_value(obj),
         )
+    if not obj.id.strip():
+        return BackendRefusal(
+            "petta_reified_v0",
+            "missing-object-id-for-reified-emission",
+            obj.id,
+            _semantic_level_value(obj),
+        )
     if not isinstance(obj.role, Role):
         return BackendRefusal(
             "petta_reified_v0",

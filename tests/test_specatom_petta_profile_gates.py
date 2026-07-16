@@ -469,6 +469,29 @@ class PettaProfileGateTests(unittest.TestCase):
                     )
                 )
 
+    def test_refuses_empty_object_ids_without_emitting_reified_facts(self):
+        for object_id in ("", " \t "):
+            with self.subTest(object_id=object_id):
+                candidate = SpecObject(
+                    object_id,
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    "span-object-id",
+                    facts=[("RequirementText", object_id, "must stay suppressed")],
+                )
+
+                atoms, refusals = emit_reified_atoms(
+                    SpecDocument(objects=[candidate])
+                )
+
+                self.assertFalse(any(atom.startswith("(spec-object ") for atom in atoms))
+                self.assertFalse(any(atom.startswith("(RequirementText ") for atom in atoms))
+                self.assertFalse(any(atom.startswith("(derived-from ") for atom in atoms))
+                self.assertEqual(
+                    [(r.object_id, r.reason) for r in refusals],
+                    [(object_id, "missing-object-id-for-reified-emission")],
+                )
+
     def test_refuses_none_object_reference_for_reified_and_executable_profiles(self):
         requirement = SpecObject(
             "requirement-1",
