@@ -1288,6 +1288,33 @@ class PettaProfileGateTests(unittest.TestCase):
             ],
         )
 
+    def test_refuses_malformed_validation_obligation_properties_without_aliasing(self):
+        obligations = [
+            ValidationObligation("numeric-property", 7, "target", "Malformed property."),
+            ValidationObligation("string-property", "7", "target", "Valid property."),
+            ValidationObligation("blank-property", " \t ", "target", "Malformed property."),
+        ]
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(validation_obligations=obligations)
+        )
+        rendered = "\n".join(atoms)
+
+        self.assertIn("(validation-obligation string-property 7 target)", atoms)
+        self.assertIn('(validation-rationale string-property "Valid property.")', atoms)
+        self.assertNotIn("numeric-property", rendered)
+        self.assertNotIn("blank-property", rendered)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                (
+                    "numeric-property",
+                    "unsupported-validation-obligation-property-type:int",
+                ),
+                ("blank-property", "missing-validation-obligation-property"),
+            ],
+        )
+
     def test_refuses_malformed_check_ids_without_aliasing_or_summary_counts(self):
         checks = [
             CheckRecord(7, "obligation", "numeric-id", "target", CheckStatus.FAIL, "Malformed ID."),
