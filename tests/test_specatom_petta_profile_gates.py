@@ -3,6 +3,7 @@ import unittest
 from specatom_hs.backends.petta import emit_reified_atoms, refuse_executable_skeleton
 from specatom_hs.passes import compile_source
 from specatom_hs.schema import (
+    CheckRecord,
     CheckStatus,
     Role,
     SemanticLevel,
@@ -1284,6 +1285,30 @@ class PettaProfileGateTests(unittest.TestCase):
             [
                 ("7", "unsupported-validation-obligation-id-type:int"),
                 (" \t ", "missing-validation-obligation-id"),
+            ],
+        )
+
+    def test_refuses_malformed_check_ids_without_aliasing_or_summary_counts(self):
+        checks = [
+            CheckRecord(7, "obligation", "numeric-id", "target", CheckStatus.FAIL, "Malformed ID."),
+            CheckRecord("7", "obligation", "string-id", "target", CheckStatus.PASS, "Valid ID."),
+            CheckRecord(" \t ", "obligation", "blank-id", "target", CheckStatus.UNKNOWN, "Malformed ID."),
+        ]
+
+        atoms, refusals = emit_reified_atoms(SpecDocument(checks=checks))
+        rendered = "\n".join(atoms)
+
+        self.assertIn("(check 7 string-id target Pass)", atoms)
+        self.assertIn("(check-obligation 7 obligation)", atoms)
+        self.assertIn('(check-evidence 7 "Valid ID.")', atoms)
+        self.assertNotIn("numeric-id", rendered)
+        self.assertNotIn("blank-id", rendered)
+        self.assertIn("(document-validation-summary document 1 0 0 0)", atoms)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("7", "unsupported-check-id-type:int"),
+                (" \t ", "missing-check-id"),
             ],
         )
 

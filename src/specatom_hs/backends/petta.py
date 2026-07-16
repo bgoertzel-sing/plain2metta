@@ -64,6 +64,15 @@ def _validation_obligation_identity_refusal_reason(obligation_id: object) -> str
     return None
 
 
+def _check_identity_refusal_reason(check_id: object) -> str | None:
+    """Return a stable reason when a validation check has no safe ID."""
+    if not isinstance(check_id, str):
+        return f"unsupported-check-id-type:{type(check_id).__name__}"
+    if not check_id.strip():
+        return "missing-check-id"
+    return None
+
+
 def _atom(parts: Iterable[object]) -> str:
     def enc(part: object) -> str:
         if isinstance(part, (int, float)):
@@ -355,16 +364,29 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
             )
         elif obligation.source_span_id:
             atoms.append(_atom(["derived-from", obligation.id, obligation.source_span_id]))
+    emitted_checks = []
     for check in doc.checks:
+        identity_refusal = _check_identity_refusal_reason(check.id)
+        if identity_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    identity_refusal,
+                    None if check.id is None else str(check.id),
+                )
+            )
+            continue
         status_value = check.status.value if hasattr(check.status, "value") else str(check.status)
         atoms.append(_atom(["check", check.id, check.property, check.target_id, status_value]))
         atoms.append(_atom(["check-obligation", check.id, check.obligation_id]))
         atoms.append(_atom(["check-evidence", check.id, check.evidence]))
+        emitted_checks.append(check)
 
-    # Document validation summary: counts by status for quick downstream triage.
-    pass_count = sum(1 for c in doc.checks if hasattr(c.status, "value") and c.status.value == "Pass")
-    fail_count = sum(1 for c in doc.checks if hasattr(c.status, "value") and c.status.value == "Fail")
-    unknown_count = sum(1 for c in doc.checks if hasattr(c.status, "value") and c.status.value == "Unknown")
+    # Count only records actually emitted so the summary cannot assert the
+    # presence of refused checks.
+    pass_count = sum(1 for c in emitted_checks if hasattr(c.status, "value") and c.status.value == "Pass")
+    fail_count = sum(1 for c in emitted_checks if hasattr(c.status, "value") and c.status.value == "Fail")
+    unknown_count = sum(1 for c in emitted_checks if hasattr(c.status, "value") and c.status.value == "Unknown")
     question_count = sum(1 for obj in doc.objects if obj.role == Role.QUESTION_OBJECT)
     atoms.append(_atom(["document-validation-summary", doc.files[0].id if doc.files else "document", pass_count, fail_count, unknown_count, question_count]))
 
