@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from ..schema import SemanticLevel, SpecDocument, SpecObject, Role
+from ..schema import CheckStatus, SemanticLevel, SpecDocument, SpecObject, Role
 from ..validators import FACT_SCHEMAS
 
 SUPPORTED_REIFIED_LEVELS = {
@@ -79,6 +79,13 @@ def _check_obligation_identity_refusal_reason(obligation_id: object) -> str | No
         return f"unsupported-check-obligation-id-type:{type(obligation_id).__name__}"
     if not obligation_id.strip():
         return "missing-check-obligation-id"
+    return None
+
+
+def _check_status_refusal_reason(status: object) -> str | None:
+    """Return a stable reason when a check status is not schema-declared."""
+    if not isinstance(status, CheckStatus):
+        return f"unsupported-check-status-type:{type(status).__name__}"
     return None
 
 
@@ -397,7 +404,17 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 )
             )
             continue
-        status_value = check.status.value if hasattr(check.status, "value") else str(check.status)
+        status_refusal = _check_status_refusal_reason(check.status)
+        if status_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    status_refusal,
+                    check.id,
+                )
+            )
+            continue
+        status_value = check.status.value
         atoms.append(_atom(["check", check.id, check.property, check.target_id, status_value]))
         atoms.append(_atom(["check-obligation", check.id, check.obligation_id]))
         atoms.append(_atom(["check-evidence", check.id, check.evidence]))
