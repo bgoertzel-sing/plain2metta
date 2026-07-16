@@ -1263,6 +1263,30 @@ class PettaProfileGateTests(unittest.TestCase):
             ],
         )
 
+    def test_refuses_malformed_validation_obligation_ids_without_aliasing(self):
+        obligations = [
+            ValidationObligation(7, "numeric-id", "target", "Malformed ID."),
+            ValidationObligation("7", "string-id", "target", "Valid ID."),
+            ValidationObligation(" \t ", "blank-id", "target", "Malformed ID."),
+        ]
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(validation_obligations=obligations)
+        )
+        rendered = "\n".join(atoms)
+
+        self.assertIn("(validation-obligation 7 string-id target)", atoms)
+        self.assertIn("(validation-rationale 7 \"Valid ID.\")", atoms)
+        self.assertNotIn("numeric-id", rendered)
+        self.assertNotIn("blank-id", rendered)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("7", "unsupported-validation-obligation-id-type:int"),
+                (" \t ", "missing-validation-obligation-id"),
+            ],
+        )
+
     def test_refuses_executable_skeleton_without_profile_facts(self):
         lowered = SpecObject("empty", Role.REQUIREMENT_OBJECT, SemanticLevel.BACKEND_LOWERED, "span-1")
         refusals = refuse_executable_skeleton([lowered])
