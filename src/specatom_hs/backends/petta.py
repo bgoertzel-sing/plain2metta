@@ -73,6 +73,15 @@ def _validation_obligation_property_refusal_reason(property_name: object) -> str
     return None
 
 
+def _validation_obligation_target_identity_refusal_reason(target_id: object) -> str | None:
+    """Return a stable reason when an obligation cannot safely name its target."""
+    if not isinstance(target_id, str):
+        return f"unsupported-validation-obligation-target-id-type:{type(target_id).__name__}"
+    if not target_id.strip():
+        return "missing-validation-obligation-target-id"
+    return None
+
+
 def _check_identity_refusal_reason(check_id: object) -> str | None:
     """Return a stable reason when a validation check has no safe ID."""
     if not isinstance(check_id, str):
@@ -402,6 +411,18 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     property_refusal,
+                    obligation.id,
+                )
+            )
+            continue
+        target_identity_refusal = _validation_obligation_target_identity_refusal_reason(
+            obligation.target_id
+        )
+        if target_identity_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    target_identity_refusal,
                     obligation.id,
                 )
             )
