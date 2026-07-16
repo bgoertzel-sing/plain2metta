@@ -1384,6 +1384,30 @@ class PettaProfileGateTests(unittest.TestCase):
             ],
         )
 
+    def test_refuses_malformed_check_target_ids_without_aliasing_or_summary_counts(self):
+        checks = [
+            CheckRecord("numeric-target", "obligation", "property", 7, CheckStatus.FAIL, "Malformed target."),
+            CheckRecord("string-target", "obligation", "property", "7", CheckStatus.PASS, "Valid target."),
+            CheckRecord("blank-target", "obligation", "property", " \t ", CheckStatus.UNKNOWN, "Malformed target."),
+        ]
+
+        atoms, refusals = emit_reified_atoms(SpecDocument(checks=checks))
+        rendered = "\n".join(atoms)
+
+        self.assertIn("(check string-target property 7 Pass)", atoms)
+        self.assertIn("(check-obligation string-target obligation)", atoms)
+        self.assertIn('(check-evidence string-target "Valid target.")', atoms)
+        self.assertNotIn("numeric-target", rendered)
+        self.assertNotIn("blank-target", rendered)
+        self.assertIn("(document-validation-summary document 1 0 0 0)", atoms)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("numeric-target", "unsupported-check-target-id-type:int"),
+                ("blank-target", "missing-check-target-id"),
+            ],
+        )
+
     def test_refuses_executable_skeleton_without_profile_facts(self):
         lowered = SpecObject("empty", Role.REQUIREMENT_OBJECT, SemanticLevel.BACKEND_LOWERED, "span-1")
         refusals = refuse_executable_skeleton([lowered])

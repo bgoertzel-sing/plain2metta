@@ -98,6 +98,15 @@ def _check_property_refusal_reason(property_name: object) -> str | None:
     return None
 
 
+def _check_target_identity_refusal_reason(target_id: object) -> str | None:
+    """Return a stable reason when a check cannot safely name its target."""
+    if not isinstance(target_id, str):
+        return f"unsupported-check-target-id-type:{type(target_id).__name__}"
+    if not target_id.strip():
+        return "missing-check-target-id"
+    return None
+
+
 def _atom(parts: Iterable[object]) -> str:
     def enc(part: object) -> str:
         if isinstance(part, (int, float)):
@@ -419,6 +428,18 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     property_refusal,
+                    check.id,
+                )
+            )
+            continue
+        target_identity_refusal = _check_target_identity_refusal_reason(
+            check.target_id
+        )
+        if target_identity_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    target_identity_refusal,
                     check.id,
                 )
             )
