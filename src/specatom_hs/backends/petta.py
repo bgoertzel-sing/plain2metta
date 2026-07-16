@@ -89,6 +89,15 @@ def _check_status_refusal_reason(status: object) -> str | None:
     return None
 
 
+def _check_property_refusal_reason(property_name: object) -> str | None:
+    """Return a stable reason when a check property is not a safe symbol."""
+    if not isinstance(property_name, str):
+        return f"unsupported-check-property-type:{type(property_name).__name__}"
+    if not property_name.strip():
+        return "missing-check-property"
+    return None
+
+
 def _atom(parts: Iterable[object]) -> str:
     def enc(part: object) -> str:
         if isinstance(part, (int, float)):
@@ -400,6 +409,16 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     obligation_identity_refusal,
+                    check.id,
+                )
+            )
+            continue
+        property_refusal = _check_property_refusal_reason(check.property)
+        if property_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    property_refusal,
                     check.id,
                 )
             )
