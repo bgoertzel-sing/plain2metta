@@ -44,6 +44,17 @@ def _semantic_level_value(obj: SpecObject) -> str | None:
     return None if level is None else str(level)
 
 
+def _source_provenance_refusal_reason(source_span_id: object) -> str | None:
+    """Return a stable reason when an object's source-span identity is invalid."""
+    if source_span_id is None or source_span_id == "":
+        return "missing-source-provenance"
+    if not isinstance(source_span_id, str):
+        return f"unsupported-source-span-id-type:{type(source_span_id).__name__}"
+    if not source_span_id.strip():
+        return "missing-source-provenance"
+    return None
+
+
 def _atom(parts: Iterable[object]) -> str:
     def enc(part: object) -> str:
         if isinstance(part, (int, float)):
@@ -293,7 +304,17 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
             refusals.append(emitted)
         else:
             atoms.append(emitted)
-            if obj.source_span_id:
+            provenance_refusal = _source_provenance_refusal_reason(obj.source_span_id)
+            if provenance_refusal and provenance_refusal.startswith("unsupported-"):
+                refusals.append(
+                    BackendRefusal(
+                        "petta_reified_v0",
+                        f"{provenance_refusal}-for-reified-emission",
+                        obj.id,
+                        _semantic_level_value(obj),
+                    )
+                )
+            elif obj.source_span_id:
                 atoms.append(_atom(["derived-from", obj.id, obj.source_span_id]))
             for fact in obj.facts:
                 refusal = _profile_fact_refusal(obj, fact)
@@ -430,8 +451,14 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
         if obj.semantic_level not in EXECUTABLE_SAFE_LEVELS:
             refusals.append(BackendRefusal("petta_executable_skeleton_v0", "unsupported-semantic-level-for-executable-skeleton", obj.id, _semantic_level_value(obj)))
             continue
-        if not obj.source_span_id or not obj.source_span_id.strip():
-            refusals.append(BackendRefusal("petta_executable_skeleton_v0", "missing-source-provenance-for-executable-skeleton", obj.id, _semantic_level_value(obj)))
+        provenance_refusal = _source_provenance_refusal_reason(obj.source_span_id)
+        if provenance_refusal is not None:
+            reason = (
+                "missing-source-provenance-for-executable-skeleton"
+                if provenance_refusal == "missing-source-provenance"
+                else f"{provenance_refusal}-for-executable-skeleton"
+            )
+            refusals.append(BackendRefusal("petta_executable_skeleton_v0", reason, obj.id, _semantic_level_value(obj)))
             continue
         if not obj.facts:
             refusals.append(BackendRefusal("petta_executable_skeleton_v0", "missing-profile-facts-for-executable-skeleton", obj.id, _semantic_level_value(obj)))
@@ -530,11 +557,19 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                         )
                     )
                     continue
-                if not referenced_object.source_span_id or not referenced_object.source_span_id.strip():
+                referenced_provenance_refusal = _source_provenance_refusal_reason(
+                    referenced_object.source_span_id
+                )
+                if referenced_provenance_refusal is not None:
+                    provenance_detail = (
+                        "missing-source-provenance"
+                        if referenced_provenance_refusal == "missing-source-provenance"
+                        else referenced_provenance_refusal
+                    )
                     refusals.append(
                         BackendRefusal(
                             "petta_executable_skeleton_v0",
-                            f"unsafe-profile-fact:unsafe-object-reference-missing-source-provenance:{fact[0]}:{referenced_id}",
+                            f"unsafe-profile-fact:unsafe-object-reference-{provenance_detail}:{fact[0]}:{referenced_id}",
                             obj.id,
                             _semantic_level_value(obj),
                         )
@@ -639,8 +674,17 @@ def refuse_executable_skeleton(objects: Iterable[SpecObject]) -> list[BackendRef
                         if current.semantic_level not in EXECUTABLE_SAFE_LEVELS:
                             deep_unsafe_target = (path, _semantic_level_value(current))
                             break
-                        if not current.source_span_id or not current.source_span_id.strip():
-                            deep_unsafe_target = (path, "MissingSourceProvenance")
+                        current_provenance_refusal = _source_provenance_refusal_reason(
+                            current.source_span_id
+                        )
+                        if current_provenance_refusal is not None:
+                            deep_unsafe_target = (
+                                path,
+                                "MissingSourceProvenance"
+                                if current_provenance_refusal == "missing-source-provenance"
+                                else "UnsupportedSourceProvenanceType:"
+                                + type(current.source_span_id).__name__,
+                            )
                             break
                         if not current.facts:
                             deep_unsafe_target = (path, "MissingProfileFacts")

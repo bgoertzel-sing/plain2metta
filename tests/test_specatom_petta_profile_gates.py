@@ -1181,6 +1181,50 @@ class PettaProfileGateTests(unittest.TestCase):
             refusal_pairs,
         )
 
+    def test_refuses_non_string_source_provenance_without_aliasing_or_crashing(self):
+        malformed = SpecObject(
+            "malformed-provenance",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.BACKEND_LOWERED,
+            7,
+            facts=[("Requirement", "malformed-provenance")],
+        )
+        referencing = SpecObject(
+            "referencing",
+            Role.VALIDATION_OBJECT,
+            SemanticLevel.BACKEND_LOWERED,
+            "span-referencing",
+            facts=[("Covers", "referencing", "malformed-provenance")],
+        )
+
+        atoms, reified_refusals = emit_reified_atoms(
+            SpecDocument(objects=[malformed, referencing])
+        )
+        executable_refusals = refuse_executable_skeleton([malformed, referencing])
+
+        self.assertNotIn("(derived-from malformed-provenance 7)", atoms)
+        self.assertTrue(
+            any(
+                refusal.reason
+                == "unsupported-source-span-id-type:int-for-reified-emission"
+                for refusal in reified_refusals
+            )
+        )
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in executable_refusals],
+            [
+                (
+                    "malformed-provenance",
+                    "unsupported-source-span-id-type:int-for-executable-skeleton",
+                ),
+                (
+                    "referencing",
+                    "unsafe-profile-fact:unsafe-object-reference-"
+                    "unsupported-source-span-id-type:int:Covers:malformed-provenance",
+                ),
+            ],
+        )
+
     def test_refuses_executable_skeleton_without_profile_facts(self):
         lowered = SpecObject("empty", Role.REQUIREMENT_OBJECT, SemanticLevel.BACKEND_LOWERED, "span-1")
         refusals = refuse_executable_skeleton([lowered])
