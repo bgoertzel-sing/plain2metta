@@ -431,6 +431,39 @@ class PettaProfileGateTests(unittest.TestCase):
                     [f"unsafe-profile-fact:{reason}"],
                 )
 
+    def test_refuses_non_string_fact_predicates_without_aliasing(self):
+        class RequirementAlias:
+            def __str__(self):
+                return "Requirement"
+
+        for predicate in (1, None, RequirementAlias()):
+            with self.subTest(predicate=predicate):
+                unsafe = SpecObject(
+                    "obj-non-string-predicate",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    "span-non-string-predicate",
+                    facts=[(predicate, "obj-non-string-predicate")],
+                )
+
+                atoms, reified_refusals = emit_reified_atoms(
+                    SpecDocument(objects=[unsafe])
+                )
+                executable_refusals = refuse_executable_skeleton([unsafe])
+                reason = (
+                    "unsupported-fact-predicate-type:"
+                    f"{type(predicate).__name__}"
+                )
+
+                self.assertFalse(any(atom.startswith("(Requirement ") for atom in atoms))
+                self.assertEqual(
+                    [refusal.reason for refusal in reified_refusals], [reason]
+                )
+                self.assertEqual(
+                    [refusal.reason for refusal in executable_refusals],
+                    [f"unsafe-profile-fact:{reason}"],
+                )
+
     def test_refuses_structured_object_references_before_id_resolution(self):
         for value in (["requirement-1"], {"id": "requirement-1"}):
             with self.subTest(value=value):

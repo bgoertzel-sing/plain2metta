@@ -108,7 +108,14 @@ def _profile_fact_refusal(obj: SpecObject, fact: object) -> BackendRefusal | Non
         )
     if not fact:
         return BackendRefusal("petta_reified_v0", "empty-fact-tuple", obj.id, _semantic_level_value(obj))
-    predicate = str(fact[0])
+    if not isinstance(fact[0], str):
+        return BackendRefusal(
+            "petta_reified_v0",
+            f"unsupported-fact-predicate-type:{type(fact[0]).__name__}",
+            obj.id,
+            _semantic_level_value(obj),
+        )
+    predicate = fact[0]
     schema = FACT_SCHEMAS.get(predicate)
     if predicate not in SUPPORTED_REIFIED_FACTS or schema is None:
         return BackendRefusal("petta_reified_v0", f"unsupported-fact-predicate:{predicate}", obj.id, _semantic_level_value(obj))
