@@ -325,7 +325,16 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
     for obligation in doc.validation_obligations:
         atoms.append(_atom(["validation-obligation", obligation.id, obligation.property, obligation.target_id]))
         atoms.append(_atom(["validation-rationale", obligation.id, obligation.rationale]))
-        if obligation.source_span_id:
+        provenance_refusal = _source_provenance_refusal_reason(obligation.source_span_id)
+        if provenance_refusal and provenance_refusal.startswith("unsupported-"):
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    f"{provenance_refusal}-for-validation-obligation",
+                    obligation.id,
+                )
+            )
+        elif obligation.source_span_id:
             atoms.append(_atom(["derived-from", obligation.id, obligation.source_span_id]))
     for check in doc.checks:
         status_value = check.status.value if hasattr(check.status, "value") else str(check.status)

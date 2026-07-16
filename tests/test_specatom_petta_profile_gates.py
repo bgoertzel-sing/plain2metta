@@ -2,7 +2,14 @@ import unittest
 
 from specatom_hs.backends.petta import emit_reified_atoms, refuse_executable_skeleton
 from specatom_hs.passes import compile_source
-from specatom_hs.schema import CheckStatus, Role, SemanticLevel, SpecDocument, SpecObject
+from specatom_hs.schema import (
+    CheckStatus,
+    Role,
+    SemanticLevel,
+    SpecDocument,
+    SpecObject,
+    ValidationObligation,
+)
 from specatom_hs.validators import add_check, add_validation_obligation
 
 
@@ -1222,6 +1229,37 @@ class PettaProfileGateTests(unittest.TestCase):
                     "unsafe-profile-fact:unsafe-object-reference-"
                     "unsupported-source-span-id-type:int:Covers:malformed-provenance",
                 ),
+            ],
+        )
+
+    def test_refuses_non_string_validation_obligation_source_provenance(self):
+        obligation = ValidationObligation(
+            "obligation-malformed-provenance",
+            "manual-review",
+            "target",
+            "Review the target.",
+            7,
+        )
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(validation_obligations=[obligation])
+        )
+
+        self.assertIn(
+            "(validation-obligation obligation-malformed-provenance manual-review target)",
+            atoms,
+        )
+        self.assertNotIn(
+            "(derived-from obligation-malformed-provenance 7)",
+            atoms,
+        )
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                (
+                    "obligation-malformed-provenance",
+                    "unsupported-source-span-id-type:int-for-validation-obligation",
+                )
             ],
         )
 
