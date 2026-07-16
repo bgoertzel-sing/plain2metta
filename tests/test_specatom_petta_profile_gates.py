@@ -1312,6 +1312,30 @@ class PettaProfileGateTests(unittest.TestCase):
             ],
         )
 
+    def test_refuses_malformed_check_obligation_ids_without_aliasing(self):
+        checks = [
+            CheckRecord("numeric-link", 7, "numeric-link", "target", CheckStatus.FAIL, "Malformed link."),
+            CheckRecord("string-link", "7", "string-link", "target", CheckStatus.PASS, "Valid link."),
+            CheckRecord("blank-link", " \t ", "blank-link", "target", CheckStatus.UNKNOWN, "Malformed link."),
+        ]
+
+        atoms, refusals = emit_reified_atoms(SpecDocument(checks=checks))
+        rendered = "\n".join(atoms)
+
+        self.assertIn("(check string-link string-link target Pass)", atoms)
+        self.assertIn("(check-obligation string-link 7)", atoms)
+        self.assertIn('(check-evidence string-link "Valid link.")', atoms)
+        self.assertNotIn("numeric-link", rendered)
+        self.assertNotIn("blank-link", rendered)
+        self.assertIn("(document-validation-summary document 1 0 0 0)", atoms)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("numeric-link", "unsupported-check-obligation-id-type:int"),
+                ("blank-link", "missing-check-obligation-id"),
+            ],
+        )
+
     def test_refuses_executable_skeleton_without_profile_facts(self):
         lowered = SpecObject("empty", Role.REQUIREMENT_OBJECT, SemanticLevel.BACKEND_LOWERED, "span-1")
         refusals = refuse_executable_skeleton([lowered])

@@ -73,6 +73,15 @@ def _check_identity_refusal_reason(check_id: object) -> str | None:
     return None
 
 
+def _check_obligation_identity_refusal_reason(obligation_id: object) -> str | None:
+    """Return a stable reason when a check cannot safely name its obligation."""
+    if not isinstance(obligation_id, str):
+        return f"unsupported-check-obligation-id-type:{type(obligation_id).__name__}"
+    if not obligation_id.strip():
+        return "missing-check-obligation-id"
+    return None
+
+
 def _atom(parts: Iterable[object]) -> str:
     def enc(part: object) -> str:
         if isinstance(part, (int, float)):
@@ -373,6 +382,18 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                     "petta_reified_v0",
                     identity_refusal,
                     None if check.id is None else str(check.id),
+                )
+            )
+            continue
+        obligation_identity_refusal = _check_obligation_identity_refusal_reason(
+            check.obligation_id
+        )
+        if obligation_identity_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    obligation_identity_refusal,
+                    check.id,
                 )
             )
             continue
