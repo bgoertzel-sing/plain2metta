@@ -38,6 +38,52 @@ def document_with_checks(
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_refuses_malformed_validation_record_types_without_crashing(self):
+        valid_check = CheckRecord(
+            "valid-check",
+            "valid-obligation",
+            "manual-review",
+            "target",
+            CheckStatus.PASS,
+            "Reviewed against ground truth.",
+        )
+        doc = SpecDocument(
+            validation_obligations=[
+                7,
+                ValidationObligation(
+                    "valid-obligation",
+                    "manual-review",
+                    "target",
+                    "Review the target.",
+                ),
+            ],
+            checks=[{"id": "not-a-check"}, valid_check],
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        rendered = "\n".join(atoms)
+
+        self.assertIn(
+            "(validation-obligation valid-obligation manual-review target)",
+            atoms,
+        )
+        self.assertIn(
+            "(check valid-check manual-review target Pass)",
+            atoms,
+        )
+        self.assertIn(
+            "(document-validation-summary document 1 0 0 0)",
+            atoms,
+        )
+        self.assertNotIn("not-a-check", rendered)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                (None, "unsupported-validation-obligation-record-type:int"),
+                (None, "unsupported-check-record-type:dict"),
+            ],
+        )
+
     def test_quotes_ascii_control_characters_in_fact_text(self):
         requirement = SpecObject(
             "requirement",
