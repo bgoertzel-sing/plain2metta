@@ -141,6 +141,15 @@ def _check_target_identity_refusal_reason(target_id: object) -> str | None:
     return None
 
 
+def _check_evidence_refusal_reason(evidence: object) -> str | None:
+    """Return a stable reason when check evidence is not reviewable text."""
+    if not isinstance(evidence, str):
+        return f"unsupported-check-evidence-type:{type(evidence).__name__}"
+    if not evidence.strip():
+        return "missing-check-evidence"
+    return None
+
+
 def _atom(parts: Iterable[object]) -> str:
     def enc(part: object) -> str:
         if isinstance(part, (int, float)):
@@ -524,6 +533,16 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     status_refusal,
+                    check.id,
+                )
+            )
+            continue
+        evidence_refusal = _check_evidence_refusal_reason(check.evidence)
+        if evidence_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    evidence_refusal,
                     check.id,
                 )
             )
