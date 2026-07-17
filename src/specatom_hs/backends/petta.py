@@ -13,7 +13,14 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from ..schema import CheckStatus, SemanticLevel, SpecDocument, SpecObject, Role
+from ..schema import (
+    CheckStatus,
+    Role,
+    SemanticLevel,
+    SpecDocument,
+    SpecObject,
+    ValidationObligation,
+)
 from ..validators import FACT_SCHEMAS
 
 SUPPORTED_REIFIED_LEVELS = {
@@ -419,7 +426,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                     refusals.append(refusal)
                 else:
                     atoms.append(_atom(fact))
-    emitted_obligation_ids: set[str] = set()
+    emitted_obligations: dict[str, ValidationObligation] = {}
     for obligation in doc.validation_obligations:
         identity_refusal = _validation_obligation_identity_refusal_reason(obligation.id)
         if identity_refusal:
@@ -469,7 +476,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
             continue
         atoms.append(_atom(["validation-obligation", obligation.id, obligation.property, obligation.target_id]))
         atoms.append(_atom(["validation-rationale", obligation.id, obligation.rationale]))
-        emitted_obligation_ids.add(obligation.id)
+        emitted_obligations[obligation.id] = obligation
         provenance_refusal = _optional_source_provenance_refusal_reason(
             obligation.source_span_id
         )
@@ -507,7 +514,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 )
             )
             continue
-        if check.obligation_id not in emitted_obligation_ids:
+        if check.obligation_id not in emitted_obligations:
             refusals.append(
                 BackendRefusal(
                     "petta_reified_v0",
@@ -534,6 +541,25 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     target_identity_refusal,
+                    check.id,
+                )
+            )
+            continue
+        emitted_obligation = emitted_obligations[check.obligation_id]
+        if check.property != emitted_obligation.property:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "check-property-mismatch-with-obligation",
+                    check.id,
+                )
+            )
+            continue
+        if check.target_id != emitted_obligation.target_id:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "check-target-mismatch-with-obligation",
                     check.id,
                 )
             )

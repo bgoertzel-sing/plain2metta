@@ -18,13 +18,18 @@ def obj(level):
     return SpecObject("obj-1", Role.REQUIREMENT_OBJECT, level, "span-1")
 
 
-def document_with_checks(checks, obligation_id="obligation"):
+def document_with_checks(
+    checks,
+    obligation_id="obligation",
+    obligation_property="property",
+    obligation_target="target",
+):
     return SpecDocument(
         validation_obligations=[
             ValidationObligation(
                 obligation_id,
-                "property",
-                "target",
+                obligation_property,
+                obligation_target,
                 "Ground-truth obligation for backend check tests.",
             )
         ],
@@ -1435,15 +1440,15 @@ class PettaProfileGateTests(unittest.TestCase):
 
     def test_refuses_malformed_check_ids_without_aliasing_or_summary_counts(self):
         checks = [
-            CheckRecord(7, "obligation", "numeric-id", "target", CheckStatus.FAIL, "Malformed ID."),
-            CheckRecord("7", "obligation", "string-id", "target", CheckStatus.PASS, "Valid ID."),
-            CheckRecord(" \t ", "obligation", "blank-id", "target", CheckStatus.UNKNOWN, "Malformed ID."),
+            CheckRecord(7, "obligation", "property", "target", CheckStatus.FAIL, "Malformed ID."),
+            CheckRecord("7", "obligation", "property", "target", CheckStatus.PASS, "Valid ID."),
+            CheckRecord(" \t ", "obligation", "property", "target", CheckStatus.UNKNOWN, "Malformed ID."),
         ]
 
         atoms, refusals = emit_reified_atoms(document_with_checks(checks))
         rendered = "\n".join(atoms)
 
-        self.assertIn("(check 7 string-id target Pass)", atoms)
+        self.assertIn("(check 7 property target Pass)", atoms)
         self.assertIn("(check-obligation 7 obligation)", atoms)
         self.assertIn('(check-evidence 7 "Valid ID.")', atoms)
         self.assertNotIn("numeric-id", rendered)
@@ -1459,9 +1464,9 @@ class PettaProfileGateTests(unittest.TestCase):
 
     def test_refuses_malformed_check_obligation_ids_without_aliasing(self):
         checks = [
-            CheckRecord("numeric-link", 7, "numeric-link", "target", CheckStatus.FAIL, "Malformed link."),
-            CheckRecord("string-link", "7", "string-link", "target", CheckStatus.PASS, "Valid link."),
-            CheckRecord("blank-link", " \t ", "blank-link", "target", CheckStatus.UNKNOWN, "Malformed link."),
+            CheckRecord("numeric-link", 7, "property", "target", CheckStatus.FAIL, "Malformed link."),
+            CheckRecord("string-link", "7", "property", "target", CheckStatus.PASS, "Valid link."),
+            CheckRecord("blank-link", " \t ", "property", "target", CheckStatus.UNKNOWN, "Malformed link."),
         ]
 
         atoms, refusals = emit_reified_atoms(
@@ -1469,7 +1474,7 @@ class PettaProfileGateTests(unittest.TestCase):
         )
         rendered = "\n".join(atoms)
 
-        self.assertIn("(check string-link string-link target Pass)", atoms)
+        self.assertIn("(check string-link property target Pass)", atoms)
         self.assertIn("(check-obligation string-link 7)", atoms)
         self.assertIn('(check-evidence string-link "Valid link.")', atoms)
         self.assertNotIn("numeric-link", rendered)
@@ -1514,7 +1519,9 @@ class PettaProfileGateTests(unittest.TestCase):
             CheckRecord("blank-property", "obligation", " \t ", "target", CheckStatus.UNKNOWN, "Malformed property."),
         ]
 
-        atoms, refusals = emit_reified_atoms(document_with_checks(checks))
+        atoms, refusals = emit_reified_atoms(
+            document_with_checks(checks, obligation_property="7")
+        )
         rendered = "\n".join(atoms)
 
         self.assertIn("(check string-property 7 target Pass)", atoms)
@@ -1538,7 +1545,9 @@ class PettaProfileGateTests(unittest.TestCase):
             CheckRecord("blank-target", "obligation", "property", " \t ", CheckStatus.UNKNOWN, "Malformed target."),
         ]
 
-        atoms, refusals = emit_reified_atoms(document_with_checks(checks))
+        atoms, refusals = emit_reified_atoms(
+            document_with_checks(checks, obligation_target="7")
+        )
         rendered = "\n".join(atoms)
 
         self.assertIn("(check string-target property 7 Pass)", atoms)
@@ -1616,6 +1625,55 @@ class PettaProfileGateTests(unittest.TestCase):
                 (
                     "dangling-check",
                     "check-obligation-not-emitted:unemitted-obligation",
+                ),
+            ],
+        )
+
+    def test_refuses_checks_that_disagree_with_their_validation_obligation(self):
+        checks = [
+            CheckRecord(
+                "valid-check",
+                "obligation",
+                "property",
+                "target",
+                CheckStatus.PASS,
+                "Matches its obligation.",
+            ),
+            CheckRecord(
+                "wrong-property",
+                "obligation",
+                "other-property",
+                "target",
+                CheckStatus.FAIL,
+                "Must not be exported.",
+            ),
+            CheckRecord(
+                "wrong-target",
+                "obligation",
+                "property",
+                "other-target",
+                CheckStatus.UNKNOWN,
+                "Must not be exported.",
+            ),
+        ]
+
+        atoms, refusals = emit_reified_atoms(document_with_checks(checks))
+        rendered = "\n".join(atoms)
+
+        self.assertIn("(check valid-check property target Pass)", atoms)
+        self.assertNotIn("wrong-property", rendered)
+        self.assertNotIn("wrong-target", rendered)
+        self.assertIn("(document-validation-summary document 1 0 0 0)", atoms)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                (
+                    "wrong-property",
+                    "check-property-mismatch-with-obligation",
+                ),
+                (
+                    "wrong-target",
+                    "check-target-mismatch-with-obligation",
                 ),
             ],
         )
