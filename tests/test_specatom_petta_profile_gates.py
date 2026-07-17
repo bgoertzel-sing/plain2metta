@@ -5,8 +5,12 @@ from specatom_hs.passes import compile_source
 from specatom_hs.schema import (
     CheckRecord,
     CheckStatus,
+    PlainFile,
+    PlainItem,
     Role,
+    Section,
     SemanticLevel,
+    SourceSpan,
     SpecDocument,
     SpecObject,
     ValidationObligation,
@@ -38,6 +42,42 @@ def document_with_checks(
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_refuses_malformed_source_manifest_record_types_without_crashing(self):
+        plain_file = PlainFile("file-valid", "valid.plain", "digest", "text")
+        span = SourceSpan("span-valid", plain_file.id, 0, 4, 1, 1)
+        section = Section(
+            "section-valid", plain_file.id, "Title", "definitions", 0, span
+        )
+        item = PlainItem(
+            "item-valid", plain_file.id, section.id, None, 0, 0, "text", span
+        )
+        doc = SpecDocument(
+            files=[7, plain_file],
+            spans=[{"id": "not-a-span"}, span],
+            sections=[None, section],
+            items=[["not-an-item"], item],
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        rendered = "\n".join(atoms)
+
+        self.assertIn("(plain-file file-valid valid.plain digest)", atoms)
+        self.assertIn("(source-span span-valid file-valid 0 4 1 1)", atoms)
+        self.assertIn("(section section-valid file-valid definitions 0)", atoms)
+        self.assertIn("(plain-item item-valid section-valid none 0 text)", atoms)
+        self.assertIn("(document-validation-summary file-valid 0 0 0 0)", atoms)
+        self.assertNotIn("not-a-span", rendered)
+        self.assertNotIn("not-an-item", rendered)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                (None, "unsupported-plain-file-record-type:int"),
+                (None, "unsupported-source-span-record-type:dict"),
+                (None, "unsupported-section-record-type:NoneType"),
+                (None, "unsupported-plain-item-record-type:list"),
+            ],
+        )
+
     def test_refuses_malformed_validation_record_types_without_crashing(self):
         valid_check = CheckRecord(
             "valid-check",

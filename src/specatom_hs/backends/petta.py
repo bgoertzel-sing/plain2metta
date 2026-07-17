@@ -16,8 +16,12 @@ from typing import Iterable
 from ..schema import (
     CheckRecord,
     CheckStatus,
+    PlainFile,
+    PlainItem,
     Role,
+    Section,
     SemanticLevel,
+    SourceSpan,
     SpecDocument,
     SpecObject,
     ValidationObligation,
@@ -391,14 +395,48 @@ def _compute_information_flow_summary(doc: SpecDocument) -> dict[str, int]:
 def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusal]]:
     atoms = [_atom(["target-profile", "petta_reified_v0"])]
     refusals: list[BackendRefusal] = []
+    emitted_files: list[PlainFile] = []
     for plain_file in doc.files:
+        if not isinstance(plain_file, PlainFile):
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    f"unsupported-plain-file-record-type:{type(plain_file).__name__}",
+                )
+            )
+            continue
         atoms.append(_atom(["plain-file", plain_file.id, plain_file.path, plain_file.digest]))
+        emitted_files.append(plain_file)
     for span in doc.spans:
+        if not isinstance(span, SourceSpan):
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    f"unsupported-source-span-record-type:{type(span).__name__}",
+                )
+            )
+            continue
         atoms.append(_atom(["source-span", span.id, span.file_id, span.start_byte, span.end_byte, span.start_line, span.end_line]))
     for section in doc.sections:
+        if not isinstance(section, Section):
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    f"unsupported-section-record-type:{type(section).__name__}",
+                )
+            )
+            continue
         atoms.append(_atom(["section", section.id, section.file_id, section.kind, section.ordinal]))
         atoms.append(_atom(["derived-from", section.id, section.span.id]))
     for item in doc.items:
+        if not isinstance(item, PlainItem):
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    f"unsupported-plain-item-record-type:{type(item).__name__}",
+                )
+            )
+            continue
         atoms.append(_atom(["plain-item", item.id, item.section_id, item.parent_item_id or "none", item.ordinal, item.raw_text]))
         atoms.append(_atom(["derived-from", item.id, item.span.id]))
     object_id_counts: dict[str, int] = {}
@@ -674,11 +712,12 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
     question_count = sum(
         1 for obj in emitted_objects if obj.role == Role.QUESTION_OBJECT
     )
-    atoms.append(_atom(["document-validation-summary", doc.files[0].id if doc.files else "document", pass_count, fail_count, unknown_count, question_count]))
+    summary_id = emitted_files[0].id if emitted_files else "document"
+    atoms.append(_atom(["document-validation-summary", summary_id, pass_count, fail_count, unknown_count, question_count]))
 
     # Information-flow graph summary: quick stats from DataFlowEdge/TemporalOrderEdge atoms.
     graph_summary = _compute_information_flow_summary(doc)
-    atoms.append(_atom(["information-flow-graph-summary", doc.files[0].id if doc.files else "document",
+    atoms.append(_atom(["information-flow-graph-summary", summary_id,
                          graph_summary["node_count"], graph_summary["edge_count"],
                          graph_summary["temporal_edge_count"], graph_summary["source_count"],
                          graph_summary["sink_count"], graph_summary["cycle_count"],
