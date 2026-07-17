@@ -1264,6 +1264,54 @@ class PettaProfileGateTests(unittest.TestCase):
             ],
         )
 
+    def test_refuses_blank_reified_source_provenance_without_emitting_it(self):
+        malformed_object = SpecObject(
+            "object-blank-provenance",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            " \t ",
+            [("Requirement", "object-blank-provenance")],
+        )
+        malformed_obligation = ValidationObligation(
+            "obligation-blank-provenance",
+            "manual-review",
+            "object-blank-provenance",
+            "Review the target.",
+            " \t ",
+        )
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(
+                objects=[malformed_object],
+                validation_obligations=[malformed_obligation],
+            )
+        )
+        rendered = "\n".join(atoms)
+
+        self.assertIn(
+            "(spec-object object-blank-provenance RequirementObject TemplateParsed)",
+            atoms,
+        )
+        self.assertIn(
+            "(validation-obligation obligation-blank-provenance manual-review object-blank-provenance)",
+            atoms,
+        )
+        self.assertNotIn("(derived-from object-blank-provenance", rendered)
+        self.assertNotIn("(derived-from obligation-blank-provenance", rendered)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                (
+                    "object-blank-provenance",
+                    "missing-source-provenance-for-reified-emission",
+                ),
+                (
+                    "obligation-blank-provenance",
+                    "missing-source-provenance-for-validation-obligation",
+                ),
+            ],
+        )
+
     def test_refuses_malformed_validation_obligation_ids_without_aliasing(self):
         obligations = [
             ValidationObligation(7, "numeric-id", "target", "Malformed ID."),

@@ -55,6 +55,13 @@ def _source_provenance_refusal_reason(source_span_id: object) -> str | None:
     return None
 
 
+def _optional_source_provenance_refusal_reason(source_span_id: object) -> str | None:
+    """Validate an optional source-span ID without treating absence as malformed."""
+    if source_span_id is None or source_span_id == "":
+        return None
+    return _source_provenance_refusal_reason(source_span_id)
+
+
 def _validation_obligation_identity_refusal_reason(obligation_id: object) -> str | None:
     """Return a stable reason when a validation obligation has no safe ID."""
     if not isinstance(obligation_id, str):
@@ -383,8 +390,10 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
             refusals.append(emitted)
         else:
             atoms.append(emitted)
-            provenance_refusal = _source_provenance_refusal_reason(obj.source_span_id)
-            if provenance_refusal and provenance_refusal.startswith("unsupported-"):
+            provenance_refusal = _optional_source_provenance_refusal_reason(
+                obj.source_span_id
+            )
+            if provenance_refusal:
                 refusals.append(
                     BackendRefusal(
                         "petta_reified_v0",
@@ -450,8 +459,10 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
             continue
         atoms.append(_atom(["validation-obligation", obligation.id, obligation.property, obligation.target_id]))
         atoms.append(_atom(["validation-rationale", obligation.id, obligation.rationale]))
-        provenance_refusal = _source_provenance_refusal_reason(obligation.source_span_id)
-        if provenance_refusal and provenance_refusal.startswith("unsupported-"):
+        provenance_refusal = _optional_source_provenance_refusal_reason(
+            obligation.source_span_id
+        )
+        if provenance_refusal:
             refusals.append(
                 BackendRefusal(
                     "petta_reified_v0",
