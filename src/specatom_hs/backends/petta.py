@@ -426,6 +426,15 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                     refusals.append(refusal)
                 else:
                     atoms.append(_atom(fact))
+    obligation_id_counts: dict[str, int] = {}
+    for obligation in doc.validation_obligations:
+        if isinstance(obligation.id, str) and obligation.id.strip():
+            obligation_id_counts[obligation.id] = obligation_id_counts.get(obligation.id, 0) + 1
+    duplicate_obligation_ids = {
+        obligation_id
+        for obligation_id, count in obligation_id_counts.items()
+        if count > 1
+    }
     emitted_obligations: dict[str, ValidationObligation] = {}
     for obligation in doc.validation_obligations:
         identity_refusal = _validation_obligation_identity_refusal_reason(obligation.id)
@@ -435,6 +444,15 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                     "petta_reified_v0",
                     identity_refusal,
                     None if obligation.id is None else str(obligation.id),
+                )
+            )
+            continue
+        if obligation.id in duplicate_obligation_ids:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "duplicate-validation-obligation-id",
+                    obligation.id,
                 )
             )
             continue
@@ -490,6 +508,13 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
             )
         elif obligation.source_span_id:
             atoms.append(_atom(["derived-from", obligation.id, obligation.source_span_id]))
+    check_id_counts: dict[str, int] = {}
+    for check in doc.checks:
+        if isinstance(check.id, str) and check.id.strip():
+            check_id_counts[check.id] = check_id_counts.get(check.id, 0) + 1
+    duplicate_check_ids = {
+        check_id for check_id, count in check_id_counts.items() if count > 1
+    }
     emitted_checks = []
     for check in doc.checks:
         identity_refusal = _check_identity_refusal_reason(check.id)
@@ -499,6 +524,15 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                     "petta_reified_v0",
                     identity_refusal,
                     None if check.id is None else str(check.id),
+                )
+            )
+            continue
+        if check.id in duplicate_check_ids:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "duplicate-check-id",
+                    check.id,
                 )
             )
             continue

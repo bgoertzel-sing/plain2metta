@@ -1355,6 +1355,38 @@ class PettaProfileGateTests(unittest.TestCase):
             ],
         )
 
+    def test_refuses_all_duplicate_validation_obligation_ids_and_linked_checks(self):
+        obligations = [
+            ValidationObligation("duplicate", "property-a", "target-a", "First claim."),
+            ValidationObligation("duplicate", "property-b", "target-b", "Second claim."),
+        ]
+        check = CheckRecord(
+            "linked-check",
+            "duplicate",
+            "property-a",
+            "target-a",
+            CheckStatus.PASS,
+            "Must not select one duplicate by order.",
+        )
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(validation_obligations=obligations, checks=[check])
+        )
+        rendered = "\n".join(atoms)
+
+        self.assertNotIn("(validation-obligation duplicate ", rendered)
+        self.assertNotIn("(validation-rationale duplicate ", rendered)
+        self.assertNotIn("linked-check", rendered)
+        self.assertIn("(document-validation-summary document 0 0 0 0)", atoms)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("duplicate", "duplicate-validation-obligation-id"),
+                ("duplicate", "duplicate-validation-obligation-id"),
+                ("linked-check", "check-obligation-not-emitted:duplicate"),
+            ],
+        )
+
     def test_refuses_malformed_validation_obligation_properties_without_aliasing(self):
         obligations = [
             ValidationObligation("numeric-property", 7, "target", "Malformed property."),
@@ -1459,6 +1491,41 @@ class PettaProfileGateTests(unittest.TestCase):
             [
                 ("7", "unsupported-check-id-type:int"),
                 (" \t ", "missing-check-id"),
+            ],
+        )
+
+    def test_refuses_all_duplicate_check_ids_without_summary_counts(self):
+        checks = [
+            CheckRecord(
+                "duplicate-check",
+                "obligation",
+                "property",
+                "target",
+                CheckStatus.PASS,
+                "First result.",
+            ),
+            CheckRecord(
+                "duplicate-check",
+                "obligation",
+                "property",
+                "target",
+                CheckStatus.FAIL,
+                "Conflicting result.",
+            ),
+        ]
+
+        atoms, refusals = emit_reified_atoms(document_with_checks(checks))
+        rendered = "\n".join(atoms)
+
+        self.assertNotIn("(check duplicate-check ", rendered)
+        self.assertNotIn("(check-obligation duplicate-check ", rendered)
+        self.assertNotIn("(check-evidence duplicate-check ", rendered)
+        self.assertIn("(document-validation-summary document 0 0 0 0)", atoms)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("duplicate-check", "duplicate-check-id"),
+                ("duplicate-check", "duplicate-check-id"),
             ],
         )
 
