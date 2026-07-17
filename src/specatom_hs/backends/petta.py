@@ -93,6 +93,17 @@ def _source_span_record_refusal_reason(span: SourceSpan) -> str | None:
     return None
 
 
+def _plain_file_record_refusal_reason(plain_file: PlainFile) -> str | None:
+    """Return the first reason a source file is unsafe to reify."""
+    if not isinstance(plain_file.id, str) or not plain_file.id.strip():
+        return "invalid-plain-file-id"
+    if not isinstance(plain_file.path, str) or not plain_file.path.strip():
+        return "invalid-plain-file-path"
+    if not isinstance(plain_file.digest, str) or not plain_file.digest.strip():
+        return "invalid-plain-file-digest"
+    return None
+
+
 def _validation_obligation_identity_refusal_reason(obligation_id: object) -> str | None:
     """Return a stable reason when a validation obligation has no safe ID."""
     if not isinstance(obligation_id, str):
@@ -421,6 +432,16 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     f"unsupported-plain-file-record-type:{type(plain_file).__name__}",
+                )
+            )
+            continue
+        file_refusal = _plain_file_record_refusal_reason(plain_file)
+        if file_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    file_refusal,
+                    None if plain_file.id is None else str(plain_file.id),
                 )
             )
             continue

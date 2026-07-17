@@ -42,6 +42,34 @@ def document_with_checks(
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_refuses_malformed_plain_file_fields_and_preserves_valid_neighbor(self):
+        valid = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
+        malformed = [
+            PlainFile(7, "numeric-id.plain", "digest", "text"),
+            PlainFile("file-path", " ", "digest", "text"),
+            PlainFile("file-digest", "digest.plain", None, "text"),
+        ]
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(files=[*malformed, valid])
+        )
+
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(plain-file")],
+            ["(plain-file file-valid valid.plain digest-valid)"],
+        )
+        self.assertIn(
+            "(document-validation-summary file-valid 0 0 0 0)", atoms
+        )
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("7", "invalid-plain-file-id"),
+                ("file-path", "invalid-plain-file-path"),
+                ("file-digest", "invalid-plain-file-digest"),
+            ],
+        )
+
     def test_refuses_malformed_source_manifest_record_types_without_crashing(self):
         plain_file = PlainFile("file-valid", "valid.plain", "digest", "text")
         span = SourceSpan("span-valid", plain_file.id, 0, 4, 1, 1)
