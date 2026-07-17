@@ -1156,6 +1156,45 @@ class PettaProfileGateTests(unittest.TestCase):
             ],
         )
 
+    def test_refuses_all_duplicate_object_ids_from_reified_atoms_and_summary(self):
+        questions = [
+            SpecObject(
+                "duplicate-question",
+                Role.QUESTION_OBJECT,
+                SemanticLevel.TEMPLATE_PARSED,
+                "span-1",
+                facts=[("QuestionText", "duplicate-question", "First question?")],
+            ),
+            SpecObject(
+                "duplicate-question",
+                Role.QUESTION_OBJECT,
+                SemanticLevel.TEMPLATE_PARSED,
+                "span-2",
+                facts=[("QuestionText", "duplicate-question", "Conflicting question?")],
+            ),
+        ]
+
+        atoms, refusals = emit_reified_atoms(SpecDocument(objects=questions))
+        rendered = "\n".join(atoms)
+
+        self.assertNotIn("(spec-object duplicate-question ", rendered)
+        self.assertNotIn("(QuestionText duplicate-question ", rendered)
+        self.assertNotIn("(derived-from duplicate-question ", rendered)
+        self.assertIn("(document-validation-summary document 0 0 0 0)", atoms)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                (
+                    "duplicate-question",
+                    "duplicate-object-id-for-reified-emission",
+                ),
+                (
+                    "duplicate-question",
+                    "duplicate-object-id-for-reified-emission",
+                ),
+            ],
+        )
+
     def test_refuses_executable_skeleton_without_source_provenance(self):
         lowered = SpecObject("unprovenanced", Role.REQUIREMENT_OBJECT, SemanticLevel.BACKEND_LOWERED, "", facts=[("Requirement", "unprovenanced")])
         refusals = refuse_executable_skeleton([lowered])

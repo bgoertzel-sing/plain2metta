@@ -400,12 +400,31 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
     for item in doc.items:
         atoms.append(_atom(["plain-item", item.id, item.section_id, item.parent_item_id or "none", item.ordinal, item.raw_text]))
         atoms.append(_atom(["derived-from", item.id, item.span.id]))
+    object_id_counts: dict[str, int] = {}
     for obj in doc.objects:
+        if isinstance(obj.id, str) and obj.id.strip():
+            object_id_counts[obj.id] = object_id_counts.get(obj.id, 0) + 1
+    duplicate_object_ids = {
+        object_id for object_id, count in object_id_counts.items() if count > 1
+    }
+    emitted_objects: list[SpecObject] = []
+    for obj in doc.objects:
+        if isinstance(obj.id, str) and obj.id in duplicate_object_ids:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "duplicate-object-id-for-reified-emission",
+                    obj.id,
+                    _semantic_level_value(obj),
+                )
+            )
+            continue
         emitted = reified_atom_for_object(obj)
         if isinstance(emitted, BackendRefusal):
             refusals.append(emitted)
         else:
             atoms.append(emitted)
+            emitted_objects.append(obj)
             provenance_refusal = _optional_source_provenance_refusal_reason(
                 obj.source_span_id
             )
@@ -629,7 +648,9 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
     pass_count = sum(1 for c in emitted_checks if hasattr(c.status, "value") and c.status.value == "Pass")
     fail_count = sum(1 for c in emitted_checks if hasattr(c.status, "value") and c.status.value == "Fail")
     unknown_count = sum(1 for c in emitted_checks if hasattr(c.status, "value") and c.status.value == "Unknown")
-    question_count = sum(1 for obj in doc.objects if obj.role == Role.QUESTION_OBJECT)
+    question_count = sum(
+        1 for obj in emitted_objects if obj.role == Role.QUESTION_OBJECT
+    )
     atoms.append(_atom(["document-validation-summary", doc.files[0].id if doc.files else "document", pass_count, fail_count, unknown_count, question_count]))
 
     # Information-flow graph summary: quick stats from DataFlowEdge/TemporalOrderEdge atoms.
