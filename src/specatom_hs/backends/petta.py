@@ -74,6 +74,25 @@ def _optional_source_provenance_refusal_reason(source_span_id: object) -> str | 
     return _source_provenance_refusal_reason(source_span_id)
 
 
+def _source_span_record_refusal_reason(span: SourceSpan) -> str | None:
+    """Return the first reason a source span is unsafe to reify."""
+    if not isinstance(span.id, str) or not span.id.strip():
+        return "invalid-source-span-id"
+    if not isinstance(span.file_id, str) or not span.file_id.strip():
+        return "invalid-source-span-file-id"
+    byte_fields = (span.start_byte, span.end_byte)
+    if any(not isinstance(value, int) or isinstance(value, bool) for value in byte_fields):
+        return "invalid-source-span-byte-bound-type"
+    if span.start_byte < 0 or span.end_byte < span.start_byte:
+        return "invalid-source-span-byte-bounds"
+    line_fields = (span.start_line, span.end_line)
+    if any(not isinstance(value, int) or isinstance(value, bool) for value in line_fields):
+        return "invalid-source-span-line-bound-type"
+    if span.start_line < 1 or span.end_line < span.start_line:
+        return "invalid-source-span-line-bounds"
+    return None
+
+
 def _validation_obligation_identity_refusal_reason(obligation_id: object) -> str | None:
     """Return a stable reason when a validation obligation has no safe ID."""
     if not isinstance(obligation_id, str):
@@ -413,6 +432,16 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     f"unsupported-source-span-record-type:{type(span).__name__}",
+                )
+            )
+            continue
+        span_refusal = _source_span_record_refusal_reason(span)
+        if span_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    span_refusal,
+                    None if span.id is None else str(span.id),
                 )
             )
             continue

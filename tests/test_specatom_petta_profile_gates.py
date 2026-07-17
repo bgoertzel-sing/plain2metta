@@ -78,6 +78,37 @@ class PettaProfileGateTests(unittest.TestCase):
             ],
         )
 
+    def test_refuses_malformed_source_span_fields_and_preserves_valid_neighbor(self):
+        valid = SourceSpan("span-valid", "file-valid", 0, 4, 1, 1)
+        malformed = [
+            SourceSpan(7, "file-valid", 0, 4, 1, 1),
+            SourceSpan("span-file", " ", 0, 4, 1, 1),
+            SourceSpan("span-byte-type", "file-valid", False, 4, 1, 1),
+            SourceSpan("span-byte-order", "file-valid", 5, 4, 1, 1),
+            SourceSpan("span-line-type", "file-valid", 0, 4, 1.0, 1),
+            SourceSpan("span-line-order", "file-valid", 0, 4, 2, 1),
+        ]
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(spans=[*malformed, valid])
+        )
+
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(source-span")],
+            ["(source-span span-valid file-valid 0 4 1 1)"],
+        )
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("7", "invalid-source-span-id"),
+                ("span-file", "invalid-source-span-file-id"),
+                ("span-byte-type", "invalid-source-span-byte-bound-type"),
+                ("span-byte-order", "invalid-source-span-byte-bounds"),
+                ("span-line-type", "invalid-source-span-line-bound-type"),
+                ("span-line-order", "invalid-source-span-line-bounds"),
+            ],
+        )
+
     def test_refuses_malformed_validation_record_types_without_crashing(self):
         valid_check = CheckRecord(
             "valid-check",
