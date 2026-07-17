@@ -82,6 +82,15 @@ def _validation_obligation_target_identity_refusal_reason(target_id: object) -> 
     return None
 
 
+def _validation_obligation_rationale_refusal_reason(rationale: object) -> str | None:
+    """Return a stable reason when an obligation has no reviewable rationale."""
+    if not isinstance(rationale, str):
+        return f"unsupported-validation-obligation-rationale-type:{type(rationale).__name__}"
+    if not rationale.strip():
+        return "missing-validation-obligation-rationale"
+    return None
+
+
 def _check_identity_refusal_reason(check_id: object) -> str | None:
     """Return a stable reason when a validation check has no safe ID."""
     if not isinstance(check_id, str):
@@ -423,6 +432,18 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     target_identity_refusal,
+                    obligation.id,
+                )
+            )
+            continue
+        rationale_refusal = _validation_obligation_rationale_refusal_reason(
+            obligation.rationale
+        )
+        if rationale_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    rationale_refusal,
                     obligation.id,
                 )
             )
