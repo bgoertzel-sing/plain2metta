@@ -104,6 +104,48 @@ def _plain_file_record_refusal_reason(plain_file: PlainFile) -> str | None:
     return None
 
 
+def _section_record_refusal_reason(section: Section) -> str | None:
+    """Return the first reason a section is unsafe to reify."""
+    if not isinstance(section.id, str) or not section.id.strip():
+        return "invalid-section-id"
+    if not isinstance(section.file_id, str) or not section.file_id.strip():
+        return "invalid-section-file-id"
+    if not isinstance(section.kind, str) or not section.kind.strip():
+        return "invalid-section-kind"
+    if not isinstance(section.ordinal, int) or isinstance(section.ordinal, bool):
+        return "invalid-section-ordinal-type"
+    if section.ordinal < 0:
+        return "invalid-section-ordinal"
+    if not isinstance(section.span, SourceSpan):
+        return "invalid-section-span-record"
+    if not isinstance(section.span.id, str) or not section.span.id.strip():
+        return "invalid-section-span-id"
+    return None
+
+
+def _plain_item_record_refusal_reason(item: PlainItem) -> str | None:
+    """Return the first reason a Plain item is unsafe to reify."""
+    if not isinstance(item.id, str) or not item.id.strip():
+        return "invalid-plain-item-id"
+    if not isinstance(item.section_id, str) or not item.section_id.strip():
+        return "invalid-plain-item-section-id"
+    if item.parent_item_id is not None and (
+        not isinstance(item.parent_item_id, str) or not item.parent_item_id.strip()
+    ):
+        return "invalid-plain-item-parent-id"
+    if not isinstance(item.ordinal, int) or isinstance(item.ordinal, bool):
+        return "invalid-plain-item-ordinal-type"
+    if item.ordinal < 0:
+        return "invalid-plain-item-ordinal"
+    if not isinstance(item.raw_text, str) or not item.raw_text.strip():
+        return "invalid-plain-item-raw-text"
+    if not isinstance(item.span, SourceSpan):
+        return "invalid-plain-item-span-record"
+    if not isinstance(item.span.id, str) or not item.span.id.strip():
+        return "invalid-plain-item-span-id"
+    return None
+
+
 def _validation_obligation_identity_refusal_reason(obligation_id: object) -> str | None:
     """Return a stable reason when a validation obligation has no safe ID."""
     if not isinstance(obligation_id, str):
@@ -476,6 +518,16 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 )
             )
             continue
+        section_refusal = _section_record_refusal_reason(section)
+        if section_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    section_refusal,
+                    None if section.id is None else str(section.id),
+                )
+            )
+            continue
         atoms.append(_atom(["section", section.id, section.file_id, section.kind, section.ordinal]))
         atoms.append(_atom(["derived-from", section.id, section.span.id]))
     for item in doc.items:
@@ -484,6 +536,16 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     f"unsupported-plain-item-record-type:{type(item).__name__}",
+                )
+            )
+            continue
+        item_refusal = _plain_item_record_refusal_reason(item)
+        if item_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    item_refusal,
+                    None if item.id is None else str(item.id),
                 )
             )
             continue

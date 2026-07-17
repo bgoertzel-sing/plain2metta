@@ -137,6 +137,86 @@ class PettaProfileGateTests(unittest.TestCase):
             ],
         )
 
+    def test_refuses_malformed_section_and_item_fields_with_valid_neighbors(self):
+        span = SourceSpan("span-valid", "file-valid", 0, 4, 1, 1)
+        valid_section = Section(
+            "section-valid", "file-valid", "Title", "definitions", 0, span
+        )
+        malformed_sections = [
+            Section(7, "file-valid", "Title", "definitions", 0, span),
+            Section("section-file", " ", "Title", "definitions", 0, span),
+            Section("section-kind", "file-valid", "Title", None, 0, span),
+            Section("section-ordinal-type", "file-valid", "Title", "definitions", False, span),
+            Section("section-ordinal", "file-valid", "Title", "definitions", -1, span),
+            Section("section-span-record", "file-valid", "Title", "definitions", 0, None),
+            Section(
+                "section-span-id",
+                "file-valid",
+                "Title",
+                "definitions",
+                0,
+                SourceSpan(" ", "file-valid", 0, 4, 1, 1),
+            ),
+        ]
+        valid_item = PlainItem(
+            "item-valid", "file-valid", valid_section.id, None, 0, 0, "text", span
+        )
+        malformed_items = [
+            PlainItem(7, "file-valid", valid_section.id, None, 0, 0, "text", span),
+            PlainItem("item-section", "file-valid", " ", None, 0, 0, "text", span),
+            PlainItem("item-parent", "file-valid", valid_section.id, 7, 0, 0, "text", span),
+            PlainItem("item-ordinal-type", "file-valid", valid_section.id, None, True, 0, "text", span),
+            PlainItem("item-ordinal", "file-valid", valid_section.id, None, -1, 0, "text", span),
+            PlainItem("item-text", "file-valid", valid_section.id, None, 0, 0, " ", span),
+            PlainItem("item-span-record", "file-valid", valid_section.id, None, 0, 0, "text", None),
+            PlainItem(
+                "item-span-id",
+                "file-valid",
+                valid_section.id,
+                None,
+                0,
+                0,
+                "text",
+                SourceSpan(" ", "file-valid", 0, 4, 1, 1),
+            ),
+        ]
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(
+                sections=[*malformed_sections, valid_section],
+                items=[*malformed_items, valid_item],
+            )
+        )
+
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(section")],
+            ["(section section-valid file-valid definitions 0)"],
+        )
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(plain-item")],
+            ["(plain-item item-valid section-valid none 0 text)"],
+        )
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("7", "invalid-section-id"),
+                ("section-file", "invalid-section-file-id"),
+                ("section-kind", "invalid-section-kind"),
+                ("section-ordinal-type", "invalid-section-ordinal-type"),
+                ("section-ordinal", "invalid-section-ordinal"),
+                ("section-span-record", "invalid-section-span-record"),
+                ("section-span-id", "invalid-section-span-id"),
+                ("7", "invalid-plain-item-id"),
+                ("item-section", "invalid-plain-item-section-id"),
+                ("item-parent", "invalid-plain-item-parent-id"),
+                ("item-ordinal-type", "invalid-plain-item-ordinal-type"),
+                ("item-ordinal", "invalid-plain-item-ordinal"),
+                ("item-text", "invalid-plain-item-raw-text"),
+                ("item-span-record", "invalid-plain-item-span-record"),
+                ("item-span-id", "invalid-plain-item-span-id"),
+            ],
+        )
+
     def test_refuses_malformed_validation_record_types_without_crashing(self):
         valid_check = CheckRecord(
             "valid-check",
