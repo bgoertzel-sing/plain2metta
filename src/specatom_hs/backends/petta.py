@@ -419,6 +419,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                     refusals.append(refusal)
                 else:
                     atoms.append(_atom(fact))
+    emitted_obligation_ids: set[str] = set()
     for obligation in doc.validation_obligations:
         identity_refusal = _validation_obligation_identity_refusal_reason(obligation.id)
         if identity_refusal:
@@ -468,6 +469,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
             continue
         atoms.append(_atom(["validation-obligation", obligation.id, obligation.property, obligation.target_id]))
         atoms.append(_atom(["validation-rationale", obligation.id, obligation.rationale]))
+        emitted_obligation_ids.add(obligation.id)
         provenance_refusal = _optional_source_provenance_refusal_reason(
             obligation.source_span_id
         )
@@ -501,6 +503,15 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     obligation_identity_refusal,
+                    check.id,
+                )
+            )
+            continue
+        if check.obligation_id not in emitted_obligation_ids:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    f"check-obligation-not-emitted:{check.obligation_id}",
                     check.id,
                 )
             )

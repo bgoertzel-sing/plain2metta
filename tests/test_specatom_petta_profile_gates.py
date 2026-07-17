@@ -18,6 +18,20 @@ def obj(level):
     return SpecObject("obj-1", Role.REQUIREMENT_OBJECT, level, "span-1")
 
 
+def document_with_checks(checks, obligation_id="obligation"):
+    return SpecDocument(
+        validation_obligations=[
+            ValidationObligation(
+                obligation_id,
+                "property",
+                "target",
+                "Ground-truth obligation for backend check tests.",
+            )
+        ],
+        checks=checks,
+    )
+
+
 class PettaProfileGateTests(unittest.TestCase):
     def test_quotes_ascii_control_characters_in_fact_text(self):
         requirement = SpecObject(
@@ -1426,7 +1440,7 @@ class PettaProfileGateTests(unittest.TestCase):
             CheckRecord(" \t ", "obligation", "blank-id", "target", CheckStatus.UNKNOWN, "Malformed ID."),
         ]
 
-        atoms, refusals = emit_reified_atoms(SpecDocument(checks=checks))
+        atoms, refusals = emit_reified_atoms(document_with_checks(checks))
         rendered = "\n".join(atoms)
 
         self.assertIn("(check 7 string-id target Pass)", atoms)
@@ -1450,7 +1464,9 @@ class PettaProfileGateTests(unittest.TestCase):
             CheckRecord("blank-link", " \t ", "blank-link", "target", CheckStatus.UNKNOWN, "Malformed link."),
         ]
 
-        atoms, refusals = emit_reified_atoms(SpecDocument(checks=checks))
+        atoms, refusals = emit_reified_atoms(
+            document_with_checks(checks, obligation_id="7")
+        )
         rendered = "\n".join(atoms)
 
         self.assertIn("(check string-link string-link target Pass)", atoms)
@@ -1474,7 +1490,7 @@ class PettaProfileGateTests(unittest.TestCase):
             CheckRecord("missing-status", "obligation", "property", "target", None, "Malformed status."),
         ]
 
-        atoms, refusals = emit_reified_atoms(SpecDocument(checks=checks))
+        atoms, refusals = emit_reified_atoms(document_with_checks(checks))
         rendered = "\n".join(atoms)
 
         self.assertIn("(check enum-pass property target Pass)", atoms)
@@ -1498,7 +1514,7 @@ class PettaProfileGateTests(unittest.TestCase):
             CheckRecord("blank-property", "obligation", " \t ", "target", CheckStatus.UNKNOWN, "Malformed property."),
         ]
 
-        atoms, refusals = emit_reified_atoms(SpecDocument(checks=checks))
+        atoms, refusals = emit_reified_atoms(document_with_checks(checks))
         rendered = "\n".join(atoms)
 
         self.assertIn("(check string-property 7 target Pass)", atoms)
@@ -1522,7 +1538,7 @@ class PettaProfileGateTests(unittest.TestCase):
             CheckRecord("blank-target", "obligation", "property", " \t ", CheckStatus.UNKNOWN, "Malformed target."),
         ]
 
-        atoms, refusals = emit_reified_atoms(SpecDocument(checks=checks))
+        atoms, refusals = emit_reified_atoms(document_with_checks(checks))
         rendered = "\n".join(atoms)
 
         self.assertIn("(check string-target property 7 Pass)", atoms)
@@ -1546,7 +1562,7 @@ class PettaProfileGateTests(unittest.TestCase):
             CheckRecord("blank-evidence", "obligation", "property", "target", CheckStatus.UNKNOWN, " \t "),
         ]
 
-        atoms, refusals = emit_reified_atoms(SpecDocument(checks=checks))
+        atoms, refusals = emit_reified_atoms(document_with_checks(checks))
         rendered = "\n".join(atoms)
 
         self.assertIn("(check string-evidence property target Pass)", atoms)
@@ -1560,6 +1576,47 @@ class PettaProfileGateTests(unittest.TestCase):
             [
                 ("numeric-evidence", "unsupported-check-evidence-type:int"),
                 ("blank-evidence", "missing-check-evidence"),
+            ],
+        )
+
+    def test_refuses_check_link_to_unemitted_validation_obligation(self):
+        malformed_obligation = ValidationObligation(
+            "unemitted-obligation",
+            "property",
+            "target",
+            " ",
+        )
+        check = CheckRecord(
+            "dangling-check",
+            "unemitted-obligation",
+            "property",
+            "target",
+            CheckStatus.PASS,
+            "Would otherwise look valid.",
+        )
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(
+                validation_obligations=[malformed_obligation],
+                checks=[check],
+            )
+        )
+        rendered = "\n".join(atoms)
+
+        self.assertNotIn("unemitted-obligation", rendered)
+        self.assertNotIn("dangling-check", rendered)
+        self.assertIn("(document-validation-summary document 0 0 0 0)", atoms)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                (
+                    "unemitted-obligation",
+                    "missing-validation-obligation-rationale",
+                ),
+                (
+                    "dangling-check",
+                    "check-obligation-not-emitted:unemitted-obligation",
+                ),
             ],
         )
 
