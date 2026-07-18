@@ -237,6 +237,43 @@ class ValidationRecordTests(unittest.TestCase):
             )
         )
 
+    def test_section_file_validation_uses_canonical_indexed_span(self):
+        indexed_span = SourceSpan("span-shared", "file-other", 0, 4, 1, 1)
+        masked_span = SourceSpan("span-shared", "file-section", 0, 4, 1, 1)
+        doc = SpecDocument(
+            files=[
+                PlainFile("file-section", "section.plain", "digest-section", "text"),
+                PlainFile("file-other", "other.plain", "digest-other", "text"),
+            ],
+            spans=[indexed_span],
+            sections=[
+                Section(
+                    "section-masked-mismatch",
+                    "file-section",
+                    "Masked mismatch",
+                    "definitions",
+                    0,
+                    masked_span,
+                )
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        checks = [
+            check
+            for check in doc.checks
+            if check.property == "section-span-file-matches-section-file"
+            and check.target_id == "section-masked-mismatch"
+        ]
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0].status, CheckStatus.FAIL)
+        self.assertEqual(
+            checks[0].evidence,
+            "section.file_id=file-section span.file_id=file-other",
+        )
+
     def test_validation_obligations_validate_source_and_target_provenance(self):
         doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "obligations.plain")
         self.assertTrue(

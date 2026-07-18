@@ -673,11 +673,13 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         o = add_validation_obligation(doc, "section-has-source-span", section.id, "Every indexed section must have an exact source span.", section.span.id)
         add_check(doc, o, CheckStatus.PASS if section.span.id in known_spans else CheckStatus.FAIL, f"span={section.span.id}")
         o = add_validation_obligation(doc, "section-span-file-matches-section-file", section.id, "A section source span must cite the same PlainFile as the section record.", section.span.id)
+        span = spans_by_id.get(section.span.id)
+        span_file_matches = span is not None and span.file_id == section.file_id
         add_check(
             doc,
             o,
-            CheckStatus.PASS if section.span.file_id == section.file_id else CheckStatus.FAIL,
-            f"section.file_id={section.file_id} span.file_id={section.span.file_id}",
+            CheckStatus.PASS if span_file_matches else CheckStatus.FAIL,
+            f"section.file_id={section.file_id} span.file_id={span.file_id}" if span else f"missing span={section.span.id}",
         )
 
     for item in doc.items:
