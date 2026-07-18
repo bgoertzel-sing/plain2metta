@@ -42,6 +42,79 @@ def document_with_checks(
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_refuses_duplicate_source_manifest_ids_and_preserves_valid_neighbors(self):
+        valid_file = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
+        duplicate_files = [
+            PlainFile("file-duplicate", "first.plain", "digest-first", "first"),
+            PlainFile("file-duplicate", "second.plain", "digest-second", "second"),
+        ]
+        valid_span = SourceSpan("span-valid", valid_file.id, 0, 4, 1, 1)
+        duplicate_spans = [
+            SourceSpan("span-duplicate", valid_file.id, 0, 2, 1, 1),
+            SourceSpan("span-duplicate", valid_file.id, 2, 4, 1, 1),
+        ]
+        valid_section = Section(
+            "section-valid", valid_file.id, "Valid", "definitions", 0, valid_span
+        )
+        duplicate_sections = [
+            Section(
+                "section-duplicate", valid_file.id, "First", "definitions", 0, valid_span
+            ),
+            Section(
+                "section-duplicate", valid_file.id, "Second", "requirements", 1, valid_span
+            ),
+        ]
+        valid_item = PlainItem(
+            "item-valid", valid_file.id, valid_section.id, None, 0, 0, "valid", valid_span
+        )
+        duplicate_items = [
+            PlainItem(
+                "item-duplicate", valid_file.id, valid_section.id, None, 0, 0, "first", valid_span
+            ),
+            PlainItem(
+                "item-duplicate", valid_file.id, valid_section.id, None, 1, 0, "second", valid_span
+            ),
+        ]
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(
+                files=[*duplicate_files, valid_file],
+                spans=[*duplicate_spans, valid_span],
+                sections=[*duplicate_sections, valid_section],
+                items=[*duplicate_items, valid_item],
+            )
+        )
+
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(plain-file")],
+            ["(plain-file file-valid valid.plain digest-valid)"],
+        )
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(source-span")],
+            ["(source-span span-valid file-valid 0 4 1 1)"],
+        )
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(section")],
+            ["(section section-valid file-valid definitions 0)"],
+        )
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(plain-item")],
+            ["(plain-item item-valid section-valid none 0 valid)"],
+        )
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("file-duplicate", "duplicate-plain-file-id"),
+                ("file-duplicate", "duplicate-plain-file-id"),
+                ("span-duplicate", "duplicate-source-span-id"),
+                ("span-duplicate", "duplicate-source-span-id"),
+                ("section-duplicate", "duplicate-section-id"),
+                ("section-duplicate", "duplicate-section-id"),
+                ("item-duplicate", "duplicate-plain-item-id"),
+                ("item-duplicate", "duplicate-plain-item-id"),
+            ],
+        )
+
     def test_refuses_malformed_plain_file_fields_and_preserves_valid_neighbor(self):
         valid = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
         malformed = [

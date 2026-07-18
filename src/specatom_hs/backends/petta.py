@@ -146,6 +146,18 @@ def _plain_item_record_refusal_reason(item: PlainItem) -> str | None:
     return None
 
 
+def _duplicate_record_ids(records: Iterable[object], record_type: type) -> set[str]:
+    """Return safe string IDs that occur more than once for one record type."""
+    counts: dict[str, int] = {}
+    for record in records:
+        if not isinstance(record, record_type):
+            continue
+        record_id = record.id
+        if isinstance(record_id, str) and record_id.strip():
+            counts[record_id] = counts.get(record_id, 0) + 1
+    return {record_id for record_id, count in counts.items() if count > 1}
+
+
 def _validation_obligation_identity_refusal_reason(obligation_id: object) -> str | None:
     """Return a stable reason when a validation obligation has no safe ID."""
     if not isinstance(obligation_id, str):
@@ -467,6 +479,7 @@ def _compute_information_flow_summary(doc: SpecDocument) -> dict[str, int]:
 def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusal]]:
     atoms = [_atom(["target-profile", "petta_reified_v0"])]
     refusals: list[BackendRefusal] = []
+    duplicate_file_ids = _duplicate_record_ids(doc.files, PlainFile)
     emitted_files: list[PlainFile] = []
     for plain_file in doc.files:
         if not isinstance(plain_file, PlainFile):
@@ -487,8 +500,18 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 )
             )
             continue
+        if plain_file.id in duplicate_file_ids:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "duplicate-plain-file-id",
+                    plain_file.id,
+                )
+            )
+            continue
         atoms.append(_atom(["plain-file", plain_file.id, plain_file.path, plain_file.digest]))
         emitted_files.append(plain_file)
+    duplicate_span_ids = _duplicate_record_ids(doc.spans, SourceSpan)
     for span in doc.spans:
         if not isinstance(span, SourceSpan):
             refusals.append(
@@ -508,7 +531,17 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 )
             )
             continue
+        if span.id in duplicate_span_ids:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "duplicate-source-span-id",
+                    span.id,
+                )
+            )
+            continue
         atoms.append(_atom(["source-span", span.id, span.file_id, span.start_byte, span.end_byte, span.start_line, span.end_line]))
+    duplicate_section_ids = _duplicate_record_ids(doc.sections, Section)
     for section in doc.sections:
         if not isinstance(section, Section):
             refusals.append(
@@ -528,8 +561,18 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 )
             )
             continue
+        if section.id in duplicate_section_ids:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "duplicate-section-id",
+                    section.id,
+                )
+            )
+            continue
         atoms.append(_atom(["section", section.id, section.file_id, section.kind, section.ordinal]))
         atoms.append(_atom(["derived-from", section.id, section.span.id]))
+    duplicate_item_ids = _duplicate_record_ids(doc.items, PlainItem)
     for item in doc.items:
         if not isinstance(item, PlainItem):
             refusals.append(
@@ -546,6 +589,15 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                     "petta_reified_v0",
                     item_refusal,
                     None if item.id is None else str(item.id),
+                )
+            )
+            continue
+        if item.id in duplicate_item_ids:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "duplicate-plain-item-id",
+                    item.id,
                 )
             )
             continue
