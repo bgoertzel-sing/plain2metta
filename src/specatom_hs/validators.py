@@ -661,7 +661,8 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     known_files = {f.id for f in doc.files}
     known_sections = {s.id for s in doc.sections}
     known_spans = {s.id for s in doc.spans}
-    sections_by_id = {s.id: s for s in doc.sections}
+    section_id_counts = Counter(s.id for s in doc.sections)
+    sections_by_id = {s.id: s for s in doc.sections if section_id_counts[s.id] == 1}
     span_id_counts = Counter(s.id for s in doc.spans)
     spans_by_id = {s.id: s for s in doc.spans if span_id_counts[s.id] == 1}
     known_levels = {level for level in SemanticLevel}
@@ -692,15 +693,23 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         o = add_validation_obligation(doc, "item-file-is-indexed", item.id, "Every indexed item must belong to an indexed PlainFile.", item.span.id)
         add_check(doc, o, CheckStatus.PASS if item.file_id in known_files else CheckStatus.FAIL, f"file={item.file_id}")
         o = add_validation_obligation(doc, "item-has-section", item.id, "Every indexed item must belong to an indexed section.", item.span.id)
-        add_check(doc, o, CheckStatus.PASS if item.section_id in known_sections else CheckStatus.FAIL, f"section={item.section_id}")
+        if section_id_counts[item.section_id] > 1:
+            section_evidence = f"ambiguous duplicate section={item.section_id} count={section_id_counts[item.section_id]}"
+        else:
+            section_evidence = f"section={item.section_id}"
+        add_check(doc, o, CheckStatus.PASS if item.section_id in sections_by_id else CheckStatus.FAIL, section_evidence)
         o = add_validation_obligation(doc, "item-file-matches-section-file", item.id, "An item must cite the same PlainFile as its containing section.", item.span.id)
         section = sections_by_id.get(item.section_id)
         section_file_matches = section is not None and item.file_id == section.file_id
+        if section_id_counts[item.section_id] > 1:
+            section_match_evidence = f"ambiguous duplicate section={item.section_id} count={section_id_counts[item.section_id]}"
+        else:
+            section_match_evidence = f"item.file_id={item.file_id} section.file_id={section.file_id}" if section else f"missing section={item.section_id}"
         add_check(
             doc,
             o,
             CheckStatus.PASS if section_file_matches else CheckStatus.FAIL,
-            f"item.file_id={item.file_id} section.file_id={section.file_id}" if section else f"missing section={item.section_id}",
+            section_match_evidence,
         )
         o = add_validation_obligation(doc, "item-has-source-span", item.id, "Every indexed item must have an exact source span.", item.span.id)
         add_check(doc, o, CheckStatus.PASS if item.span.id in known_spans else CheckStatus.FAIL, f"span={item.span.id}")
