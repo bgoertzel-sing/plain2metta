@@ -42,6 +42,51 @@ def document_with_checks(
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_refuses_plain_items_with_dangling_or_inconsistent_parents(self):
+        plain_file = PlainFile("file", "valid.plain", "digest", "text")
+        span = SourceSpan("span", plain_file.id, 0, 4, 1, 1)
+        other_span = SourceSpan("other-span", plain_file.id, 0, 4, 1, 1)
+        section = Section("section", plain_file.id, "Main", "requirements", 0, span)
+        other_section = Section(
+            "other-section", plain_file.id, "Other", "requirements", 1, other_span
+        )
+        items = [
+            PlainItem("missing-parent", plain_file.id, section.id, "absent", 0, 1, "missing", span),
+            PlainItem("cross-section", plain_file.id, section.id, "other-parent", 1, 1, "cross", span),
+            PlainItem("self-parent", plain_file.id, section.id, "self-parent", 2, 1, "self", span),
+            PlainItem("refused-parent", plain_file.id, section.id, "missing-parent", 3, 2, "cascade", span),
+            PlainItem("valid-child", plain_file.id, section.id, "valid-parent", 4, 1, "child", span),
+            PlainItem("valid-parent", plain_file.id, section.id, None, 5, 0, "parent", span),
+            PlainItem("other-parent", plain_file.id, other_section.id, None, 6, 0, "other", other_span),
+        ]
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(
+                files=[plain_file],
+                spans=[span, other_span],
+                sections=[section, other_section],
+                items=items,
+            )
+        )
+
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(plain-item")],
+            [
+                "(plain-item valid-child section valid-parent 4 child)",
+                "(plain-item valid-parent section none 5 parent)",
+                "(plain-item other-parent other-section none 6 other)",
+            ],
+        )
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("missing-parent", "plain-item-parent-not-emitted"),
+                ("cross-section", "plain-item-parent-section-mismatch"),
+                ("self-parent", "plain-item-self-parent"),
+                ("refused-parent", "plain-item-parent-not-emitted"),
+            ],
+        )
+
     def test_refuses_dangling_object_and_obligation_provenance_links(self):
         valid_file = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
         refused_file = PlainFile("file-refused", " ", "digest-refused", "text")

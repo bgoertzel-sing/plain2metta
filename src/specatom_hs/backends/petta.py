@@ -616,6 +616,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
         atoms.append(_atom(["derived-from", section.id, section.span.id]))
         emitted_sections[section.id] = section
     duplicate_item_ids = _duplicate_record_ids(doc.items, PlainItem)
+    candidate_items: list[PlainItem] = []
     for item in doc.items:
         if not isinstance(item, PlainItem):
             refusals.append(
@@ -688,6 +689,35 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                     item.id,
                 )
             )
+            continue
+        candidate_items.append(item)
+
+    emitted_items = {item.id: item for item in candidate_items}
+    while True:
+        parent_refusals: list[tuple[PlainItem, str]] = []
+        for item in candidate_items:
+            if item.id not in emitted_items or item.parent_item_id is None:
+                continue
+            if item.parent_item_id == item.id:
+                parent_refusals.append((item, "plain-item-self-parent"))
+                continue
+            parent = emitted_items.get(item.parent_item_id)
+            if parent is None:
+                parent_refusals.append((item, "plain-item-parent-not-emitted"))
+            elif parent.file_id != item.file_id:
+                parent_refusals.append((item, "plain-item-parent-file-mismatch"))
+            elif parent.section_id != item.section_id:
+                parent_refusals.append((item, "plain-item-parent-section-mismatch"))
+        if not parent_refusals:
+            break
+        for item, reason in parent_refusals:
+            if emitted_items.pop(item.id, None) is not None:
+                refusals.append(
+                    BackendRefusal("petta_reified_v0", reason, item.id)
+                )
+
+    for item in candidate_items:
+        if item.id not in emitted_items:
             continue
         atoms.append(_atom(["plain-item", item.id, item.section_id, item.parent_item_id or "none", item.ordinal, item.raw_text]))
         atoms.append(_atom(["derived-from", item.id, item.span.id]))
