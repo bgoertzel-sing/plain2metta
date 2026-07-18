@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 from hashlib import sha256
 
@@ -661,7 +662,8 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     known_sections = {s.id for s in doc.sections}
     known_spans = {s.id for s in doc.spans}
     sections_by_id = {s.id: s for s in doc.sections}
-    spans_by_id = {s.id: s for s in doc.spans}
+    span_id_counts = Counter(s.id for s in doc.spans)
+    spans_by_id = {s.id: s for s in doc.spans if span_id_counts[s.id] == 1}
     known_levels = {level for level in SemanticLevel}
 
     _validate_plain_files(doc)
@@ -675,11 +677,15 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         o = add_validation_obligation(doc, "section-span-file-matches-section-file", section.id, "A section source span must cite the same PlainFile as the section record.", section.span.id)
         span = spans_by_id.get(section.span.id)
         span_file_matches = span is not None and span.file_id == section.file_id
+        if span_id_counts[section.span.id] > 1:
+            evidence = f"ambiguous duplicate span={section.span.id} count={span_id_counts[section.span.id]}"
+        else:
+            evidence = f"section.file_id={section.file_id} span.file_id={span.file_id}" if span else f"missing span={section.span.id}"
         add_check(
             doc,
             o,
             CheckStatus.PASS if span_file_matches else CheckStatus.FAIL,
-            f"section.file_id={section.file_id} span.file_id={span.file_id}" if span else f"missing span={section.span.id}",
+            evidence,
         )
 
     for item in doc.items:
@@ -701,11 +707,15 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         o = add_validation_obligation(doc, "item-span-file-matches-item-file", item.id, "An item source span must cite the same PlainFile as the item record.", item.span.id)
         span = spans_by_id.get(item.span.id)
         span_file_matches = span is not None and span.file_id == item.file_id
+        if span_id_counts[item.span.id] > 1:
+            evidence = f"ambiguous duplicate span={item.span.id} count={span_id_counts[item.span.id]}"
+        else:
+            evidence = f"item.file_id={item.file_id} span.file_id={span.file_id}" if span else f"missing span={item.span.id}"
         add_check(
             doc,
             o,
             CheckStatus.PASS if span_file_matches else CheckStatus.FAIL,
-            f"item.file_id={item.file_id} span.file_id={span.file_id}" if span else f"missing span={item.span.id}",
+            evidence,
         )
 
     for obj in doc.objects:
