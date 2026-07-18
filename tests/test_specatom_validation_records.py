@@ -274,6 +274,56 @@ class ValidationRecordTests(unittest.TestCase):
             "section.file_id=file-section span.file_id=file-other",
         )
 
+    def test_item_file_validation_uses_canonical_indexed_span(self):
+        indexed_span = SourceSpan("span-shared", "file-other", 0, 4, 1, 1)
+        masked_span = SourceSpan("span-shared", "file-item", 0, 4, 1, 1)
+        section_span = SourceSpan("span-section", "file-item", 0, 4, 1, 1)
+        doc = SpecDocument(
+            files=[
+                PlainFile("file-item", "item.plain", "digest-item", "text"),
+                PlainFile("file-other", "other.plain", "digest-other", "text"),
+            ],
+            spans=[indexed_span, section_span],
+            sections=[
+                Section(
+                    "section-item",
+                    "file-item",
+                    "Items",
+                    "requirements",
+                    0,
+                    section_span,
+                )
+            ],
+            items=[
+                PlainItem(
+                    "item-masked-mismatch",
+                    "file-item",
+                    "section-item",
+                    None,
+                    0,
+                    0,
+                    "text",
+                    masked_span,
+                )
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        checks = [
+            check
+            for check in doc.checks
+            if check.property == "item-span-file-matches-item-file"
+            and check.target_id == "item-masked-mismatch"
+        ]
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0].status, CheckStatus.FAIL)
+        self.assertEqual(
+            checks[0].evidence,
+            "item.file_id=file-item span.file_id=file-other",
+        )
+
     def test_validation_obligations_validate_source_and_target_provenance(self):
         doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "obligations.plain")
         self.assertTrue(
