@@ -127,6 +127,8 @@ def _plain_item_record_refusal_reason(item: PlainItem) -> str | None:
     """Return the first reason a Plain item is unsafe to reify."""
     if not isinstance(item.id, str) or not item.id.strip():
         return "invalid-plain-item-id"
+    if not isinstance(item.file_id, str) or not item.file_id.strip():
+        return "invalid-plain-item-file-id"
     if not isinstance(item.section_id, str) or not item.section_id.strip():
         return "invalid-plain-item-section-id"
     if item.parent_item_id is not None and (
@@ -513,7 +515,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
         emitted_files.append(plain_file)
     duplicate_span_ids = _duplicate_record_ids(doc.spans, SourceSpan)
     emitted_file_ids = {plain_file.id for plain_file in emitted_files}
-    emitted_span_ids: set[str] = set()
+    emitted_spans: dict[str, SourceSpan] = {}
     for span in doc.spans:
         if not isinstance(span, SourceSpan):
             refusals.append(
@@ -552,8 +554,9 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
             )
             continue
         atoms.append(_atom(["source-span", span.id, span.file_id, span.start_byte, span.end_byte, span.start_line, span.end_line]))
-        emitted_span_ids.add(span.id)
+        emitted_spans[span.id] = span
     duplicate_section_ids = _duplicate_record_ids(doc.sections, Section)
+    emitted_sections: dict[str, Section] = {}
     for section in doc.sections:
         if not isinstance(section, Section):
             refusals.append(
@@ -591,7 +594,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 )
             )
             continue
-        if section.span.id not in emitted_span_ids:
+        if section.span.id not in emitted_spans:
             refusals.append(
                 BackendRefusal(
                     "petta_reified_v0",
@@ -611,6 +614,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
             continue
         atoms.append(_atom(["section", section.id, section.file_id, section.kind, section.ordinal]))
         atoms.append(_atom(["derived-from", section.id, section.span.id]))
+        emitted_sections[section.id] = section
     duplicate_item_ids = _duplicate_record_ids(doc.items, PlainItem)
     for item in doc.items:
         if not isinstance(item, PlainItem):
@@ -636,6 +640,51 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     "duplicate-plain-item-id",
+                    item.id,
+                )
+            )
+            continue
+        if item.file_id not in emitted_file_ids:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "plain-item-file-not-emitted",
+                    item.id,
+                )
+            )
+            continue
+        if item.section_id not in emitted_sections:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "plain-item-section-not-emitted",
+                    item.id,
+                )
+            )
+            continue
+        if item.span.id not in emitted_spans:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "plain-item-span-not-emitted",
+                    item.id,
+                )
+            )
+            continue
+        if emitted_sections[item.section_id].file_id != item.file_id:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "plain-item-section-file-mismatch",
+                    item.id,
+                )
+            )
+            continue
+        if emitted_spans[item.span.id].file_id != item.file_id:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "plain-item-span-file-mismatch",
                     item.id,
                 )
             )

@@ -42,6 +42,75 @@ def document_with_checks(
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_refuses_plain_items_with_unemitted_or_inconsistent_provenance(self):
+        valid_file = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
+        other_file = PlainFile("file-other", "other.plain", "digest-other", "text")
+        malformed_file = PlainFile("file-refused", " ", "digest-refused", "text")
+        valid_span = SourceSpan("span-valid", valid_file.id, 0, 4, 1, 1)
+        other_span = SourceSpan("span-other", other_file.id, 0, 4, 1, 1)
+        refused_span = SourceSpan("span-refused", malformed_file.id, 0, 4, 1, 1)
+        valid_section = Section(
+            "section-valid", valid_file.id, "Valid", "definitions", 0, valid_span
+        )
+        other_section = Section(
+            "section-other", other_file.id, "Other", "definitions", 0, other_span
+        )
+        refused_section = Section(
+            "section-refused", malformed_file.id, "Refused", "definitions", 0, refused_span
+        )
+        items = [
+            PlainItem("item-missing-file", "file-missing", valid_section.id, None, 0, 0, "missing file", valid_span),
+            PlainItem("item-refused-file", malformed_file.id, refused_section.id, None, 1, 0, "refused file", refused_span),
+            PlainItem("item-missing-section", valid_file.id, "section-missing", None, 2, 0, "missing section", valid_span),
+            PlainItem("item-refused-section", valid_file.id, refused_section.id, None, 3, 0, "refused section", valid_span),
+            PlainItem(
+                "item-missing-span",
+                valid_file.id,
+                valid_section.id,
+                None,
+                4,
+                0,
+                "missing span",
+                SourceSpan("span-missing", valid_file.id, 0, 4, 1, 1),
+            ),
+            PlainItem("item-section-mismatch", valid_file.id, other_section.id, None, 5, 0, "section mismatch", valid_span),
+            PlainItem("item-span-mismatch", valid_file.id, valid_section.id, None, 6, 0, "span mismatch", other_span),
+            PlainItem("item-valid", valid_file.id, valid_section.id, None, 7, 0, "valid", valid_span),
+        ]
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(
+                files=[malformed_file, valid_file, other_file],
+                spans=[refused_span, valid_span, other_span],
+                sections=[refused_section, valid_section, other_section],
+                items=items,
+            )
+        )
+
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(plain-item")],
+            ["(plain-item item-valid section-valid none 7 valid)"],
+        )
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(derived-from item")],
+            ["(derived-from item-valid span-valid)"],
+        )
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("file-refused", "invalid-plain-file-path"),
+                ("span-refused", "source-span-file-not-emitted"),
+                ("section-refused", "section-file-not-emitted"),
+                ("item-missing-file", "plain-item-file-not-emitted"),
+                ("item-refused-file", "plain-item-file-not-emitted"),
+                ("item-missing-section", "plain-item-section-not-emitted"),
+                ("item-refused-section", "plain-item-section-not-emitted"),
+                ("item-missing-span", "plain-item-span-not-emitted"),
+                ("item-section-mismatch", "plain-item-section-file-mismatch"),
+                ("item-span-mismatch", "plain-item-span-file-mismatch"),
+            ],
+        )
+
     def test_refuses_sections_with_unemitted_or_inconsistent_provenance(self):
         valid_file = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
         other_file = PlainFile("file-other", "other.plain", "digest-other", "text")
