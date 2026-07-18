@@ -42,6 +42,56 @@ def document_with_checks(
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_refuses_sections_with_unemitted_or_inconsistent_provenance(self):
+        valid_file = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
+        other_file = PlainFile("file-other", "other.plain", "digest-other", "text")
+        malformed_file = PlainFile("file-refused", " ", "digest-refused", "text")
+        valid_span = SourceSpan("span-valid", valid_file.id, 0, 4, 1, 1)
+        other_span = SourceSpan("span-other", other_file.id, 0, 4, 1, 1)
+        refused_span = SourceSpan("span-refused", malformed_file.id, 0, 4, 1, 1)
+        sections = [
+            Section("section-missing-file", "file-missing", "Missing", "definitions", 0, valid_span),
+            Section("section-refused-file", malformed_file.id, "Refused", "definitions", 1, refused_span),
+            Section(
+                "section-missing-span",
+                valid_file.id,
+                "Missing span",
+                "definitions",
+                2,
+                SourceSpan("span-missing", valid_file.id, 0, 4, 1, 1),
+            ),
+            Section("section-mismatched-span", valid_file.id, "Mismatch", "definitions", 3, other_span),
+            Section("section-valid", valid_file.id, "Valid", "definitions", 4, valid_span),
+        ]
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(
+                files=[malformed_file, valid_file, other_file],
+                spans=[refused_span, valid_span, other_span],
+                sections=sections,
+            )
+        )
+
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(section")],
+            ["(section section-valid file-valid definitions 4)"],
+        )
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(derived-from section")],
+            ["(derived-from section-valid span-valid)"],
+        )
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("file-refused", "invalid-plain-file-path"),
+                ("span-refused", "source-span-file-not-emitted"),
+                ("section-missing-file", "section-file-not-emitted"),
+                ("section-refused-file", "section-file-not-emitted"),
+                ("section-missing-span", "section-span-not-emitted"),
+                ("section-mismatched-span", "section-span-file-mismatch"),
+            ],
+        )
+
     def test_refuses_source_spans_linked_to_unemitted_files(self):
         valid_file = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
         malformed_file = PlainFile("file-malformed", " ", "digest-malformed", "text")
@@ -292,6 +342,8 @@ class PettaProfileGateTests(unittest.TestCase):
 
         atoms, refusals = emit_reified_atoms(
             SpecDocument(
+                files=[PlainFile("file-valid", "valid.plain", "digest-valid", "text")],
+                spans=[span],
                 sections=[*malformed_sections, valid_section],
                 items=[*malformed_items, valid_item],
             )

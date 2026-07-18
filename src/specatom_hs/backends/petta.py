@@ -513,6 +513,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
         emitted_files.append(plain_file)
     duplicate_span_ids = _duplicate_record_ids(doc.spans, SourceSpan)
     emitted_file_ids = {plain_file.id for plain_file in emitted_files}
+    emitted_span_ids: set[str] = set()
     for span in doc.spans:
         if not isinstance(span, SourceSpan):
             refusals.append(
@@ -551,6 +552,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
             )
             continue
         atoms.append(_atom(["source-span", span.id, span.file_id, span.start_byte, span.end_byte, span.start_line, span.end_line]))
+        emitted_span_ids.add(span.id)
     duplicate_section_ids = _duplicate_record_ids(doc.sections, Section)
     for section in doc.sections:
         if not isinstance(section, Section):
@@ -576,6 +578,33 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     "duplicate-section-id",
+                    section.id,
+                )
+            )
+            continue
+        if section.file_id not in emitted_file_ids:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "section-file-not-emitted",
+                    section.id,
+                )
+            )
+            continue
+        if section.span.id not in emitted_span_ids:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "section-span-not-emitted",
+                    section.id,
+                )
+            )
+            continue
+        if section.span.file_id != section.file_id:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "section-span-file-mismatch",
                     section.id,
                 )
             )
