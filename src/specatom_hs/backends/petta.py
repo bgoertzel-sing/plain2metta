@@ -728,6 +728,19 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                         _semantic_level_value(obj),
                     )
                 )
+            elif (
+                doc.spans
+                and obj.source_span_id
+                and obj.source_span_id not in emitted_spans
+            ):
+                refusals.append(
+                    BackendRefusal(
+                        "petta_reified_v0",
+                        "object-source-span-not-emitted",
+                        obj.id,
+                        _semantic_level_value(obj),
+                    )
+                )
             elif obj.source_span_id:
                 atoms.append(_atom(["derived-from", obj.id, obj.source_span_id]))
             for fact in obj.facts:
@@ -824,6 +837,18 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     f"{provenance_refusal}-for-validation-obligation",
+                    obligation.id,
+                )
+            )
+        elif (
+            doc.spans
+            and obligation.source_span_id
+            and obligation.source_span_id not in emitted_spans
+        ):
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "validation-obligation-source-span-not-emitted",
                     obligation.id,
                 )
             )

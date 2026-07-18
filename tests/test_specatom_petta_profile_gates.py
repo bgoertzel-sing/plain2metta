@@ -42,6 +42,59 @@ def document_with_checks(
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_refuses_dangling_object_and_obligation_provenance_links(self):
+        valid_file = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
+        refused_file = PlainFile("file-refused", " ", "digest-refused", "text")
+        valid_span = SourceSpan("span-valid", valid_file.id, 0, 4, 1, 1)
+        refused_span = SourceSpan("span-refused", refused_file.id, 0, 4, 1, 1)
+        objects = [
+            SpecObject("object-no-span", Role.REQUIREMENT_OBJECT, SemanticLevel.TEMPLATE_PARSED),
+            SpecObject("object-missing-span", Role.REQUIREMENT_OBJECT, SemanticLevel.TEMPLATE_PARSED, "span-missing"),
+            SpecObject("object-refused-span", Role.REQUIREMENT_OBJECT, SemanticLevel.TEMPLATE_PARSED, refused_span.id),
+            SpecObject("object-valid", Role.REQUIREMENT_OBJECT, SemanticLevel.TEMPLATE_PARSED, valid_span.id),
+        ]
+        obligations = [
+            ValidationObligation("obligation-no-span", "property", "target", "rationale"),
+            ValidationObligation("obligation-missing-span", "property", "target", "rationale", "span-missing"),
+            ValidationObligation("obligation-refused-span", "property", "target", "rationale", refused_span.id),
+            ValidationObligation("obligation-valid", "property", "target", "rationale", valid_span.id),
+        ]
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(
+                files=[refused_file, valid_file],
+                spans=[refused_span, valid_span],
+                objects=objects,
+                validation_obligations=obligations,
+            )
+        )
+
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(derived-from object")],
+            ["(derived-from object-valid span-valid)"],
+        )
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(derived-from obligation")],
+            ["(derived-from obligation-valid span-valid)"],
+        )
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("file-refused", "invalid-plain-file-path"),
+                ("span-refused", "source-span-file-not-emitted"),
+                ("object-missing-span", "object-source-span-not-emitted"),
+                ("object-refused-span", "object-source-span-not-emitted"),
+                (
+                    "obligation-missing-span",
+                    "validation-obligation-source-span-not-emitted",
+                ),
+                (
+                    "obligation-refused-span",
+                    "validation-obligation-source-span-not-emitted",
+                ),
+            ],
+        )
+
     def test_refuses_plain_items_with_unemitted_or_inconsistent_provenance(self):
         valid_file = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
         other_file = PlainFile("file-other", "other.plain", "digest-other", "text")
