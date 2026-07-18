@@ -390,6 +390,42 @@ class ValidationRecordTests(unittest.TestCase):
                 "ambiguous duplicate section=section-duplicate count=2",
             )
 
+    def test_source_links_refuse_duplicate_indexed_file_ids(self):
+        span = SourceSpan("span-main", "file-duplicate", 0, 4, 1, 1)
+        doc = SpecDocument(
+            files=[
+                PlainFile("file-duplicate", "other.plain", "digest-other", "nope"),
+                PlainFile("file-duplicate", "main.plain", "digest-main", "text"),
+            ],
+            spans=[span],
+            sections=[
+                Section("section-main", "file-duplicate", "Main", "requirements", 0, span)
+            ],
+            items=[
+                PlainItem("item-main", "file-duplicate", "section-main", None, 0, 0, "text", span)
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        for property_name, target_id in (
+            ("source-span-within-file-bounds", "span-main"),
+            ("section-file-is-indexed", "section-main"),
+            ("item-file-is-indexed", "item-main"),
+        ):
+            checks = [
+                check
+                for check in doc.checks
+                if check.property == property_name and check.target_id == target_id
+            ]
+            self.assertEqual(len(checks), 1)
+            self.assertEqual(checks[0].status, CheckStatus.FAIL)
+            self.assertEqual(
+                checks[0].evidence,
+                "ambiguous duplicate file=file-duplicate count=2",
+            )
+
     def test_validation_obligations_validate_source_and_target_provenance(self):
         doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "obligations.plain")
         self.assertTrue(

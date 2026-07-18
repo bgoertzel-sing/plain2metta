@@ -283,7 +283,12 @@ def _validate_plain_files(doc: SpecDocument) -> None:
 
 def _validate_source_spans(doc: SpecDocument) -> None:
     """Check source-span file links, byte bounds, and line numbers."""
-    files_by_id = {plain_file.id: plain_file for plain_file in doc.files}
+    file_id_counts = Counter(plain_file.id for plain_file in doc.files)
+    files_by_id = {
+        plain_file.id: plain_file
+        for plain_file in doc.files
+        if file_id_counts[plain_file.id] == 1
+    }
 
     for span in doc.spans:
         bounds_obligation = add_validation_obligation(
@@ -295,7 +300,11 @@ def _validate_source_spans(doc: SpecDocument) -> None:
         )
         plain_file = files_by_id.get(span.file_id)
         if plain_file is None:
-            add_check(doc, bounds_obligation, CheckStatus.FAIL, f"missing file_id={span.file_id}")
+            if file_id_counts[span.file_id] > 1:
+                evidence = f"ambiguous duplicate file={span.file_id} count={file_id_counts[span.file_id]}"
+            else:
+                evidence = f"missing file_id={span.file_id}"
+            add_check(doc, bounds_obligation, CheckStatus.FAIL, evidence)
             continue
         file_length = len(plain_file.text)
         in_bounds = 0 <= span.start_byte < span.end_byte <= file_length
@@ -658,7 +667,8 @@ def _validate_edge_source_provenance(doc: SpecDocument) -> None:
 
 def validate_document(doc: SpecDocument) -> SpecDocument:
     """Populate first crisp validation records in-place and return ``doc``."""
-    known_files = {f.id for f in doc.files}
+    file_id_counts = Counter(f.id for f in doc.files)
+    known_files = {f.id for f in doc.files if file_id_counts[f.id] == 1}
     known_sections = {s.id for s in doc.sections}
     known_spans = {s.id for s in doc.spans}
     section_id_counts = Counter(s.id for s in doc.sections)
@@ -672,7 +682,12 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
 
     for section in doc.sections:
         o = add_validation_obligation(doc, "section-file-is-indexed", section.id, "Every indexed section must belong to an indexed PlainFile.", section.span.id)
-        add_check(doc, o, CheckStatus.PASS if section.file_id in known_files else CheckStatus.FAIL, f"file={section.file_id}")
+        file_evidence = (
+            f"ambiguous duplicate file={section.file_id} count={file_id_counts[section.file_id]}"
+            if file_id_counts[section.file_id] > 1
+            else f"file={section.file_id}"
+        )
+        add_check(doc, o, CheckStatus.PASS if section.file_id in known_files else CheckStatus.FAIL, file_evidence)
         o = add_validation_obligation(doc, "section-has-source-span", section.id, "Every indexed section must have an exact source span.", section.span.id)
         add_check(doc, o, CheckStatus.PASS if section.span.id in known_spans else CheckStatus.FAIL, f"span={section.span.id}")
         o = add_validation_obligation(doc, "section-span-file-matches-section-file", section.id, "A section source span must cite the same PlainFile as the section record.", section.span.id)
@@ -691,7 +706,12 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
 
     for item in doc.items:
         o = add_validation_obligation(doc, "item-file-is-indexed", item.id, "Every indexed item must belong to an indexed PlainFile.", item.span.id)
-        add_check(doc, o, CheckStatus.PASS if item.file_id in known_files else CheckStatus.FAIL, f"file={item.file_id}")
+        file_evidence = (
+            f"ambiguous duplicate file={item.file_id} count={file_id_counts[item.file_id]}"
+            if file_id_counts[item.file_id] > 1
+            else f"file={item.file_id}"
+        )
+        add_check(doc, o, CheckStatus.PASS if item.file_id in known_files else CheckStatus.FAIL, file_evidence)
         o = add_validation_obligation(doc, "item-has-section", item.id, "Every indexed item must belong to an indexed section.", item.span.id)
         if section_id_counts[item.section_id] > 1:
             section_evidence = f"ambiguous duplicate section={item.section_id} count={section_id_counts[item.section_id]}"
