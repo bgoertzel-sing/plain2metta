@@ -603,7 +603,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 )
             )
             continue
-        if section.span.file_id != section.file_id:
+        if emitted_spans[section.span.id].file_id != section.file_id:
             refusals.append(
                 BackendRefusal(
                     "petta_reified_v0",

@@ -259,6 +259,39 @@ class PettaProfileGateTests(unittest.TestCase):
             ],
         )
 
+    def test_refuses_section_when_embedded_span_masks_manifest_file_mismatch(self):
+        valid_file = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
+        other_file = PlainFile("file-other", "other.plain", "digest-other", "text")
+        manifest_span = SourceSpan("span-shared", other_file.id, 0, 4, 1, 1)
+        masked_span = SourceSpan("span-shared", valid_file.id, 0, 4, 1, 1)
+        section = Section(
+            "section-masked-mismatch",
+            valid_file.id,
+            "Masked mismatch",
+            "definitions",
+            0,
+            masked_span,
+        )
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(
+                files=[valid_file, other_file],
+                spans=[manifest_span],
+                sections=[section],
+            )
+        )
+
+        self.assertNotIn(
+            "(section section-masked-mismatch file-valid definitions 0)", atoms
+        )
+        self.assertNotIn(
+            "(derived-from section-masked-mismatch span-shared)", atoms
+        )
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [("section-masked-mismatch", "section-span-file-mismatch")],
+        )
+
     def test_refuses_source_spans_linked_to_unemitted_files(self):
         valid_file = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
         malformed_file = PlainFile("file-malformed", " ", "digest-malformed", "text")
