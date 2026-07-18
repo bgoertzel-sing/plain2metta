@@ -512,6 +512,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
         atoms.append(_atom(["plain-file", plain_file.id, plain_file.path, plain_file.digest]))
         emitted_files.append(plain_file)
     duplicate_span_ids = _duplicate_record_ids(doc.spans, SourceSpan)
+    emitted_file_ids = {plain_file.id for plain_file in emitted_files}
     for span in doc.spans:
         if not isinstance(span, SourceSpan):
             refusals.append(
@@ -536,6 +537,15 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     "duplicate-source-span-id",
+                    span.id,
+                )
+            )
+            continue
+        if span.file_id not in emitted_file_ids:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "source-span-file-not-emitted",
                     span.id,
                 )
             )

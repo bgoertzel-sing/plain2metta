@@ -42,6 +42,39 @@ def document_with_checks(
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_refuses_source_spans_linked_to_unemitted_files(self):
+        valid_file = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
+        malformed_file = PlainFile("file-malformed", " ", "digest-malformed", "text")
+        valid_span = SourceSpan("span-valid", valid_file.id, 0, 4, 1, 1)
+        dangling_spans = [
+            SourceSpan("span-missing-file", "file-missing", 0, 4, 1, 1),
+            SourceSpan("span-refused-file", malformed_file.id, 0, 4, 1, 1),
+        ]
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(
+                files=[malformed_file, valid_file],
+                spans=[*dangling_spans, valid_span],
+            )
+        )
+
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(plain-file")],
+            ["(plain-file file-valid valid.plain digest-valid)"],
+        )
+        self.assertEqual(
+            [atom for atom in atoms if atom.startswith("(source-span")],
+            ["(source-span span-valid file-valid 0 4 1 1)"],
+        )
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                ("file-malformed", "invalid-plain-file-path"),
+                ("span-missing-file", "source-span-file-not-emitted"),
+                ("span-refused-file", "source-span-file-not-emitted"),
+            ],
+        )
+
     def test_refuses_duplicate_source_manifest_ids_and_preserves_valid_neighbors(self):
         valid_file = PlainFile("file-valid", "valid.plain", "digest-valid", "text")
         duplicate_files = [
@@ -191,7 +224,10 @@ class PettaProfileGateTests(unittest.TestCase):
         ]
 
         atoms, refusals = emit_reified_atoms(
-            SpecDocument(spans=[*malformed, valid])
+            SpecDocument(
+                files=[PlainFile("file-valid", "valid.plain", "digest-valid", "text")],
+                spans=[*malformed, valid],
+            )
         )
 
         self.assertEqual(
