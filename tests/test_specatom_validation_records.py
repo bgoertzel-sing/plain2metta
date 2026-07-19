@@ -392,6 +392,45 @@ class ValidationRecordTests(unittest.TestCase):
                 "ambiguous duplicate section=section-duplicate count=2",
             )
 
+    def test_section_and_item_identity_validation_refuses_duplicates(self):
+        span = SourceSpan("span-main", "file-main", 0, 4, 1, 1)
+        doc = SpecDocument(
+            files=[PlainFile("file-main", "main.plain", "digest-main", "text")],
+            spans=[span],
+            sections=[
+                Section("section-duplicate", "file-main", "First", "requirements", 0, span),
+                Section("section-duplicate", "file-main", "Second", "requirements", 1, span),
+            ],
+            items=[
+                PlainItem("item-duplicate", "file-main", "section-duplicate", None, 0, 0, "first", span),
+                PlainItem("item-duplicate", "file-main", "section-duplicate", None, 1, 0, "second", span),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        for property_name, target_id, evidence in (
+            (
+                "section-identity-is-unique",
+                "section-duplicate",
+                "ambiguous duplicate section=section-duplicate count=2",
+            ),
+            (
+                "item-identity-is-unique",
+                "item-duplicate",
+                "ambiguous duplicate item=item-duplicate count=2",
+            ),
+        ):
+            checks = [
+                check
+                for check in doc.checks
+                if check.property == property_name and check.target_id == target_id
+            ]
+            self.assertEqual(len(checks), 1)
+            self.assertEqual(checks[0].status, CheckStatus.FAIL)
+            self.assertEqual(checks[0].evidence, evidence)
+
     def test_source_links_refuse_duplicate_indexed_file_ids(self):
         span = SourceSpan("span-main", "file-duplicate", 0, 4, 1, 1)
         doc = SpecDocument(

@@ -669,9 +669,10 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     """Populate first crisp validation records in-place and return ``doc``."""
     file_id_counts = Counter(f.id for f in doc.files)
     known_files = {f.id for f in doc.files if file_id_counts[f.id] == 1}
-    known_sections = {s.id for s in doc.sections}
     section_id_counts = Counter(s.id for s in doc.sections)
+    known_sections = {s.id for s in doc.sections if section_id_counts[s.id] == 1}
     sections_by_id = {s.id: s for s in doc.sections if section_id_counts[s.id] == 1}
+    item_id_counts = Counter(item.id for item in doc.items)
     span_id_counts = Counter(s.id for s in doc.spans)
     known_spans = {s.id for s in doc.spans if span_id_counts[s.id] == 1}
     spans_by_id = {s.id: s for s in doc.spans if span_id_counts[s.id] == 1}
@@ -681,6 +682,13 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     _validate_source_spans(doc)
 
     for section in doc.sections:
+        o = add_validation_obligation(doc, "section-identity-is-unique", section.id, "Every indexed section must have a unique identity.", section.span.id)
+        section_identity_evidence = (
+            f"ambiguous duplicate section={section.id} count={section_id_counts[section.id]}"
+            if section_id_counts[section.id] > 1
+            else f"section={section.id}"
+        )
+        add_check(doc, o, CheckStatus.PASS if section.id in known_sections else CheckStatus.FAIL, section_identity_evidence)
         o = add_validation_obligation(doc, "section-file-is-indexed", section.id, "Every indexed section must belong to an indexed PlainFile.", section.span.id)
         file_evidence = (
             f"ambiguous duplicate file={section.file_id} count={file_id_counts[section.file_id]}"
@@ -710,6 +718,13 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         )
 
     for item in doc.items:
+        o = add_validation_obligation(doc, "item-identity-is-unique", item.id, "Every indexed item must have a unique identity.", item.span.id)
+        item_identity_evidence = (
+            f"ambiguous duplicate item={item.id} count={item_id_counts[item.id]}"
+            if item_id_counts[item.id] > 1
+            else f"item={item.id}"
+        )
+        add_check(doc, o, CheckStatus.PASS if item_id_counts[item.id] == 1 else CheckStatus.FAIL, item_identity_evidence)
         o = add_validation_obligation(doc, "item-file-is-indexed", item.id, "Every indexed item must belong to an indexed PlainFile.", item.span.id)
         file_evidence = (
             f"ambiguous duplicate file={item.file_id} count={file_id_counts[item.file_id]}"
