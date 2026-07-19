@@ -466,6 +466,32 @@ class ValidationRecordTests(unittest.TestCase):
         self.assertEqual(unique_checks[0].status, CheckStatus.PASS)
         self.assertEqual(unique_checks[0].evidence, "object=object-unique")
 
+    def test_object_identity_validation_refuses_backend_unsafe_values(self):
+        doc = SpecDocument(
+            objects=[
+                SpecObject(7, Role.REQUIREMENT_OBJECT, SemanticLevel.TEMPLATE_PARSED, None),  # type: ignore[arg-type]
+                SpecObject(" \t ", Role.REQUIREMENT_OBJECT, SemanticLevel.TEMPLATE_PARSED, None),
+                SpecObject("object-safe", Role.REQUIREMENT_OBJECT, SemanticLevel.TEMPLATE_PARSED, None),
+            ]
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        checks = {
+            check.target_id: (check.status, check.evidence)
+            for check in doc.checks
+            if check.property == "object-has-safe-identity"
+        }
+        self.assertEqual(
+            checks,
+            {
+                7: (CheckStatus.FAIL, "unsupported object identity=7 type=int"),
+                " \t ": (CheckStatus.FAIL, "unsupported object identity=' \\t ' type=str"),
+                "object-safe": (CheckStatus.PASS, "object=object-safe"),
+            },
+        )
+
     def test_object_semantic_level_validation_refuses_unsupported_value_without_crashing(self):
         doc = SpecDocument(
             objects=[

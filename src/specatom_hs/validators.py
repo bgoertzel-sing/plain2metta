@@ -839,6 +839,14 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             else f"object={obj.id}"
         )
         add_check(doc, o, CheckStatus.PASS if object_id_counts[obj.id] == 1 else CheckStatus.FAIL, object_identity_evidence)
+        o = add_validation_obligation(doc, "object-has-safe-identity", obj.id, "Backend-safe SpecObject identities must be non-blank strings.", obj.source_span_id)
+        object_id_is_safe = isinstance(obj.id, str) and bool(obj.id.strip())
+        object_id_evidence = (
+            f"object={obj.id}"
+            if object_id_is_safe
+            else f"unsupported object identity={obj.id!r} type={type(obj.id).__name__}"
+        )
+        add_check(doc, o, CheckStatus.PASS if object_id_is_safe else CheckStatus.FAIL, object_id_evidence)
         o = add_validation_obligation(doc, "object-has-known-role", obj.id, "Backend gates depend on explicit object roles.", obj.source_span_id)
         role_is_known = isinstance(obj.role, Role)
         role_evidence = obj.role.value if role_is_known else f"unsupported object role={obj.role!r}"
