@@ -467,6 +467,44 @@ class ValidationRecordTests(unittest.TestCase):
                 "ambiguous duplicate file=file-duplicate count=2",
             )
 
+    def test_item_parent_validation_fails_closed(self):
+        span = SourceSpan("span-main", "file-main", 0, 4, 1, 1)
+        other_span = SourceSpan("span-other", "file-other", 0, 4, 1, 1)
+        doc = SpecDocument(
+            files=[
+                PlainFile("file-main", "main.plain", "digest-main", "text"),
+                PlainFile("file-other", "other.plain", "digest-other", "text"),
+            ],
+            spans=[span, other_span],
+            sections=[Section("section-main", "file-main", "Main", "requirements", 0, span)],
+            items=[
+                PlainItem("parent-duplicate", "file-main", "section-main", None, 0, 0, "first", span),
+                PlainItem("parent-duplicate", "file-main", "section-main", None, 1, 0, "second", span),
+                PlainItem("child-ambiguous", "file-main", "section-main", "parent-duplicate", 2, 1, "child", span),
+                PlainItem("child-missing", "file-main", "section-main", "parent-missing", 3, 1, "child", span),
+                PlainItem("child-self", "file-main", "section-main", "child-self", 4, 1, "child", span),
+                PlainItem("parent-other", "file-other", "section-other", None, 0, 0, "parent", other_span),
+                PlainItem("child-cross-context", "file-main", "section-main", "parent-other", 5, 1, "child", span),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        expected = {
+            ("item-parent-is-indexed", "child-ambiguous"): (CheckStatus.FAIL, "ambiguous duplicate item=parent-duplicate count=2"),
+            ("item-parent-is-indexed", "child-missing"): (CheckStatus.FAIL, "parent_item=parent-missing"),
+            ("item-parent-is-not-self", "child-self"): (CheckStatus.FAIL, "item=child-self parent_item=child-self"),
+            ("item-parent-context-matches", "child-cross-context"): (
+                CheckStatus.FAIL,
+                "item.file_id=file-main item.section_id=section-main parent.file_id=file-other parent.section_id=section-other",
+            ),
+        }
+        for key, ground_truth in expected.items():
+            matches = [c for c in doc.checks if (c.property, c.target_id) == key]
+            self.assertEqual(len(matches), 1)
+            self.assertEqual((matches[0].status, matches[0].evidence), ground_truth)
+
     def test_validation_obligations_validate_source_and_target_provenance(self):
         doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "obligations.plain")
         self.assertTrue(

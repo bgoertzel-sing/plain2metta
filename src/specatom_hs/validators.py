@@ -673,6 +673,7 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     known_sections = {s.id for s in doc.sections if section_id_counts[s.id] == 1}
     sections_by_id = {s.id: s for s in doc.sections if section_id_counts[s.id] == 1}
     item_id_counts = Counter(item.id for item in doc.items)
+    items_by_id = {item.id: item for item in doc.items if item_id_counts[item.id] == 1}
     span_id_counts = Counter(s.id for s in doc.spans)
     known_spans = {s.id for s in doc.spans if span_id_counts[s.id] == 1}
     spans_by_id = {s.id: s for s in doc.spans if span_id_counts[s.id] == 1}
@@ -771,6 +772,33 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             CheckStatus.PASS if span_file_matches else CheckStatus.FAIL,
             evidence,
         )
+        if item.parent_item_id is not None:
+            o = add_validation_obligation(doc, "item-parent-is-indexed", item.id, "A nested item must cite a unique indexed parent item.", item.span.id)
+            parent_count = item_id_counts[item.parent_item_id]
+            if parent_count > 1:
+                parent_evidence = f"ambiguous duplicate item={item.parent_item_id} count={parent_count}"
+            else:
+                parent_evidence = f"parent_item={item.parent_item_id}"
+            parent = items_by_id.get(item.parent_item_id)
+            add_check(doc, o, CheckStatus.PASS if parent is not None else CheckStatus.FAIL, parent_evidence)
+
+            o = add_validation_obligation(doc, "item-parent-is-not-self", item.id, "An item must not cite itself as its parent.", item.span.id)
+            add_check(
+                doc,
+                o,
+                CheckStatus.PASS if item.parent_item_id != item.id else CheckStatus.FAIL,
+                f"item={item.id} parent_item={item.parent_item_id}",
+            )
+
+            o = add_validation_obligation(doc, "item-parent-context-matches", item.id, "A nested item and its parent must belong to the same PlainFile and section.", item.span.id)
+            context_matches = parent is not None and parent.file_id == item.file_id and parent.section_id == item.section_id
+            context_evidence = (
+                f"item.file_id={item.file_id} item.section_id={item.section_id} "
+                f"parent.file_id={parent.file_id} parent.section_id={parent.section_id}"
+                if parent is not None
+                else parent_evidence
+            )
+            add_check(doc, o, CheckStatus.PASS if context_matches else CheckStatus.FAIL, context_evidence)
 
     for obj in doc.objects:
         o = add_validation_obligation(doc, "object-has-known-semantic-level", obj.id, "Backend gates depend on explicit semantic levels.", obj.source_span_id)
