@@ -467,6 +467,41 @@ class ValidationRecordTests(unittest.TestCase):
                 "ambiguous duplicate file=file-duplicate count=2",
             )
 
+    def test_file_and_source_span_identity_validation_refuses_duplicates(self):
+        duplicate_span_first = SourceSpan("span-duplicate", "file-duplicate", 0, 2, 1, 1)
+        duplicate_span_second = SourceSpan("span-duplicate", "file-duplicate", 2, 4, 1, 1)
+        doc = SpecDocument(
+            files=[
+                PlainFile("file-duplicate", "first.plain", "digest-first", "text"),
+                PlainFile("file-duplicate", "second.plain", "digest-second", "text"),
+            ],
+            spans=[duplicate_span_first, duplicate_span_second],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        for property_name, target_id, evidence in (
+            (
+                "plain-file-identity-is-unique",
+                "file-duplicate",
+                "ambiguous duplicate file=file-duplicate count=2",
+            ),
+            (
+                "source-span-identity-is-unique",
+                "span-duplicate",
+                "ambiguous duplicate span=span-duplicate count=2",
+            ),
+        ):
+            checks = [
+                check
+                for check in doc.checks
+                if check.property == property_name and check.target_id == target_id
+            ]
+            self.assertEqual(len(checks), 1)
+            self.assertEqual(checks[0].status, CheckStatus.FAIL)
+            self.assertEqual(checks[0].evidence, evidence)
+
     def test_item_parent_validation_fails_closed(self):
         span = SourceSpan("span-main", "file-main", 0, 4, 1, 1)
         other_span = SourceSpan("span-other", "file-other", 0, 4, 1, 1)

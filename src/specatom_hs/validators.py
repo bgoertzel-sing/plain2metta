@@ -682,6 +682,24 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     _validate_plain_files(doc)
     _validate_source_spans(doc)
 
+    for plain_file in doc.files:
+        o = add_validation_obligation(doc, "plain-file-identity-is-unique", plain_file.id, "Every indexed PlainFile must have a unique identity.")
+        evidence = (
+            f"ambiguous duplicate file={plain_file.id} count={file_id_counts[plain_file.id]}"
+            if file_id_counts[plain_file.id] > 1
+            else f"file={plain_file.id}"
+        )
+        add_check(doc, o, CheckStatus.PASS if file_id_counts[plain_file.id] == 1 else CheckStatus.FAIL, evidence)
+
+    for span in doc.spans:
+        o = add_validation_obligation(doc, "source-span-identity-is-unique", span.id, "Every indexed SourceSpan must have a unique identity.", span.id)
+        evidence = (
+            f"ambiguous duplicate span={span.id} count={span_id_counts[span.id]}"
+            if span_id_counts[span.id] > 1
+            else f"span={span.id}"
+        )
+        add_check(doc, o, CheckStatus.PASS if span_id_counts[span.id] == 1 else CheckStatus.FAIL, evidence)
+
     for section in doc.sections:
         o = add_validation_obligation(doc, "section-identity-is-unique", section.id, "Every indexed section must have a unique identity.", section.span.id)
         section_identity_evidence = (
