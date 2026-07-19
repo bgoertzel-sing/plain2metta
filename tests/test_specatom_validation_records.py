@@ -651,6 +651,42 @@ class ValidationRecordTests(unittest.TestCase):
             self.assertEqual(checks[0].status, CheckStatus.FAIL)
             self.assertEqual(checks[0].evidence, evidence)
 
+    def test_validation_layer_identity_validation_refuses_unhashable_values_without_crashing(self):
+        obligation = ValidationObligation(
+            ["obligation-unhashable"],  # type: ignore[arg-type]
+            "property",
+            "target",
+            "rationale",
+        )
+        check = CheckRecord(
+            ["check-unhashable"],  # type: ignore[arg-type]
+            "obligation-reference",
+            "property",
+            "target",
+            CheckStatus.PASS,
+            "evidence",
+        )
+        doc = SpecDocument(validation_obligations=[obligation], checks=[check])
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        expected = (
+            (
+                "validation-obligation-identity-is-unique",
+                "identity cannot be indexed safely: ['obligation-unhashable'] type=list",
+            ),
+            (
+                "check-identity-is-unique",
+                "identity cannot be indexed safely: ['check-unhashable'] type=list",
+            ),
+        )
+        for property_name, evidence in expected:
+            records = [record for record in doc.checks if record.property == property_name]
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].status, CheckStatus.FAIL)
+            self.assertEqual(records[0].evidence, evidence)
+
     def test_source_links_refuse_duplicate_indexed_file_ids(self):
         span = SourceSpan("span-main", "file-duplicate", 0, 4, 1, 1)
         doc = SpecDocument(

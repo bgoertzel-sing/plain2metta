@@ -390,7 +390,11 @@ def _validate_object_facts(doc: SpecDocument) -> None:
         obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
     }
     known_items = {item.id for item in doc.items}
-    known_obligations = {obligation.id for obligation in doc.validation_obligations}
+    known_obligations = {
+        obligation.id
+        for obligation in doc.validation_obligations
+        if isinstance(obligation.id, str) and obligation.id.strip()
+    }
     existing_ids = {
         obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
     }
@@ -473,7 +477,11 @@ def _validate_object_facts(doc: SpecDocument) -> None:
 
 def _validate_question_objects(doc: SpecDocument) -> None:
     """Ensure human-review questions are actionable and tied to blockers."""
-    known_obligations = {obligation.id for obligation in doc.validation_obligations}
+    known_obligations = {
+        obligation.id
+        for obligation in doc.validation_obligations
+        if isinstance(obligation.id, str) and obligation.id.strip()
+    }
 
     for obj in doc.objects:
         if obj.role != Role.QUESTION_OBJECT:
@@ -523,8 +531,16 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             for obj in doc.objects
             if isinstance(obj.id, str) and obj.id.strip()
         }
-        | {obligation.id for obligation in original_obligations}
-        | {check.id for check in doc.checks}
+        | {
+            obligation.id
+            for obligation in original_obligations
+            if isinstance(obligation.id, str) and obligation.id.strip()
+        }
+        | {
+            check.id
+            for check in doc.checks
+            if isinstance(check.id, str) and check.id.strip()
+        }
     )
     known_spans = {span.id for span in doc.spans}
     object_ids = {
@@ -574,11 +590,20 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
 
 def _validate_check_records(doc: SpecDocument) -> None:
     """Validate the validation layer itself without recursively judging new checks."""
-    obligation_by_id = {obligation.id: obligation for obligation in doc.validation_obligations}
+    obligation_by_id = {
+        obligation.id: obligation
+        for obligation in doc.validation_obligations
+        if isinstance(obligation.id, str) and obligation.id.strip()
+    }
     original_checks = list(doc.checks)
 
     for check in original_checks:
-        source_span_id = obligation_by_id[check.obligation_id].source_span_id if check.obligation_id in obligation_by_id else None
+        linked_obligation = (
+            obligation_by_id.get(check.obligation_id)
+            if isinstance(check.obligation_id, str)
+            else None
+        )
+        source_span_id = linked_obligation.source_span_id if linked_obligation else None
         obligation = add_validation_obligation(
             doc,
             "check-status-is-known",
@@ -706,8 +731,16 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         for obj in doc.objects
         if isinstance(obj.id, str) and obj.id.strip()
     )
-    obligation_id_counts = Counter(obligation.id for obligation in original_obligations)
-    check_id_counts = Counter(check.id for check in original_checks)
+    obligation_id_counts = Counter(
+        obligation.id
+        for obligation in original_obligations
+        if isinstance(obligation.id, str) and obligation.id.strip()
+    )
+    check_id_counts = Counter(
+        check.id
+        for check in original_checks
+        if isinstance(check.id, str) and check.id.strip()
+    )
     known_levels = {level for level in SemanticLevel}
 
     _validate_plain_files(doc)
@@ -900,11 +933,14 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             "Every ValidationObligation must have a unique identity before backend export.",
             obligation.source_span_id,
         )
-        count = obligation_id_counts[obligation.id]
+        identity_is_safe = isinstance(obligation.id, str) and bool(obligation.id.strip())
+        count = obligation_id_counts[obligation.id] if identity_is_safe else 0
         evidence = (
             f"ambiguous duplicate validation obligation={obligation.id} count={count}"
             if count > 1
             else f"validation obligation={obligation.id}"
+            if count == 1
+            else f"identity cannot be indexed safely: {obligation.id!r} type={type(obligation.id).__name__}"
         )
         add_check(doc, o, CheckStatus.PASS if count == 1 else CheckStatus.FAIL, evidence)
 
@@ -915,11 +951,14 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             check.id,
             "Every CheckRecord must have a unique identity before backend export.",
         )
-        count = check_id_counts[check.id]
+        identity_is_safe = isinstance(check.id, str) and bool(check.id.strip())
+        count = check_id_counts[check.id] if identity_is_safe else 0
         evidence = (
             f"ambiguous duplicate check={check.id} count={count}"
             if count > 1
             else f"check={check.id}"
+            if count == 1
+            else f"identity cannot be indexed safely: {check.id!r} type={type(check.id).__name__}"
         )
         add_check(doc, o, CheckStatus.PASS if count == 1 else CheckStatus.FAIL, evidence)
 
