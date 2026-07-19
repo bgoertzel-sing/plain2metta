@@ -338,7 +338,9 @@ def _validate_source_spans(doc: SpecDocument) -> None:
 
 def _validate_petta_reified_profile_levels(doc: SpecDocument) -> None:
     """Make PeTTa reified-profile semantic-level support explicit in validation."""
-    existing_ids = {obj.id for obj in doc.objects}
+    existing_ids = {
+        obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
+    }
     profile_questions: list[SpecObject] = []
 
     for obj in list(doc.objects):
@@ -384,10 +386,14 @@ def _validate_petta_reified_profile_levels(doc: SpecDocument) -> None:
 
 def _validate_object_facts(doc: SpecDocument) -> None:
     """Check fact arities and declared references without inferring semantics."""
-    known_objects = {obj.id for obj in doc.objects}
+    known_objects = {
+        obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
+    }
     known_items = {item.id for item in doc.items}
     known_obligations = {obligation.id for obligation in doc.validation_obligations}
-    existing_ids = {obj.id for obj in doc.objects}
+    existing_ids = {
+        obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
+    }
     unknown_predicate_questions: list[SpecObject] = []
 
     for obj in list(doc.objects):
@@ -512,14 +518,22 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
         | {section.id for section in doc.sections}
         | {item.id for item in doc.items}
         | {span.id for span in doc.spans}
-        | {obj.id for obj in doc.objects}
+        | {
+            obj.id
+            for obj in doc.objects
+            if isinstance(obj.id, str) and obj.id.strip()
+        }
         | {obligation.id for obligation in original_obligations}
         | {check.id for check in doc.checks}
     )
     known_spans = {span.id for span in doc.spans}
-    object_ids = {obj.id for obj in doc.objects}
+    object_ids = {
+        obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
+    }
 
     def target_is_declared(target_id: str) -> bool:
+        if not isinstance(target_id, str):
+            return False
         if target_id in known_targets:
             return True
         if ":fact:" in target_id:
@@ -687,7 +701,11 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     span_id_counts = Counter(s.id for s in doc.spans)
     known_spans = {s.id for s in doc.spans if span_id_counts[s.id] == 1}
     spans_by_id = {s.id: s for s in doc.spans if span_id_counts[s.id] == 1}
-    object_id_counts = Counter(obj.id for obj in doc.objects)
+    object_id_counts = Counter(
+        obj.id
+        for obj in doc.objects
+        if isinstance(obj.id, str) and obj.id.strip()
+    )
     obligation_id_counts = Counter(obligation.id for obligation in original_obligations)
     check_id_counts = Counter(check.id for check in original_checks)
     known_levels = {level for level in SemanticLevel}
@@ -833,14 +851,17 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
 
     for obj in doc.objects:
         o = add_validation_obligation(doc, "object-identity-is-unique", obj.id, "Every SpecObject must have a unique identity before backend export.", obj.source_span_id)
-        object_identity_evidence = (
-            f"ambiguous duplicate object={obj.id} count={object_id_counts[obj.id]}"
-            if object_id_counts[obj.id] > 1
-            else f"object={obj.id}"
-        )
-        add_check(doc, o, CheckStatus.PASS if object_id_counts[obj.id] == 1 else CheckStatus.FAIL, object_identity_evidence)
-        o = add_validation_obligation(doc, "object-has-safe-identity", obj.id, "Backend-safe SpecObject identities must be non-blank strings.", obj.source_span_id)
         object_id_is_safe = isinstance(obj.id, str) and bool(obj.id.strip())
+        object_id_count = object_id_counts[obj.id] if object_id_is_safe else 0
+        object_identity_evidence = (
+            f"ambiguous duplicate object={obj.id} count={object_id_count}"
+            if object_id_count > 1
+            else f"object={obj.id}"
+            if object_id_count == 1
+            else f"identity cannot be indexed safely: {obj.id!r} type={type(obj.id).__name__}"
+        )
+        add_check(doc, o, CheckStatus.PASS if object_id_count == 1 else CheckStatus.FAIL, object_identity_evidence)
+        o = add_validation_obligation(doc, "object-has-safe-identity", obj.id, "Backend-safe SpecObject identities must be non-blank strings.", obj.source_span_id)
         object_id_evidence = (
             f"object={obj.id}"
             if object_id_is_safe

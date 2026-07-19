@@ -492,6 +492,42 @@ class ValidationRecordTests(unittest.TestCase):
             },
         )
 
+    def test_object_identity_validation_refuses_unhashable_value_without_crashing(self):
+        doc = SpecDocument(
+            objects=[
+                SpecObject(
+                    ["object-unhashable"],  # type: ignore[arg-type]
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                    None,
+                )
+            ]
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        checks = [
+            check
+            for check in doc.checks
+            if check.property in {"object-identity-is-unique", "object-has-safe-identity"}
+        ]
+        self.assertEqual(
+            [(check.property, check.status, check.evidence) for check in checks],
+            [
+                (
+                    "object-identity-is-unique",
+                    CheckStatus.FAIL,
+                    "identity cannot be indexed safely: ['object-unhashable'] type=list",
+                ),
+                (
+                    "object-has-safe-identity",
+                    CheckStatus.FAIL,
+                    "unsupported object identity=['object-unhashable'] type=list",
+                ),
+            ],
+        )
+
     def test_object_semantic_level_validation_refuses_unsupported_value_without_crashing(self):
         doc = SpecDocument(
             objects=[
