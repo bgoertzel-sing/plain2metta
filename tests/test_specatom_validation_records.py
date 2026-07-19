@@ -494,6 +494,31 @@ class ValidationRecordTests(unittest.TestCase):
             "unsupported semantic level='UnsupportedLevel'",
         )
 
+    def test_object_role_validation_refuses_unsupported_value_without_crashing(self):
+        doc = SpecDocument(
+            objects=[
+                SpecObject(
+                    "object-unsupported-role",
+                    "UnsupportedRole",  # type: ignore[arg-type]
+                    SemanticLevel.TEMPLATE_PARSED,
+                    None,
+                )
+            ]
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        checks = [
+            check
+            for check in doc.checks
+            if check.property == "object-has-known-role"
+            and check.target_id == "object-unsupported-role"
+        ]
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0].status, CheckStatus.FAIL)
+        self.assertEqual(checks[0].evidence, "unsupported object role='UnsupportedRole'")
+
     def test_validation_layer_identity_validation_refuses_duplicates(self):
         obligation = ValidationObligation(
             "obligation-duplicate", "property", "target", "rationale"

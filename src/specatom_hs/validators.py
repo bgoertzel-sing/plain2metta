@@ -836,6 +836,10 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             else f"object={obj.id}"
         )
         add_check(doc, o, CheckStatus.PASS if object_id_counts[obj.id] == 1 else CheckStatus.FAIL, object_identity_evidence)
+        o = add_validation_obligation(doc, "object-has-known-role", obj.id, "Backend gates depend on explicit object roles.", obj.source_span_id)
+        role_is_known = isinstance(obj.role, Role)
+        role_evidence = obj.role.value if role_is_known else f"unsupported object role={obj.role!r}"
+        add_check(doc, o, CheckStatus.PASS if role_is_known else CheckStatus.FAIL, role_evidence)
         o = add_validation_obligation(doc, "object-has-known-semantic-level", obj.id, "Backend gates depend on explicit semantic levels.", obj.source_span_id)
         semantic_level_is_known = obj.semantic_level in known_levels
         semantic_level_evidence = (

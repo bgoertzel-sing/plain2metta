@@ -19,6 +19,7 @@ Scope: `src/specatom_hs/validators.py` current validators, mapped against the de
 | `item-has-source-span` | Each item has an indexed source span. | Implemented | Source provenance / structural indexing |
 | `item-span-file-matches-item-file` | Item span file ID matches the item file ID. | Implemented | Source provenance / cross-link consistency |
 | `object-has-known-semantic-level` | Object semantic level is one of the declared `SemanticLevel` enum values. | Implemented | Schema/profile discipline |
+| `object-has-known-role` | Object role is one of the declared `Role` enum values required by backend serialization. | Implemented | Schema/profile discipline |
 | `object-has-source-or-generated-provenance` | Object has a known source span or explicit `GeneratedFrom` fact. | Implemented | Provenance / generated-object discipline |
 | `object-supported-by-petta-reified-profile` | Object semantic level is supported by `petta_reified_v0`; unsupported levels produce Unknown checks/questions. | Implemented | Target-profile validation / backend safety |
 | `fact-has-supported-arity` | Known fact predicates match scaffold arity; unknown predicates become Unknown checks/questions. | Implemented | Schema/profile discipline |
