@@ -354,7 +354,10 @@ def _validate_petta_reified_profile_levels(doc: SpecDocument) -> None:
             "The petta_reified_v0 profile exports only conservative semantic levels; unsupported objects require a refusal/question instead of emission.",
             obj.source_span_id,
         )
-        if obj.semantic_level in SUPPORTED_PETTA_REIFIED_LEVELS:
+        if (
+            isinstance(obj.semantic_level, SemanticLevel)
+            and obj.semantic_level in SUPPORTED_PETTA_REIFIED_LEVELS
+        ):
             add_check(doc, obligation, CheckStatus.PASS, semantic_level_value)
             continue
 
@@ -841,7 +844,10 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         role_evidence = obj.role.value if role_is_known else f"unsupported object role={obj.role!r}"
         add_check(doc, o, CheckStatus.PASS if role_is_known else CheckStatus.FAIL, role_evidence)
         o = add_validation_obligation(doc, "object-has-known-semantic-level", obj.id, "Backend gates depend on explicit semantic levels.", obj.source_span_id)
-        semantic_level_is_known = obj.semantic_level in known_levels
+        semantic_level_is_known = (
+            isinstance(obj.semantic_level, SemanticLevel)
+            and obj.semantic_level in known_levels
+        )
         semantic_level_evidence = (
             obj.semantic_level.value
             if semantic_level_is_known

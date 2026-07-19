@@ -494,6 +494,34 @@ class ValidationRecordTests(unittest.TestCase):
             "unsupported semantic level='UnsupportedLevel'",
         )
 
+    def test_object_semantic_level_validation_refuses_unhashable_value_without_crashing(self):
+        doc = SpecDocument(
+            objects=[
+                SpecObject(
+                    "object-unhashable-level",
+                    Role.REQUIREMENT_OBJECT,
+                    ["UnsupportedLevel"],  # type: ignore[arg-type]
+                    None,
+                )
+            ]
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        checks = [
+            check
+            for check in doc.checks
+            if check.property == "object-has-known-semantic-level"
+            and check.target_id == "object-unhashable-level"
+        ]
+        self.assertEqual(len(checks), 1)
+        self.assertEqual(checks[0].status, CheckStatus.FAIL)
+        self.assertEqual(
+            checks[0].evidence,
+            "unsupported semantic level=['UnsupportedLevel']",
+        )
+
     def test_object_role_validation_refuses_unsupported_value_without_crashing(self):
         doc = SpecDocument(
             objects=[
