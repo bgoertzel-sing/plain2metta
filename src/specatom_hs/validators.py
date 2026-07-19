@@ -667,6 +667,8 @@ def _validate_edge_source_provenance(doc: SpecDocument) -> None:
 
 def validate_document(doc: SpecDocument) -> SpecDocument:
     """Populate first crisp validation records in-place and return ``doc``."""
+    original_obligations = list(doc.validation_obligations)
+    original_checks = list(doc.checks)
     file_id_counts = Counter(f.id for f in doc.files)
     known_files = {f.id for f in doc.files if file_id_counts[f.id] == 1}
     section_id_counts = Counter(s.id for s in doc.sections)
@@ -678,6 +680,8 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     known_spans = {s.id for s in doc.spans if span_id_counts[s.id] == 1}
     spans_by_id = {s.id: s for s in doc.spans if span_id_counts[s.id] == 1}
     object_id_counts = Counter(obj.id for obj in doc.objects)
+    obligation_id_counts = Counter(obligation.id for obligation in original_obligations)
+    check_id_counts = Counter(check.id for check in original_checks)
     known_levels = {level for level in SemanticLevel}
 
     _validate_plain_files(doc)
@@ -832,6 +836,37 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         o = add_validation_obligation(doc, "object-has-source-or-generated-provenance", obj.id, "Objects must be source-derived or explicitly generated.", obj.source_span_id)
         ok = obj.source_span_id in known_spans or any(f[0] == "GeneratedFrom" for f in obj.facts)
         add_check(doc, o, CheckStatus.PASS if ok else CheckStatus.FAIL, obj.source_span_id or "missing")
+
+    for obligation in original_obligations:
+        o = add_validation_obligation(
+            doc,
+            "validation-obligation-identity-is-unique",
+            obligation.id,
+            "Every ValidationObligation must have a unique identity before backend export.",
+            obligation.source_span_id,
+        )
+        count = obligation_id_counts[obligation.id]
+        evidence = (
+            f"ambiguous duplicate validation obligation={obligation.id} count={count}"
+            if count > 1
+            else f"validation obligation={obligation.id}"
+        )
+        add_check(doc, o, CheckStatus.PASS if count == 1 else CheckStatus.FAIL, evidence)
+
+    for check in original_checks:
+        o = add_validation_obligation(
+            doc,
+            "check-identity-is-unique",
+            check.id,
+            "Every CheckRecord must have a unique identity before backend export.",
+        )
+        count = check_id_counts[check.id]
+        evidence = (
+            f"ambiguous duplicate check={check.id} count={count}"
+            if count > 1
+            else f"check={check.id}"
+        )
+        add_check(doc, o, CheckStatus.PASS if count == 1 else CheckStatus.FAIL, evidence)
 
     _validate_petta_reified_profile_levels(doc)
     _validate_object_facts(doc)

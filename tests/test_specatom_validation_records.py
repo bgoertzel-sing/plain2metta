@@ -466,6 +466,48 @@ class ValidationRecordTests(unittest.TestCase):
         self.assertEqual(unique_checks[0].status, CheckStatus.PASS)
         self.assertEqual(unique_checks[0].evidence, "object=object-unique")
 
+    def test_validation_layer_identity_validation_refuses_duplicates(self):
+        obligation = ValidationObligation(
+            "obligation-duplicate", "property", "target", "rationale"
+        )
+        check = CheckRecord(
+            "check-duplicate",
+            obligation.id,
+            obligation.property,
+            obligation.target_id,
+            CheckStatus.PASS,
+            "evidence",
+        )
+        doc = SpecDocument(
+            validation_obligations=[obligation, obligation],
+            checks=[check, check],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        expected = (
+            (
+                "validation-obligation-identity-is-unique",
+                "obligation-duplicate",
+                "ambiguous duplicate validation obligation=obligation-duplicate count=2",
+            ),
+            (
+                "check-identity-is-unique",
+                "check-duplicate",
+                "ambiguous duplicate check=check-duplicate count=2",
+            ),
+        )
+        for property_name, target_id, evidence in expected:
+            checks = [
+                record
+                for record in doc.checks
+                if record.property == property_name and record.target_id == target_id
+            ]
+            self.assertEqual(len(checks), 1)
+            self.assertEqual(checks[0].status, CheckStatus.FAIL)
+            self.assertEqual(checks[0].evidence, evidence)
+
     def test_source_links_refuse_duplicate_indexed_file_ids(self):
         span = SourceSpan("span-main", "file-duplicate", 0, 4, 1, 1)
         doc = SpecDocument(
