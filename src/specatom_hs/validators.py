@@ -670,10 +670,10 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     file_id_counts = Counter(f.id for f in doc.files)
     known_files = {f.id for f in doc.files if file_id_counts[f.id] == 1}
     known_sections = {s.id for s in doc.sections}
-    known_spans = {s.id for s in doc.spans}
     section_id_counts = Counter(s.id for s in doc.sections)
     sections_by_id = {s.id: s for s in doc.sections if section_id_counts[s.id] == 1}
     span_id_counts = Counter(s.id for s in doc.spans)
+    known_spans = {s.id for s in doc.spans if span_id_counts[s.id] == 1}
     spans_by_id = {s.id: s for s in doc.spans if span_id_counts[s.id] == 1}
     known_levels = {level for level in SemanticLevel}
 
@@ -689,7 +689,12 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         )
         add_check(doc, o, CheckStatus.PASS if section.file_id in known_files else CheckStatus.FAIL, file_evidence)
         o = add_validation_obligation(doc, "section-has-source-span", section.id, "Every indexed section must have an exact source span.", section.span.id)
-        add_check(doc, o, CheckStatus.PASS if section.span.id in known_spans else CheckStatus.FAIL, f"span={section.span.id}")
+        section_span_evidence = (
+            f"ambiguous duplicate span={section.span.id} count={span_id_counts[section.span.id]}"
+            if span_id_counts[section.span.id] > 1
+            else f"span={section.span.id}"
+        )
+        add_check(doc, o, CheckStatus.PASS if section.span.id in known_spans else CheckStatus.FAIL, section_span_evidence)
         o = add_validation_obligation(doc, "section-span-file-matches-section-file", section.id, "A section source span must cite the same PlainFile as the section record.", section.span.id)
         span = spans_by_id.get(section.span.id)
         span_file_matches = span is not None and span.file_id == section.file_id
@@ -732,7 +737,12 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             section_match_evidence,
         )
         o = add_validation_obligation(doc, "item-has-source-span", item.id, "Every indexed item must have an exact source span.", item.span.id)
-        add_check(doc, o, CheckStatus.PASS if item.span.id in known_spans else CheckStatus.FAIL, f"span={item.span.id}")
+        item_span_evidence = (
+            f"ambiguous duplicate span={item.span.id} count={span_id_counts[item.span.id]}"
+            if span_id_counts[item.span.id] > 1
+            else f"span={item.span.id}"
+        )
+        add_check(doc, o, CheckStatus.PASS if item.span.id in known_spans else CheckStatus.FAIL, item_span_evidence)
         o = add_validation_obligation(doc, "item-span-file-matches-item-file", item.id, "An item source span must cite the same PlainFile as the item record.", item.span.id)
         span = spans_by_id.get(item.span.id)
         span_file_matches = span is not None and span.file_id == item.file_id

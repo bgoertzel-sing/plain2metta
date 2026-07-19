@@ -345,7 +345,9 @@ class ValidationRecordTests(unittest.TestCase):
         validate_document(doc)
 
         for property_name, target_id in (
+            ("section-has-source-span", "section-main"),
             ("section-span-file-matches-section-file", "section-main"),
+            ("item-has-source-span", "item-main"),
             ("item-span-file-matches-item-file", "item-main"),
         ):
             checks = [
