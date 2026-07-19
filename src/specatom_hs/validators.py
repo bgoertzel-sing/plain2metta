@@ -677,6 +677,7 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     span_id_counts = Counter(s.id for s in doc.spans)
     known_spans = {s.id for s in doc.spans if span_id_counts[s.id] == 1}
     spans_by_id = {s.id: s for s in doc.spans if span_id_counts[s.id] == 1}
+    object_id_counts = Counter(obj.id for obj in doc.objects)
     known_levels = {level for level in SemanticLevel}
 
     _validate_plain_files(doc)
@@ -819,6 +820,13 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             add_check(doc, o, CheckStatus.PASS if context_matches else CheckStatus.FAIL, context_evidence)
 
     for obj in doc.objects:
+        o = add_validation_obligation(doc, "object-identity-is-unique", obj.id, "Every SpecObject must have a unique identity before backend export.", obj.source_span_id)
+        object_identity_evidence = (
+            f"ambiguous duplicate object={obj.id} count={object_id_counts[obj.id]}"
+            if object_id_counts[obj.id] > 1
+            else f"object={obj.id}"
+        )
+        add_check(doc, o, CheckStatus.PASS if object_id_counts[obj.id] == 1 else CheckStatus.FAIL, object_identity_evidence)
         o = add_validation_obligation(doc, "object-has-known-semantic-level", obj.id, "Backend gates depend on explicit semantic levels.", obj.source_span_id)
         add_check(doc, o, CheckStatus.PASS if obj.semantic_level in known_levels else CheckStatus.FAIL, obj.semantic_level.value)
         o = add_validation_obligation(doc, "object-has-source-or-generated-provenance", obj.id, "Objects must be source-derived or explicitly generated.", obj.source_span_id)
