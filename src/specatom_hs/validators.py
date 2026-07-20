@@ -283,11 +283,17 @@ def _validate_plain_files(doc: SpecDocument) -> None:
 
 def _validate_source_spans(doc: SpecDocument) -> None:
     """Check source-span file links, byte bounds, and line numbers."""
-    file_id_counts = Counter(plain_file.id for plain_file in doc.files)
+    file_id_counts = Counter(
+        plain_file.id
+        for plain_file in doc.files
+        if isinstance(plain_file.id, str) and plain_file.id.strip()
+    )
     files_by_id = {
         plain_file.id: plain_file
         for plain_file in doc.files
-        if file_id_counts[plain_file.id] == 1
+        if isinstance(plain_file.id, str)
+        and plain_file.id.strip()
+        and file_id_counts[plain_file.id] == 1
     }
 
     for span in doc.spans:
@@ -522,10 +528,10 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
     """Validate obligation provenance and target links without recursion."""
     original_obligations = list(doc.validation_obligations)
     known_targets = (
-        {plain_file.id for plain_file in doc.files}
-        | {section.id for section in doc.sections}
-        | {item.id for item in doc.items}
-        | {span.id for span in doc.spans}
+        {plain_file.id for plain_file in doc.files if isinstance(plain_file.id, str) and plain_file.id.strip()}
+        | {section.id for section in doc.sections if isinstance(section.id, str) and section.id.strip()}
+        | {item.id for item in doc.items if isinstance(item.id, str) and item.id.strip()}
+        | {span.id for span in doc.spans if isinstance(span.id, str) and span.id.strip()}
         | {
             obj.id
             for obj in doc.objects
@@ -542,7 +548,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             if isinstance(check.id, str) and check.id.strip()
         }
     )
-    known_spans = {span.id for span in doc.spans}
+    known_spans = {span.id for span in doc.spans if isinstance(span.id, str) and span.id.strip()}
     object_ids = {
         obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
     }
@@ -716,8 +722,10 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     """Populate first crisp validation records in-place and return ``doc``."""
     original_obligations = list(doc.validation_obligations)
     original_checks = list(doc.checks)
-    file_id_counts = Counter(f.id for f in doc.files)
-    known_files = {f.id for f in doc.files if file_id_counts[f.id] == 1}
+    file_id_counts = Counter(
+        f.id for f in doc.files if isinstance(f.id, str) and f.id.strip()
+    )
+    known_files = {f.id for f in doc.files if isinstance(f.id, str) and f.id.strip() and file_id_counts[f.id] == 1}
     section_id_counts = Counter(s.id for s in doc.sections)
     known_sections = {s.id for s in doc.sections if section_id_counts[s.id] == 1}
     sections_by_id = {s.id: s for s in doc.sections if section_id_counts[s.id] == 1}
@@ -748,12 +756,23 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
 
     for plain_file in doc.files:
         o = add_validation_obligation(doc, "plain-file-identity-is-unique", plain_file.id, "Every indexed PlainFile must have a unique identity.")
+        identity_is_safe = isinstance(plain_file.id, str) and bool(plain_file.id.strip())
+        count = file_id_counts[plain_file.id] if identity_is_safe else 0
         evidence = (
-            f"ambiguous duplicate file={plain_file.id} count={file_id_counts[plain_file.id]}"
-            if file_id_counts[plain_file.id] > 1
+            f"ambiguous duplicate file={plain_file.id} count={count}"
+            if count > 1
             else f"file={plain_file.id}"
+            if count == 1
+            else f"identity cannot be indexed safely: {plain_file.id!r} type={type(plain_file.id).__name__}"
         )
-        add_check(doc, o, CheckStatus.PASS if file_id_counts[plain_file.id] == 1 else CheckStatus.FAIL, evidence)
+        add_check(doc, o, CheckStatus.PASS if count == 1 else CheckStatus.FAIL, evidence)
+        o = add_validation_obligation(doc, "plain-file-has-safe-identity", plain_file.id, "Backend-safe PlainFile identities must be non-blank strings.")
+        identity_evidence = (
+            f"file={plain_file.id}"
+            if identity_is_safe
+            else f"unsupported file identity={plain_file.id!r} type={type(plain_file.id).__name__}"
+        )
+        add_check(doc, o, CheckStatus.PASS if identity_is_safe else CheckStatus.FAIL, identity_evidence)
 
     for span in doc.spans:
         o = add_validation_obligation(doc, "source-span-identity-is-unique", span.id, "Every indexed SourceSpan must have a unique identity.", span.id)

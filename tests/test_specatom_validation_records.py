@@ -133,6 +133,39 @@ class ValidationRecordTests(unittest.TestCase):
             )
         )
 
+    def test_plain_file_identity_validation_refuses_unhashable_and_blank_ids(self):
+        doc = SpecDocument(
+            files=[
+                PlainFile(["file-unhashable"], "bad.plain", "digest", "text"),
+                PlainFile("   ", "blank.plain", "digest", "text"),
+                PlainFile("file-valid", "valid.plain", "digest", "text"),
+            ]
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        for property_name, expected_type in (
+            ("plain-file-identity-is-unique", "type=list"),
+            ("plain-file-has-safe-identity", "type=list"),
+        ):
+            records = [record for record in doc.checks if record.property == property_name]
+            self.assertTrue(any(record.status == CheckStatus.FAIL and expected_type in record.evidence for record in records))
+        blank_records = [
+            record for record in doc.checks
+            if record.property == "plain-file-has-safe-identity" and "unsupported file identity='   '" in record.evidence
+        ]
+        self.assertEqual(len(blank_records), 1)
+        self.assertEqual(blank_records[0].status, CheckStatus.FAIL)
+        self.assertTrue(
+            any(
+                record.property == "plain-file-has-safe-identity"
+                and record.status == CheckStatus.PASS
+                and record.evidence == "file=file-valid"
+                for record in doc.checks
+            )
+        )
+
     def test_source_span_validator_checks_bounds_and_line_numbers(self):
         doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "spans.plain")
         self.assertTrue(
