@@ -24,6 +24,35 @@ class ValidationRecordTests(unittest.TestCase):
         self.assertEqual(check.property, "test-coverage")
         self.assertEqual(check.status, CheckStatus.UNKNOWN)
 
+    def test_check_evidence_validation_refuses_non_string_values(self):
+        obligation = ValidationObligation("obligation-1", "reviewed", "target-1", "Review target.")
+        doc = SpecDocument(
+            validation_obligations=[obligation],
+            checks=[
+                CheckRecord("check-none", obligation.id, obligation.property, obligation.target_id, CheckStatus.UNKNOWN, None),
+                CheckRecord("check-list", obligation.id, obligation.property, obligation.target_id, CheckStatus.UNKNOWN, ["unsafe"]),
+                CheckRecord("check-valid", obligation.id, obligation.property, obligation.target_id, CheckStatus.PASS, "reviewed"),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "check-has-evidence"
+            and record.target_id in {"check-none", "check-list", "check-valid"}
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported check evidence=None type=NoneType"),
+                (CheckStatus.FAIL, "unsupported check evidence=['unsafe'] type=list"),
+                (CheckStatus.PASS, "evidence present"),
+            ],
+        )
+
     def test_fact_arity_and_reference_obligations_are_emitted(self):
         doc = compile_source(
             "***requirements***\n"

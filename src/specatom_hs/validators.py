@@ -694,12 +694,18 @@ def _validate_check_records(doc: SpecDocument) -> None:
             "Every check record should preserve a non-empty evidence string so Pass/Fail/Unknown statuses remain auditable.",
             source_span_id,
         )
-        evidence_text = str(check.evidence).strip()
+        evidence_is_safe = isinstance(check.evidence, str) and bool(check.evidence.strip())
         add_check(
             doc,
             obligation,
-            CheckStatus.PASS if evidence_text else CheckStatus.FAIL,
-            "evidence present" if evidence_text else "empty check evidence",
+            CheckStatus.PASS if evidence_is_safe else CheckStatus.FAIL,
+            (
+                "evidence present"
+                if evidence_is_safe
+                else "empty check evidence"
+                if isinstance(check.evidence, str)
+                else f"unsupported check evidence={check.evidence!r} type={type(check.evidence).__name__}"
+            ),
         )
 
         obligation = add_validation_obligation(
