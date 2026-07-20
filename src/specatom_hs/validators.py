@@ -574,7 +574,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
         )
         if original.source_span_id is None:
             add_check(doc, obligation, CheckStatus.UNKNOWN, "no source span declared")
-        elif original.source_span_id in known_spans:
+        elif isinstance(original.source_span_id, str) and original.source_span_id in known_spans:
             add_check(doc, obligation, CheckStatus.PASS, f"source_span={original.source_span_id}")
         else:
             add_check(doc, obligation, CheckStatus.FAIL, f"missing source_span={original.source_span_id}")
@@ -677,7 +677,11 @@ def _validate_edge_source_provenance(doc: SpecDocument) -> None:
     a generic first-item span. This keeps edge provenance auditable and traceable
     back to the exact source text.
     """
-    spans_by_id = {span.id: span for span in doc.spans}
+    spans_by_id = {
+        span.id: span
+        for span in doc.spans
+        if isinstance(span.id, str) and span.id.strip()
+    }
     item_spans = [item.span for item in doc.items]
     edge_predicates = {"DataFlowEdge", "TemporalOrderEdge"}
 
@@ -731,9 +735,19 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     sections_by_id = {s.id: s for s in doc.sections if section_id_counts[s.id] == 1}
     item_id_counts = Counter(item.id for item in doc.items)
     items_by_id = {item.id: item for item in doc.items if item_id_counts[item.id] == 1}
-    span_id_counts = Counter(s.id for s in doc.spans)
-    known_spans = {s.id for s in doc.spans if span_id_counts[s.id] == 1}
-    spans_by_id = {s.id: s for s in doc.spans if span_id_counts[s.id] == 1}
+    span_id_counts = Counter(
+        s.id for s in doc.spans if isinstance(s.id, str) and s.id.strip()
+    )
+    known_spans = {
+        s.id
+        for s in doc.spans
+        if isinstance(s.id, str) and s.id.strip() and span_id_counts[s.id] == 1
+    }
+    spans_by_id = {
+        s.id: s
+        for s in doc.spans
+        if isinstance(s.id, str) and s.id.strip() and span_id_counts[s.id] == 1
+    }
     object_id_counts = Counter(
         obj.id
         for obj in doc.objects
@@ -776,12 +790,23 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
 
     for span in doc.spans:
         o = add_validation_obligation(doc, "source-span-identity-is-unique", span.id, "Every indexed SourceSpan must have a unique identity.", span.id)
+        identity_is_safe = isinstance(span.id, str) and bool(span.id.strip())
+        count = span_id_counts[span.id] if identity_is_safe else 0
         evidence = (
-            f"ambiguous duplicate span={span.id} count={span_id_counts[span.id]}"
-            if span_id_counts[span.id] > 1
+            f"ambiguous duplicate span={span.id} count={count}"
+            if count > 1
             else f"span={span.id}"
+            if count == 1
+            else f"identity cannot be indexed safely: {span.id!r} type={type(span.id).__name__}"
         )
-        add_check(doc, o, CheckStatus.PASS if span_id_counts[span.id] == 1 else CheckStatus.FAIL, evidence)
+        add_check(doc, o, CheckStatus.PASS if count == 1 else CheckStatus.FAIL, evidence)
+        o = add_validation_obligation(doc, "source-span-has-safe-identity", span.id, "Backend-safe SourceSpan identities must be non-blank strings.", span.id)
+        identity_evidence = (
+            f"span={span.id}"
+            if identity_is_safe
+            else f"unsupported span identity={span.id!r} type={type(span.id).__name__}"
+        )
+        add_check(doc, o, CheckStatus.PASS if identity_is_safe else CheckStatus.FAIL, identity_evidence)
 
     for section in doc.sections:
         o = add_validation_obligation(doc, "section-identity-is-unique", section.id, "Every indexed section must have a unique identity.", section.span.id)

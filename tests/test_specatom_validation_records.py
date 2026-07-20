@@ -196,6 +196,44 @@ class ValidationRecordTests(unittest.TestCase):
             any(c.property == "source-span-within-file-bounds" and c.target_id == "span-missing-file" and c.status == CheckStatus.FAIL and "file-missing" in c.evidence for c in bad.checks)
         )
 
+    def test_source_span_identity_validation_refuses_unhashable_and_blank_ids(self):
+        doc = SpecDocument(
+            files=[PlainFile("file-1", "bad.plain", "digest", "text")],
+            spans=[
+                SourceSpan(["span-unhashable"], "file-1", 0, 1, 1, 1),
+                SourceSpan("   ", "file-1", 1, 2, 1, 1),
+                SourceSpan("span-valid", "file-1", 2, 3, 1, 1),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        for property_name in (
+            "source-span-identity-is-unique",
+            "source-span-has-safe-identity",
+        ):
+            records = [record for record in doc.checks if record.property == property_name]
+            self.assertTrue(
+                any(record.status == CheckStatus.FAIL and "type=list" in record.evidence for record in records)
+            )
+        self.assertTrue(
+            any(
+                record.property == "source-span-has-safe-identity"
+                and record.status == CheckStatus.FAIL
+                and "unsupported span identity='   '" in record.evidence
+                for record in doc.checks
+            )
+        )
+        self.assertTrue(
+            any(
+                record.property == "source-span-has-safe-identity"
+                and record.status == CheckStatus.PASS
+                and record.evidence == "span=span-valid"
+                for record in doc.checks
+            )
+        )
+
     def test_section_and_item_file_provenance_is_validated(self):
         doc = compile_source("***requirements***\n- The system stores [def:Task].\n", "file-links.plain")
         self.assertTrue(
