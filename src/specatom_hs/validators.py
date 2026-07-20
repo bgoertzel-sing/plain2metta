@@ -501,12 +501,24 @@ def _validate_object_facts(doc: SpecDocument) -> None:
                 "Object-scoped facts must name their owning SpecObject as subject before profile export.",
                 obj.source_span_id,
             )
-            subject_mismatch = schema.subject_pos is not None and str(fact[schema.subject_pos]) != obj.id
+            subject = fact[schema.subject_pos] if schema.subject_pos is not None else None
+            subject_type_invalid = schema.subject_pos is not None and not isinstance(subject, str)
+            subject_mismatch = (
+                schema.subject_pos is not None
+                and not subject_type_invalid
+                and subject != obj.id
+            )
             add_check(
                 doc,
                 subject_obligation,
-                CheckStatus.FAIL if subject_mismatch else CheckStatus.PASS,
-                f"subject@{schema.subject_pos}={fact[schema.subject_pos]} object={obj.id}" if subject_mismatch else "fact subject matches owning object or is predicate-scoped",
+                CheckStatus.FAIL if subject_type_invalid or subject_mismatch else CheckStatus.PASS,
+                (
+                    f"subject@{schema.subject_pos} unsupported type={type(subject).__name__}"
+                    if subject_type_invalid
+                    else f"subject@{schema.subject_pos}={subject} object={obj.id}"
+                    if subject_mismatch
+                    else "fact subject matches owning object or is predicate-scoped"
+                ),
             )
 
             ref_obligation = add_validation_obligation(

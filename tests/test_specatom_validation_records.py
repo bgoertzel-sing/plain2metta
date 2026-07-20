@@ -139,6 +139,38 @@ class ValidationRecordTests(unittest.TestCase):
             ],
         )
 
+    def test_fact_subject_validation_refuses_scalar_alias_of_string_object_id(self):
+        doc = SpecDocument(
+            objects=[
+                SpecObject(
+                    "7",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    None,
+                    facts=[
+                        ("RequirementText", 7, "unsafe alias"),
+                        ("RequirementText", "7", "exact owner"),
+                    ],
+                )
+            ]
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "fact-subject-matches-object"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "subject@1 unsupported type=int"),
+                (CheckStatus.PASS, "fact subject matches owning object or is predicate-scoped"),
+            ],
+        )
+
     def test_unknown_fact_predicate_creates_profile_question(self):
         doc = SpecDocument(
             objects=[
