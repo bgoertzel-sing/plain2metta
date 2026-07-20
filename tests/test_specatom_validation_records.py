@@ -53,6 +53,35 @@ class ValidationRecordTests(unittest.TestCase):
             ],
         )
 
+    def test_validation_obligation_rationale_validation_refuses_non_string_values(self):
+        doc = SpecDocument(
+            validation_obligations=[
+                ValidationObligation("obligation-none", "reviewed", "target-none", None),
+                ValidationObligation("obligation-list", "reviewed", "target-list", ["unsafe"]),
+                ValidationObligation("obligation-blank", "reviewed", "target-blank", "   "),
+                ValidationObligation("obligation-valid", "reviewed", "target-valid", "Review target."),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "validation-obligation-has-reviewable-rationale"
+            and record.target_id.startswith("obligation-")
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported validation obligation rationale=None type=NoneType"),
+                (CheckStatus.FAIL, "unsupported validation obligation rationale=['unsafe'] type=list"),
+                (CheckStatus.FAIL, "empty validation obligation rationale"),
+                (CheckStatus.PASS, "rationale present"),
+            ],
+        )
+
     def test_fact_arity_and_reference_obligations_are_emitted(self):
         doc = compile_source(
             "***requirements***\n"

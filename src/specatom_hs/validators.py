@@ -629,6 +629,27 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
     for original in original_obligations:
         obligation = add_validation_obligation(
             doc,
+            "validation-obligation-has-reviewable-rationale",
+            original.id,
+            "Validation obligation rationales must be non-blank reviewable text before backend export.",
+            original.source_span_id,
+        )
+        rationale_is_safe = isinstance(original.rationale, str) and bool(original.rationale.strip())
+        add_check(
+            doc,
+            obligation,
+            CheckStatus.PASS if rationale_is_safe else CheckStatus.FAIL,
+            (
+                "rationale present"
+                if rationale_is_safe
+                else "empty validation obligation rationale"
+                if isinstance(original.rationale, str)
+                else f"unsupported validation obligation rationale={original.rationale!r} type={type(original.rationale).__name__}"
+            ),
+        )
+
+        obligation = add_validation_obligation(
+            doc,
             "obligation-has-source-provenance",
             original.id,
             "Validation obligations should cite a known source span, or remain Unknown when generated without a direct source slice.",
