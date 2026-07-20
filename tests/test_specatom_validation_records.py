@@ -60,6 +60,47 @@ class ValidationRecordTests(unittest.TestCase):
             any(c.property == "fact-subject-matches-object" and c.status == CheckStatus.FAIL and "other-test" in c.evidence for c in doc.checks)
         )
 
+    def test_fact_validator_refuses_malformed_records_and_predicates(self):
+        malformed_facts = [
+            ["Requirement", "obj-malformed"],
+            "Requirement",
+            {0: "Requirement"},
+            None,
+            (1, "obj-malformed"),
+            (None, "obj-malformed"),
+        ]
+        doc = SpecDocument(
+            objects=[
+                SpecObject(
+                    "obj-malformed",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    None,
+                    facts=malformed_facts,
+                )
+            ]
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "fact-has-supported-arity"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported fact record type=list"),
+                (CheckStatus.FAIL, "unsupported fact record type=str"),
+                (CheckStatus.FAIL, "unsupported fact record type=dict"),
+                (CheckStatus.FAIL, "unsupported fact record type=NoneType"),
+                (CheckStatus.FAIL, "unsupported fact predicate type=int"),
+                (CheckStatus.FAIL, "unsupported fact predicate type=NoneType"),
+            ],
+        )
+
     def test_unknown_fact_predicate_creates_profile_question(self):
         doc = SpecDocument(
             objects=[

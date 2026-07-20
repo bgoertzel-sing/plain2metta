@@ -412,7 +412,9 @@ def _validate_object_facts(doc: SpecDocument) -> None:
 
     for obj in list(doc.objects):
         for index, fact in enumerate(obj.facts):
-            target = f"{obj.id}:fact:{index}:{fact[0] if fact else 'empty'}"
+            is_fact_tuple = isinstance(fact, tuple)
+            predicate = fact[0] if is_fact_tuple and fact else "empty"
+            target = f"{obj.id}:fact:{index}:{predicate}"
             arity_obligation = add_validation_obligation(
                 doc,
                 "fact-has-supported-arity",
@@ -420,10 +422,26 @@ def _validate_object_facts(doc: SpecDocument) -> None:
                 "Known fact predicates must use the scaffold arity; unknown predicates remain questions for the profile.",
                 obj.source_span_id,
             )
+            if not is_fact_tuple:
+                add_check(
+                    doc,
+                    arity_obligation,
+                    CheckStatus.FAIL,
+                    f"unsupported fact record type={type(fact).__name__}",
+                )
+                continue
             if not fact:
                 add_check(doc, arity_obligation, CheckStatus.FAIL, "empty fact tuple")
                 continue
-            schema = FACT_SCHEMAS.get(str(fact[0]))
+            if not isinstance(fact[0], str):
+                add_check(
+                    doc,
+                    arity_obligation,
+                    CheckStatus.FAIL,
+                    f"unsupported fact predicate type={type(fact[0]).__name__}",
+                )
+                continue
+            schema = FACT_SCHEMAS.get(fact[0])
             if schema is None:
                 add_check(doc, arity_obligation, CheckStatus.UNKNOWN, f"no scaffold fact schema for predicate={fact[0]}")
                 qid = stable_id("question", "unsupported-fact-predicate", obj.id, index, fact[0])
@@ -996,7 +1014,10 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             semantic_level_evidence,
         )
         o = add_validation_obligation(doc, "object-has-source-or-generated-provenance", obj.id, "Objects must be source-derived or explicitly generated.", obj.source_span_id)
-        ok = obj.source_span_id in known_spans or any(f[0] == "GeneratedFrom" for f in obj.facts)
+        ok = obj.source_span_id in known_spans or any(
+            isinstance(fact, tuple) and bool(fact) and fact[0] == "GeneratedFrom"
+            for fact in obj.facts
+        )
         add_check(doc, o, CheckStatus.PASS if ok else CheckStatus.FAIL, obj.source_span_id or "missing")
 
     for obligation in original_obligations:
