@@ -629,6 +629,27 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
     for original in original_obligations:
         obligation = add_validation_obligation(
             doc,
+            "validation-obligation-has-safe-property",
+            original.id,
+            "Validation obligation properties must be non-blank strings before backend export.",
+            original.source_span_id,
+        )
+        property_is_safe = isinstance(original.property, str) and bool(original.property.strip())
+        add_check(
+            doc,
+            obligation,
+            CheckStatus.PASS if property_is_safe else CheckStatus.FAIL,
+            (
+                f"property={original.property}"
+                if property_is_safe
+                else "empty validation obligation property"
+                if isinstance(original.property, str)
+                else f"unsupported validation obligation property={original.property!r} type={type(original.property).__name__}"
+            ),
+        )
+
+        obligation = add_validation_obligation(
+            doc,
             "validation-obligation-has-reviewable-rationale",
             original.id,
             "Validation obligation rationales must be non-blank reviewable text before backend export.",
