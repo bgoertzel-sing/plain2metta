@@ -111,6 +111,35 @@ class ValidationRecordTests(unittest.TestCase):
             ],
         )
 
+    def test_validation_obligation_target_validation_refuses_non_string_values(self):
+        doc = SpecDocument(
+            validation_obligations=[
+                ValidationObligation("obligation-none", "reviewed", None, "Review target."),
+                ValidationObligation("obligation-list", "reviewed", ["unsafe"], "Review target."),
+                ValidationObligation("obligation-blank", "reviewed", "   ", "Review target."),
+                ValidationObligation("obligation-valid", "reviewed", "target-valid", "Review target."),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "validation-obligation-has-safe-target"
+            and record.target_id.startswith("obligation-")
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported validation obligation target=None type=NoneType"),
+                (CheckStatus.FAIL, "unsupported validation obligation target=['unsafe'] type=list"),
+                (CheckStatus.FAIL, "empty validation obligation target"),
+                (CheckStatus.PASS, "target=target-valid"),
+            ],
+        )
+
     def test_fact_arity_and_reference_obligations_are_emitted(self):
         doc = compile_source(
             "***requirements***\n"

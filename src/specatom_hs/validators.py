@@ -671,6 +671,27 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
 
         obligation = add_validation_obligation(
             doc,
+            "validation-obligation-has-safe-target",
+            original.id,
+            "Validation obligation target identities must be non-blank strings before backend export.",
+            original.source_span_id,
+        )
+        target_is_safe = isinstance(original.target_id, str) and bool(original.target_id.strip())
+        add_check(
+            doc,
+            obligation,
+            CheckStatus.PASS if target_is_safe else CheckStatus.FAIL,
+            (
+                f"target={original.target_id}"
+                if target_is_safe
+                else "empty validation obligation target"
+                if isinstance(original.target_id, str)
+                else f"unsupported validation obligation target={original.target_id!r} type={type(original.target_id).__name__}"
+            ),
+        )
+
+        obligation = add_validation_obligation(
+            doc,
             "obligation-has-source-provenance",
             original.id,
             "Validation obligations should cite a known source span, or remain Unknown when generated without a direct source slice.",
