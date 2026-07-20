@@ -395,7 +395,11 @@ def _validate_object_facts(doc: SpecDocument) -> None:
     known_objects = {
         obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
     }
-    known_items = {item.id for item in doc.items}
+    known_items = {
+        item.id
+        for item in doc.items
+        if isinstance(item.id, str) and item.id.strip()
+    }
     known_obligations = {
         obligation.id
         for obligation in doc.validation_obligations
@@ -730,11 +734,15 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         f.id for f in doc.files if isinstance(f.id, str) and f.id.strip()
     )
     known_files = {f.id for f in doc.files if isinstance(f.id, str) and f.id.strip() and file_id_counts[f.id] == 1}
-    section_id_counts = Counter(s.id for s in doc.sections)
-    known_sections = {s.id for s in doc.sections if section_id_counts[s.id] == 1}
-    sections_by_id = {s.id: s for s in doc.sections if section_id_counts[s.id] == 1}
-    item_id_counts = Counter(item.id for item in doc.items)
-    items_by_id = {item.id: item for item in doc.items if item_id_counts[item.id] == 1}
+    section_id_counts = Counter(
+        s.id for s in doc.sections if isinstance(s.id, str) and s.id.strip()
+    )
+    known_sections = {s.id for s in doc.sections if isinstance(s.id, str) and s.id.strip() and section_id_counts[s.id] == 1}
+    sections_by_id = {s.id: s for s in doc.sections if isinstance(s.id, str) and s.id.strip() and section_id_counts[s.id] == 1}
+    item_id_counts = Counter(
+        item.id for item in doc.items if isinstance(item.id, str) and item.id.strip()
+    )
+    items_by_id = {item.id: item for item in doc.items if isinstance(item.id, str) and item.id.strip() and item_id_counts[item.id] == 1}
     span_id_counts = Counter(
         s.id for s in doc.spans if isinstance(s.id, str) and s.id.strip()
     )
@@ -810,12 +818,23 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
 
     for section in doc.sections:
         o = add_validation_obligation(doc, "section-identity-is-unique", section.id, "Every indexed section must have a unique identity.", section.span.id)
+        identity_is_safe = isinstance(section.id, str) and bool(section.id.strip())
+        count = section_id_counts[section.id] if identity_is_safe else 0
         section_identity_evidence = (
-            f"ambiguous duplicate section={section.id} count={section_id_counts[section.id]}"
-            if section_id_counts[section.id] > 1
+            f"ambiguous duplicate section={section.id} count={count}"
+            if count > 1
             else f"section={section.id}"
+            if count == 1
+            else f"identity cannot be indexed safely: {section.id!r} type={type(section.id).__name__}"
         )
-        add_check(doc, o, CheckStatus.PASS if section.id in known_sections else CheckStatus.FAIL, section_identity_evidence)
+        add_check(doc, o, CheckStatus.PASS if count == 1 else CheckStatus.FAIL, section_identity_evidence)
+        o = add_validation_obligation(doc, "section-has-safe-identity", section.id, "Backend-safe Section identities must be non-blank strings.", section.span.id)
+        identity_evidence = (
+            f"section={section.id}"
+            if identity_is_safe
+            else f"unsupported section identity={section.id!r} type={type(section.id).__name__}"
+        )
+        add_check(doc, o, CheckStatus.PASS if identity_is_safe else CheckStatus.FAIL, identity_evidence)
         o = add_validation_obligation(doc, "section-file-is-indexed", section.id, "Every indexed section must belong to an indexed PlainFile.", section.span.id)
         file_evidence = (
             f"ambiguous duplicate file={section.file_id} count={file_id_counts[section.file_id]}"
@@ -846,12 +865,23 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
 
     for item in doc.items:
         o = add_validation_obligation(doc, "item-identity-is-unique", item.id, "Every indexed item must have a unique identity.", item.span.id)
+        identity_is_safe = isinstance(item.id, str) and bool(item.id.strip())
+        count = item_id_counts[item.id] if identity_is_safe else 0
         item_identity_evidence = (
-            f"ambiguous duplicate item={item.id} count={item_id_counts[item.id]}"
-            if item_id_counts[item.id] > 1
+            f"ambiguous duplicate item={item.id} count={count}"
+            if count > 1
             else f"item={item.id}"
+            if count == 1
+            else f"identity cannot be indexed safely: {item.id!r} type={type(item.id).__name__}"
         )
-        add_check(doc, o, CheckStatus.PASS if item_id_counts[item.id] == 1 else CheckStatus.FAIL, item_identity_evidence)
+        add_check(doc, o, CheckStatus.PASS if count == 1 else CheckStatus.FAIL, item_identity_evidence)
+        o = add_validation_obligation(doc, "item-has-safe-identity", item.id, "Backend-safe PlainItem identities must be non-blank strings.", item.span.id)
+        identity_evidence = (
+            f"item={item.id}"
+            if identity_is_safe
+            else f"unsupported item identity={item.id!r} type={type(item.id).__name__}"
+        )
+        add_check(doc, o, CheckStatus.PASS if identity_is_safe else CheckStatus.FAIL, identity_evidence)
         o = add_validation_obligation(doc, "item-file-is-indexed", item.id, "Every indexed item must belong to an indexed PlainFile.", item.span.id)
         file_evidence = (
             f"ambiguous duplicate file={item.file_id} count={file_id_counts[item.file_id]}"

@@ -502,6 +502,45 @@ class ValidationRecordTests(unittest.TestCase):
             self.assertEqual(checks[0].status, CheckStatus.FAIL)
             self.assertEqual(checks[0].evidence, evidence)
 
+    def test_section_and_item_identity_validation_refuses_unhashable_and_blank_ids(self):
+        span = SourceSpan("span-main", "file-main", 0, 4, 1, 1)
+        doc = SpecDocument(
+            files=[PlainFile("file-main", "main.plain", "digest-main", "text")],
+            spans=[span],
+            sections=[
+                Section(["section-unhashable"], "file-main", "Bad", "requirements", 0, span),
+                Section("   ", "file-main", "Blank", "requirements", 1, span),
+                Section("section-valid", "file-main", "Valid", "requirements", 2, span),
+            ],
+            items=[
+                PlainItem(["item-unhashable"], "file-main", "section-valid", None, 0, 0, "bad", span),
+                PlainItem("", "file-main", "section-valid", None, 1, 0, "blank", span),
+                PlainItem("item-valid", "file-main", "section-valid", None, 2, 0, "valid", span),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        expected = (
+            ("section-identity-is-unique", "identity cannot be indexed safely: ['section-unhashable'] type=list", CheckStatus.FAIL),
+            ("section-has-safe-identity", "unsupported section identity='   ' type=str", CheckStatus.FAIL),
+            ("section-has-safe-identity", "section=section-valid", CheckStatus.PASS),
+            ("item-identity-is-unique", "identity cannot be indexed safely: ['item-unhashable'] type=list", CheckStatus.FAIL),
+            ("item-has-safe-identity", "unsupported item identity='' type=str", CheckStatus.FAIL),
+            ("item-has-safe-identity", "item=item-valid", CheckStatus.PASS),
+        )
+        for property_name, evidence, status in expected:
+            self.assertTrue(
+                any(
+                    record.property == property_name
+                    and record.evidence == evidence
+                    and record.status == status
+                    for record in doc.checks
+                ),
+                (property_name, evidence, status),
+            )
+
     def test_object_identity_validation_refuses_duplicates(self):
         doc = SpecDocument(
             objects=[
