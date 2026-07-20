@@ -729,9 +729,13 @@ def _validate_check_records(doc: SpecDocument) -> None:
     original_checks = list(doc.checks)
 
     for check in original_checks:
+        obligation_id_is_safe = (
+            isinstance(check.obligation_id, str)
+            and bool(check.obligation_id.strip())
+        )
         linked_obligation = (
             obligation_by_id.get(check.obligation_id)
-            if isinstance(check.obligation_id, str)
+            if obligation_id_is_safe
             else None
         )
         source_span_id = linked_obligation.source_span_id if linked_obligation else None
@@ -773,12 +777,32 @@ def _validate_check_records(doc: SpecDocument) -> None:
 
         obligation = add_validation_obligation(
             doc,
+            "check-has-safe-obligation-id",
+            check.id,
+            "Check obligation identities must be non-blank strings before backend export.",
+            source_span_id,
+        )
+        add_check(
+            doc,
+            obligation,
+            CheckStatus.PASS if obligation_id_is_safe else CheckStatus.FAIL,
+            (
+                f"obligation={check.obligation_id}"
+                if obligation_id_is_safe
+                else "empty check obligation identity"
+                if isinstance(check.obligation_id, str)
+                else f"unsupported check obligation identity={check.obligation_id!r} type={type(check.obligation_id).__name__}"
+            ),
+        )
+
+        obligation = add_validation_obligation(
+            doc,
             "check-links-known-obligation",
             check.id,
             "Every check record must cite an existing validation obligation.",
             source_span_id,
         )
-        if check.obligation_id in obligation_by_id:
+        if obligation_id_is_safe and check.obligation_id in obligation_by_id:
             add_check(doc, obligation, CheckStatus.PASS, f"obligation={check.obligation_id}")
         else:
             add_check(doc, obligation, CheckStatus.FAIL, f"missing obligation={check.obligation_id}")
