@@ -943,6 +943,19 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             else f"identity cannot be indexed safely: {obligation.id!r} type={type(obligation.id).__name__}"
         )
         add_check(doc, o, CheckStatus.PASS if count == 1 else CheckStatus.FAIL, evidence)
+        o = add_validation_obligation(
+            doc,
+            "validation-obligation-has-safe-identity",
+            obligation.id,
+            "Backend-safe ValidationObligation identities must be non-blank strings.",
+            obligation.source_span_id,
+        )
+        identity_evidence = (
+            f"validation obligation={obligation.id}"
+            if identity_is_safe
+            else f"unsupported validation obligation identity={obligation.id!r} type={type(obligation.id).__name__}"
+        )
+        add_check(doc, o, CheckStatus.PASS if identity_is_safe else CheckStatus.FAIL, identity_evidence)
 
     for check in original_checks:
         o = add_validation_obligation(
@@ -961,6 +974,18 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             else f"identity cannot be indexed safely: {check.id!r} type={type(check.id).__name__}"
         )
         add_check(doc, o, CheckStatus.PASS if count == 1 else CheckStatus.FAIL, evidence)
+        o = add_validation_obligation(
+            doc,
+            "check-has-safe-identity",
+            check.id,
+            "Backend-safe CheckRecord identities must be non-blank strings.",
+        )
+        identity_evidence = (
+            f"check={check.id}"
+            if identity_is_safe
+            else f"unsupported check identity={check.id!r} type={type(check.id).__name__}"
+        )
+        add_check(doc, o, CheckStatus.PASS if identity_is_safe else CheckStatus.FAIL, identity_evidence)
 
     _validate_petta_reified_profile_levels(doc)
     _validate_object_facts(doc)

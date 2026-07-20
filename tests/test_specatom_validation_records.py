@@ -687,6 +687,59 @@ class ValidationRecordTests(unittest.TestCase):
             self.assertEqual(records[0].status, CheckStatus.FAIL)
             self.assertEqual(records[0].evidence, evidence)
 
+        safe_identity_expected = (
+            (
+                "validation-obligation-has-safe-identity",
+                "unsupported validation obligation identity=['obligation-unhashable'] type=list",
+            ),
+            (
+                "check-has-safe-identity",
+                "unsupported check identity=['check-unhashable'] type=list",
+            ),
+        )
+        for property_name, evidence in safe_identity_expected:
+            records = [record for record in doc.checks if record.property == property_name]
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0].status, CheckStatus.FAIL)
+            self.assertEqual(records[0].evidence, evidence)
+
+    def test_validation_layer_safe_identity_checks_blank_and_valid_strings(self):
+        obligations = [
+            ValidationObligation("   ", "property", "target", "rationale"),
+            ValidationObligation("obligation-valid", "property", "target", "rationale"),
+        ]
+        checks = [
+            CheckRecord("", "obligation-valid", "property", "target", CheckStatus.PASS, "evidence"),
+            CheckRecord("check-valid", "obligation-valid", "property", "target", CheckStatus.PASS, "evidence"),
+        ]
+        doc = SpecDocument(validation_obligations=obligations, checks=checks)
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        obligation_records = [
+            record
+            for record in doc.checks
+            if record.property == "validation-obligation-has-safe-identity"
+        ]
+        self.assertEqual(
+            [(record.status, record.evidence) for record in obligation_records],
+            [
+                (CheckStatus.FAIL, "unsupported validation obligation identity='   ' type=str"),
+                (CheckStatus.PASS, "validation obligation=obligation-valid"),
+            ],
+        )
+        check_records = [
+            record for record in doc.checks if record.property == "check-has-safe-identity"
+        ]
+        self.assertEqual(
+            [(record.status, record.evidence) for record in check_records],
+            [
+                (CheckStatus.FAIL, "unsupported check identity='' type=str"),
+                (CheckStatus.PASS, "check=check-valid"),
+            ],
+        )
+
     def test_source_links_refuse_duplicate_indexed_file_ids(self):
         span = SourceSpan("span-main", "file-duplicate", 0, 4, 1, 1)
         doc = SpecDocument(
