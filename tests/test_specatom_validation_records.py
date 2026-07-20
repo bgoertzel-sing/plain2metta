@@ -101,6 +101,44 @@ class ValidationRecordTests(unittest.TestCase):
             ],
         )
 
+    def test_fact_validator_refuses_backend_unsafe_arguments(self):
+        doc = SpecDocument(
+            objects=[
+                SpecObject(
+                    "obj-arguments",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.BACKEND_LOWERED,
+                    None,
+                    facts=[
+                        ("RequirementText", "obj-arguments", ["unsafe"]),
+                        ("Covers", "obj-arguments", 7),
+                        ("RequirementText", "obj-arguments", "  "),
+                        ("ConfidenceValue", "obj-arguments", float("nan")),
+                        ("RequirementText", "obj-arguments", "safe"),
+                    ],
+                )
+            ]
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "fact-arguments-are-backend-safe"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "argument@2 unsupported type=list"),
+                (CheckStatus.FAIL, "object-reference@2 unsupported type=int"),
+                (CheckStatus.FAIL, "argument@2 is empty"),
+                (CheckStatus.FAIL, "argument@2 is non-finite"),
+                (CheckStatus.PASS, "all fact arguments are backend-safe scalars"),
+            ],
+        )
+
     def test_unknown_fact_predicate_creates_profile_question(self):
         doc = SpecDocument(
             objects=[

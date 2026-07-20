@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import Counter
 from dataclasses import dataclass
 from hashlib import sha256
+import math
 
 from .schema import CheckRecord, CheckStatus, Role, SemanticLevel, SpecDocument, SpecObject, ValidationObligation, stable_id
 
@@ -465,6 +466,33 @@ def _validate_object_facts(doc: SpecDocument) -> None:
                 add_check(doc, arity_obligation, CheckStatus.FAIL, f"expected arity {schema.arity}; got {len(fact)}")
                 continue
             add_check(doc, arity_obligation, CheckStatus.PASS, f"arity={len(fact)}")
+
+            argument_obligation = add_validation_obligation(
+                doc,
+                "fact-arguments-are-backend-safe",
+                target,
+                "Fact arguments must use non-empty scalar values, with string identities for declared object references, before profile export.",
+                obj.source_span_id,
+            )
+            unsafe_arguments: list[str] = []
+            for pos, value in enumerate(fact[1:], start=1):
+                if not isinstance(value, (str, int, float, bool)) and value is not None:
+                    unsafe_arguments.append(f"argument@{pos} unsupported type={type(value).__name__}")
+                    continue
+                if pos in schema.object_refs and not isinstance(value, str):
+                    unsafe_arguments.append(f"object-reference@{pos} unsupported type={type(value).__name__}")
+                    continue
+                if value is None or not str(value).strip():
+                    unsafe_arguments.append(f"argument@{pos} is empty")
+                    continue
+                if isinstance(value, float) and not math.isfinite(value):
+                    unsafe_arguments.append(f"argument@{pos} is non-finite")
+            add_check(
+                doc,
+                argument_obligation,
+                CheckStatus.FAIL if unsafe_arguments else CheckStatus.PASS,
+                "; ".join(unsafe_arguments) if unsafe_arguments else "all fact arguments are backend-safe scalars",
+            )
 
             subject_obligation = add_validation_obligation(
                 doc,
