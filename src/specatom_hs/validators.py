@@ -788,12 +788,16 @@ def _validate_check_records(doc: SpecDocument) -> None:
             "Every check record status must be one of the declared SpecAtom-HS check statuses before backend export.",
             source_span_id,
         )
-        status_value = check.status.value if isinstance(check.status, CheckStatus) else str(check.status)
+        status_is_known = isinstance(check.status, CheckStatus)
         add_check(
             doc,
             obligation,
-            CheckStatus.PASS if isinstance(check.status, CheckStatus) else CheckStatus.FAIL,
-            f"status={status_value}",
+            CheckStatus.PASS if status_is_known else CheckStatus.FAIL,
+            (
+                f"status={check.status.value}"
+                if status_is_known
+                else f"unsupported check status={check.status!r} type={type(check.status).__name__}"
+            ),
         )
 
         obligation = add_validation_obligation(

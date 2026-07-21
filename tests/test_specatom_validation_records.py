@@ -146,6 +146,37 @@ class ValidationRecordTests(unittest.TestCase):
             ],
         )
 
+    def test_check_status_validation_reports_exact_unsupported_types(self):
+        obligation = ValidationObligation("obligation-1", "reviewed", "target-1", "Review target.")
+        doc = SpecDocument(
+            validation_obligations=[obligation],
+            checks=[
+                CheckRecord("check-none", obligation.id, obligation.property, obligation.target_id, None, "review"),
+                CheckRecord("check-string", obligation.id, obligation.property, obligation.target_id, "Pass", "review"),
+                CheckRecord("check-list", obligation.id, obligation.property, obligation.target_id, ["Pass"], "review"),
+                CheckRecord("check-valid", obligation.id, obligation.property, obligation.target_id, CheckStatus.PASS, "reviewed"),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "check-status-is-known"
+            and record.target_id.startswith("check-")
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported check status=None type=NoneType"),
+                (CheckStatus.FAIL, "unsupported check status='Pass' type=str"),
+                (CheckStatus.FAIL, "unsupported check status=['Pass'] type=list"),
+                (CheckStatus.PASS, "status=Pass"),
+            ],
+        )
+
     def test_validation_obligation_rationale_validation_refuses_non_string_values(self):
         doc = SpecDocument(
             validation_obligations=[
