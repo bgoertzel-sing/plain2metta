@@ -1221,12 +1221,49 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             CheckStatus.PASS if semantic_level_is_known else CheckStatus.FAIL,
             semantic_level_evidence,
         )
+        o = add_validation_obligation(
+            doc,
+            "object-has-safe-source-span-id",
+            obj.id,
+            "Backend-safe optional SpecObject provenance must be absent or a non-blank string identity.",
+            obj.source_span_id if isinstance(obj.source_span_id, str) else None,
+        )
+        source_span_id_is_safe = (
+            obj.source_span_id is None
+            or (
+                isinstance(obj.source_span_id, str)
+                and bool(obj.source_span_id.strip())
+            )
+        )
+        source_span_id_evidence = (
+            "source_span=None"
+            if obj.source_span_id is None
+            else f"source_span={obj.source_span_id}"
+            if source_span_id_is_safe
+            else f"unsupported object source span identity={obj.source_span_id!r} type={type(obj.source_span_id).__name__}"
+        )
+        add_check(
+            doc,
+            o,
+            CheckStatus.PASS if source_span_id_is_safe else CheckStatus.FAIL,
+            source_span_id_evidence,
+        )
         o = add_validation_obligation(doc, "object-has-source-or-generated-provenance", obj.id, "Objects must be source-derived or explicitly generated.", obj.source_span_id)
-        ok = obj.source_span_id in known_spans or any(
+        ok = (
+            isinstance(obj.source_span_id, str)
+            and obj.source_span_id in known_spans
+        ) or any(
             isinstance(fact, tuple) and bool(fact) and fact[0] == "GeneratedFrom"
             for fact in obj.facts
         )
-        add_check(doc, o, CheckStatus.PASS if ok else CheckStatus.FAIL, obj.source_span_id or "missing")
+        provenance_evidence = (
+            obj.source_span_id
+            if isinstance(obj.source_span_id, str) and obj.source_span_id
+            else "missing"
+            if obj.source_span_id is None
+            else f"unsupported source span identity={obj.source_span_id!r} type={type(obj.source_span_id).__name__}"
+        )
+        add_check(doc, o, CheckStatus.PASS if ok else CheckStatus.FAIL, provenance_evidence)
 
     for obligation in original_obligations:
         o = add_validation_obligation(

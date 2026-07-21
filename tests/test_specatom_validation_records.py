@@ -1230,6 +1230,44 @@ class ValidationRecordTests(unittest.TestCase):
             ],
         )
 
+    def test_object_source_span_validation_refuses_unsafe_identities(self):
+        objects = [
+            SpecObject("object-none", Role.CONCEPT_OBJECT, SemanticLevel.FORMALLY_TYPED, None),
+            SpecObject("object-list", Role.CONCEPT_OBJECT, SemanticLevel.FORMALLY_TYPED, ["unsafe"]),  # type: ignore[arg-type]
+            SpecObject("object-blank", Role.CONCEPT_OBJECT, SemanticLevel.FORMALLY_TYPED, "   "),
+            SpecObject("object-valid", Role.CONCEPT_OBJECT, SemanticLevel.FORMALLY_TYPED, "span-valid"),
+        ]
+        doc = SpecDocument(
+            spans=[SourceSpan("span-valid", "file-valid", 0, 1, 1, 1)],
+            objects=objects,
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            record
+            for record in doc.checks
+            if record.property == "object-has-safe-source-span-id"
+        ]
+        self.assertEqual(
+            [(record.target_id, record.status, record.evidence) for record in records],
+            [
+                ("object-none", CheckStatus.PASS, "source_span=None"),
+                (
+                    "object-list",
+                    CheckStatus.FAIL,
+                    "unsupported object source span identity=['unsafe'] type=list",
+                ),
+                (
+                    "object-blank",
+                    CheckStatus.FAIL,
+                    "unsupported object source span identity='   ' type=str",
+                ),
+                ("object-valid", CheckStatus.PASS, "source_span=span-valid"),
+            ],
+        )
+
     def test_source_links_refuse_duplicate_indexed_file_ids(self):
         span = SourceSpan("span-main", "file-duplicate", 0, 4, 1, 1)
         doc = SpecDocument(
