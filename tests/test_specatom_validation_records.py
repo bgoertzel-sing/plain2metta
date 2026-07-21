@@ -820,6 +820,35 @@ class ValidationRecordTests(unittest.TestCase):
             "section.file_id=file-section span.file_id=file-other",
         )
 
+    def test_section_file_identity_validation_refuses_backend_unsafe_values(self):
+        span = SourceSpan("span-1", "file-1", 0, 1, 1, 1)
+        doc = SpecDocument(
+            files=[PlainFile("file-1", "sections.plain", "digest", "text")],
+            spans=[span],
+            sections=[
+                Section("section-file-list", ["file-1"], "Bad", "requirements", 0, span),
+                Section("section-file-blank", "   ", "Bad", "requirements", 1, span),
+                Section("section-valid", "file-1", "Good", "requirements", 2, span),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "section-has-safe-file-identity"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported file_id=['file-1'] type=list"),
+                (CheckStatus.FAIL, "unsupported file_id='   ' type=str"),
+                (CheckStatus.PASS, "file_id=file-1"),
+            ],
+        )
+
     def test_plain_item_field_validation_refuses_backend_unsafe_values(self):
         span = SourceSpan("span-1", "file-1", 0, 1, 1, 1)
         section = Section("section-1", "file-1", "Items", "requirements", 0, span)
