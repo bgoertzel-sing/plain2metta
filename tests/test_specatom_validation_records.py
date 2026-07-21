@@ -115,6 +115,37 @@ class ValidationRecordTests(unittest.TestCase):
             ],
         )
 
+    def test_check_target_validation_refuses_non_string_values(self):
+        obligation = ValidationObligation("obligation-1", "reviewed", "target-1", "Review target.")
+        doc = SpecDocument(
+            validation_obligations=[obligation],
+            checks=[
+                CheckRecord("check-none", obligation.id, obligation.property, None, CheckStatus.UNKNOWN, "review"),
+                CheckRecord("check-list", obligation.id, obligation.property, ["unsafe"], CheckStatus.UNKNOWN, "review"),
+                CheckRecord("check-blank", obligation.id, obligation.property, "   ", CheckStatus.UNKNOWN, "review"),
+                CheckRecord("check-valid", obligation.id, obligation.property, obligation.target_id, CheckStatus.PASS, "reviewed"),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "check-has-safe-target"
+            and record.target_id.startswith("check-")
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported check target=None type=NoneType"),
+                (CheckStatus.FAIL, "unsupported check target=['unsafe'] type=list"),
+                (CheckStatus.FAIL, "empty check target"),
+                (CheckStatus.PASS, "target=target-1"),
+            ],
+        )
+
     def test_validation_obligation_rationale_validation_refuses_non_string_values(self):
         doc = SpecDocument(
             validation_obligations=[

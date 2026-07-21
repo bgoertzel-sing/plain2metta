@@ -762,6 +762,27 @@ def _validate_check_records(doc: SpecDocument) -> None:
 
         obligation = add_validation_obligation(
             doc,
+            "check-has-safe-target",
+            check.id,
+            "Check target identities must be non-blank strings before backend export.",
+            source_span_id,
+        )
+        target_is_safe = isinstance(check.target_id, str) and bool(check.target_id.strip())
+        add_check(
+            doc,
+            obligation,
+            CheckStatus.PASS if target_is_safe else CheckStatus.FAIL,
+            (
+                f"target={check.target_id}"
+                if target_is_safe
+                else "empty check target"
+                if isinstance(check.target_id, str)
+                else f"unsupported check target={check.target_id!r} type={type(check.target_id).__name__}"
+            ),
+        )
+
+        obligation = add_validation_obligation(
+            doc,
             "check-status-is-known",
             check.id,
             "Every check record status must be one of the declared SpecAtom-HS check statuses before backend export.",
