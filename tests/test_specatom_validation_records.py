@@ -264,6 +264,35 @@ class ValidationRecordTests(unittest.TestCase):
             ],
         )
 
+    def test_validation_obligation_source_span_validation_refuses_unsafe_identities(self):
+        doc = SpecDocument(
+            validation_obligations=[
+                ValidationObligation("obligation-none", "reviewed", "target-none", "Review target.", None),
+                ValidationObligation("obligation-list", "reviewed", "target-list", "Review target.", ["unsafe"]),
+                ValidationObligation("obligation-blank", "reviewed", "target-blank", "Review target.", "   "),
+                ValidationObligation("obligation-valid", "reviewed", "target-valid", "Review target.", "span-valid"),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "validation-obligation-has-safe-source-span-id"
+            and record.target_id.startswith("obligation-")
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.PASS, "source span absent"),
+                (CheckStatus.FAIL, "unsupported validation obligation source span identity=['unsafe'] type=list"),
+                (CheckStatus.FAIL, "empty validation obligation source span identity"),
+                (CheckStatus.PASS, "source_span=span-valid"),
+            ],
+        )
+
     def test_fact_arity_and_reference_obligations_are_emitted(self):
         doc = compile_source(
             "***requirements***\n"

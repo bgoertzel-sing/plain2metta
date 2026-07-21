@@ -692,6 +692,35 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
 
         obligation = add_validation_obligation(
             doc,
+            "validation-obligation-has-safe-source-span-id",
+            original.id,
+            "Validation obligation source-span identities must be absent or non-blank strings before backend export.",
+            original.source_span_id if isinstance(original.source_span_id, str) else None,
+        )
+        source_span_id_is_safe = (
+            original.source_span_id is None
+            or (
+                isinstance(original.source_span_id, str)
+                and bool(original.source_span_id.strip())
+            )
+        )
+        add_check(
+            doc,
+            obligation,
+            CheckStatus.PASS if source_span_id_is_safe else CheckStatus.FAIL,
+            (
+                "source span absent"
+                if original.source_span_id is None
+                else f"source_span={original.source_span_id}"
+                if source_span_id_is_safe
+                else "empty validation obligation source span identity"
+                if isinstance(original.source_span_id, str)
+                else f"unsupported validation obligation source span identity={original.source_span_id!r} type={type(original.source_span_id).__name__}"
+            ),
+        )
+
+        obligation = add_validation_obligation(
+            doc,
             "obligation-has-source-provenance",
             original.id,
             "Validation obligations should cite a known source span, or remain Unknown when generated without a direct source slice.",
