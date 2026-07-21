@@ -499,6 +499,36 @@ class ValidationRecordTests(unittest.TestCase):
             any(c.property == "plain-file-digest-matches-content" and c.status == CheckStatus.PASS for c in doc.checks)
         )
 
+    def test_plain_file_field_validation_refuses_backend_unsafe_values(self):
+        doc = SpecDocument(
+            files=[
+                PlainFile("file-path", None, "digest", "text"),
+                PlainFile("file-digest", "bad.plain", ["digest"], "text"),
+                PlainFile("file-text", "bad.plain", "digest", None),
+                PlainFile("file-blank", "   ", "   ", ""),
+                PlainFile("file-valid", "valid.plain", "sha256:test", "text"),
+            ]
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "plain-file-has-safe-fields"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "path=None type=NoneType"),
+                (CheckStatus.FAIL, "digest=['digest'] type=list"),
+                (CheckStatus.FAIL, "text=None type=NoneType"),
+                (CheckStatus.FAIL, "path is empty; digest is empty"),
+                (CheckStatus.PASS, "path, digest, and text are backend-safe"),
+            ],
+        )
+
         bad = SpecDocument(files=[PlainFile("file-1", "bad.plain", "sha256:not-the-content", "preserved text\n")])
         from specatom_hs.validators import validate_document
 

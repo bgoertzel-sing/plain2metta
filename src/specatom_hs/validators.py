@@ -266,6 +266,32 @@ SUPPORTED_PETTA_REIFIED_LEVELS = {
 def _validate_plain_files(doc: SpecDocument) -> None:
     """Check indexed file digests against the preserved source text."""
     for plain_file in doc.files:
+        fields_obligation = add_validation_obligation(
+            doc,
+            "plain-file-has-safe-fields",
+            plain_file.id,
+            "Backend-safe PlainFile paths and digests must be non-blank strings, and preserved source text must be a string.",
+            None,
+        )
+        unsafe_fields = []
+        for name, value in (("path", plain_file.path), ("digest", plain_file.digest)):
+            if not isinstance(value, str):
+                unsafe_fields.append(f"{name}={value!r} type={type(value).__name__}")
+            elif not value.strip():
+                unsafe_fields.append(f"{name} is empty")
+        if not isinstance(plain_file.text, str):
+            unsafe_fields.append(
+                f"text={plain_file.text!r} type={type(plain_file.text).__name__}"
+            )
+        add_check(
+            doc,
+            fields_obligation,
+            CheckStatus.FAIL if unsafe_fields else CheckStatus.PASS,
+            "; ".join(unsafe_fields) if unsafe_fields else "path, digest, and text are backend-safe",
+        )
+        if unsafe_fields:
+            continue
+
         obligation = add_validation_obligation(
             doc,
             "plain-file-digest-matches-content",
