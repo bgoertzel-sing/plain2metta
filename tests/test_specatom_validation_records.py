@@ -686,6 +686,7 @@ class ValidationRecordTests(unittest.TestCase):
         self.assertTrue(
             any(c.property == "section-span-file-matches-section-file" and c.status == CheckStatus.PASS for c in doc.checks)
         )
+
         self.assertTrue(
             any(c.property == "item-file-is-indexed" and c.status == CheckStatus.PASS for c in doc.checks)
         )
@@ -747,6 +748,39 @@ class ValidationRecordTests(unittest.TestCase):
                 and "section.file_id=file-1" in c.evidence
                 for c in mismatched.checks
             )
+        )
+
+    def test_section_field_validation_refuses_backend_unsafe_values(self):
+        span = SourceSpan("span-1", "file-1", 0, 1, 1, 1)
+        doc = SpecDocument(
+            files=[PlainFile("file-1", "sections.plain", "digest", "text")],
+            spans=[span],
+            sections=[
+                Section("section-kind-list", "file-1", "Bad", ["requirements"], 0, span),
+                Section("section-kind-blank", "file-1", "Bad", "   ", 0, span),
+                Section("section-ordinal-bool", "file-1", "Bad", "requirements", True, span),
+                Section("section-ordinal-negative", "file-1", "Bad", "requirements", -1, span),
+                Section("section-valid", "file-1", "Good", "requirements", 0, span),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "section-has-safe-fields"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "kind=['requirements'] type=list"),
+                (CheckStatus.FAIL, "kind is empty"),
+                (CheckStatus.FAIL, "ordinal=True type=bool"),
+                (CheckStatus.FAIL, "ordinal=-1 is negative"),
+                (CheckStatus.PASS, "kind and ordinal are backend-safe"),
+            ],
         )
 
     def test_section_file_validation_uses_canonical_indexed_span(self):

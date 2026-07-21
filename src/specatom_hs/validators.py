@@ -1143,6 +1143,28 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             else f"unsupported section identity={section.id!r} type={type(section.id).__name__}"
         )
         add_check(doc, o, CheckStatus.PASS if identity_is_safe else CheckStatus.FAIL, identity_evidence)
+        o = add_validation_obligation(
+            doc,
+            "section-has-safe-fields",
+            section.id,
+            "Backend-safe Section kinds must be non-blank strings and ordinals must be non-negative non-boolean integers.",
+            section.span.id,
+        )
+        unsafe_fields = []
+        if not isinstance(section.kind, str):
+            unsafe_fields.append(f"kind={section.kind!r} type={type(section.kind).__name__}")
+        elif not section.kind.strip():
+            unsafe_fields.append("kind is empty")
+        if not isinstance(section.ordinal, int) or isinstance(section.ordinal, bool):
+            unsafe_fields.append(f"ordinal={section.ordinal!r} type={type(section.ordinal).__name__}")
+        elif section.ordinal < 0:
+            unsafe_fields.append(f"ordinal={section.ordinal} is negative")
+        add_check(
+            doc,
+            o,
+            CheckStatus.FAIL if unsafe_fields else CheckStatus.PASS,
+            "; ".join(unsafe_fields) if unsafe_fields else "kind and ordinal are backend-safe",
+        )
         o = add_validation_obligation(doc, "section-file-is-indexed", section.id, "Every indexed section must belong to an indexed PlainFile.", section.span.id)
         file_evidence = (
             f"ambiguous duplicate file={section.file_id} count={file_id_counts[section.file_id]}"
