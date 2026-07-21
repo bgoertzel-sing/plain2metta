@@ -741,6 +741,27 @@ def _validate_check_records(doc: SpecDocument) -> None:
         source_span_id = linked_obligation.source_span_id if linked_obligation else None
         obligation = add_validation_obligation(
             doc,
+            "check-has-safe-property",
+            check.id,
+            "Check properties must be non-blank strings before backend export.",
+            source_span_id,
+        )
+        property_is_safe = isinstance(check.property, str) and bool(check.property.strip())
+        add_check(
+            doc,
+            obligation,
+            CheckStatus.PASS if property_is_safe else CheckStatus.FAIL,
+            (
+                f"property={check.property}"
+                if property_is_safe
+                else "empty check property"
+                if isinstance(check.property, str)
+                else f"unsupported check property={check.property!r} type={type(check.property).__name__}"
+            ),
+        )
+
+        obligation = add_validation_obligation(
+            doc,
             "check-status-is-known",
             check.id,
             "Every check record status must be one of the declared SpecAtom-HS check statuses before backend export.",
