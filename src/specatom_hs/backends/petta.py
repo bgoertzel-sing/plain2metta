@@ -139,6 +139,10 @@ def _plain_item_record_refusal_reason(item: PlainItem) -> str | None:
         return "invalid-plain-item-ordinal-type"
     if item.ordinal < 0:
         return "invalid-plain-item-ordinal"
+    if not isinstance(item.level, int) or isinstance(item.level, bool):
+        return "invalid-plain-item-level-type"
+    if item.level < 0:
+        return "invalid-plain-item-level"
     if not isinstance(item.raw_text, str) or not item.raw_text.strip():
         return "invalid-plain-item-raw-text"
     if not isinstance(item.span, SourceSpan):

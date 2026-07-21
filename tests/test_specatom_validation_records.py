@@ -830,6 +830,8 @@ class ValidationRecordTests(unittest.TestCase):
             items=[
                 PlainItem("item-ordinal-bool", "file-1", "section-1", None, True, 0, "text", span),
                 PlainItem("item-ordinal-negative", "file-1", "section-1", None, -1, 0, "text", span),
+                PlainItem("item-level-bool", "file-1", "section-1", None, 0, False, "text", span),
+                PlainItem("item-level-negative", "file-1", "section-1", None, 0, -1, "text", span),
                 PlainItem("item-text-list", "file-1", "section-1", None, 0, 0, ["text"], span),
                 PlainItem("item-text-blank", "file-1", "section-1", None, 0, 0, "   ", span),
                 PlainItem("item-valid", "file-1", "section-1", None, 0, 0, "text", span),
@@ -849,9 +851,11 @@ class ValidationRecordTests(unittest.TestCase):
             [
                 (CheckStatus.FAIL, "ordinal=True type=bool"),
                 (CheckStatus.FAIL, "ordinal=-1 is negative"),
+                (CheckStatus.FAIL, "level=False type=bool"),
+                (CheckStatus.FAIL, "level=-1 is negative"),
                 (CheckStatus.FAIL, "raw_text=['text'] type=list"),
                 (CheckStatus.FAIL, "raw_text is empty"),
-                (CheckStatus.PASS, "ordinal and raw_text are backend-safe"),
+                (CheckStatus.PASS, "ordinal, level, and raw_text are backend-safe"),
             ],
         )
 

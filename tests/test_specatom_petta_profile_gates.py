@@ -526,6 +526,8 @@ class PettaProfileGateTests(unittest.TestCase):
             PlainItem("item-parent", "file-valid", valid_section.id, 7, 0, 0, "text", span),
             PlainItem("item-ordinal-type", "file-valid", valid_section.id, None, True, 0, "text", span),
             PlainItem("item-ordinal", "file-valid", valid_section.id, None, -1, 0, "text", span),
+            PlainItem("item-level-type", "file-valid", valid_section.id, None, 0, True, "text", span),
+            PlainItem("item-level", "file-valid", valid_section.id, None, 0, -1, "text", span),
             PlainItem("item-text", "file-valid", valid_section.id, None, 0, 0, " ", span),
             PlainItem("item-span-record", "file-valid", valid_section.id, None, 0, 0, "text", None),
             PlainItem(
@@ -572,6 +574,8 @@ class PettaProfileGateTests(unittest.TestCase):
                 ("item-parent", "invalid-plain-item-parent-id"),
                 ("item-ordinal-type", "invalid-plain-item-ordinal-type"),
                 ("item-ordinal", "invalid-plain-item-ordinal"),
+                ("item-level-type", "invalid-plain-item-level-type"),
+                ("item-level", "invalid-plain-item-level"),
                 ("item-text", "invalid-plain-item-raw-text"),
                 ("item-span-record", "invalid-plain-item-span-record"),
                 ("item-span-id", "invalid-plain-item-span-id"),
