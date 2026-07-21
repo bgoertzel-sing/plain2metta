@@ -1238,6 +1238,35 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             CheckStatus.FAIL if unsafe_fields else CheckStatus.PASS,
             "; ".join(unsafe_fields) if unsafe_fields else "ordinal, level, and raw_text are backend-safe",
         )
+        o = add_validation_obligation(
+            doc,
+            "item-has-safe-link-identities",
+            item.id,
+            "Backend-safe PlainItem file and section links must be non-blank strings; an optional parent link must be absent or a non-blank string.",
+            item.span.id,
+        )
+        unsafe_links = []
+        for field_name, value in (("file_id", item.file_id), ("section_id", item.section_id)):
+            if not isinstance(value, str):
+                unsafe_links.append(f"{field_name}={value!r} type={type(value).__name__}")
+            elif not value.strip():
+                unsafe_links.append(f"{field_name} is empty")
+        if item.parent_item_id is not None:
+            if not isinstance(item.parent_item_id, str):
+                unsafe_links.append(
+                    f"parent_item_id={item.parent_item_id!r} type={type(item.parent_item_id).__name__}"
+                )
+            elif not item.parent_item_id.strip():
+                unsafe_links.append("parent_item_id is empty")
+        add_check(
+            doc,
+            o,
+            CheckStatus.FAIL if unsafe_links else CheckStatus.PASS,
+            "; ".join(unsafe_links) if unsafe_links else "file, section, and optional parent link identities are backend-safe",
+        )
+        links_are_safe = not unsafe_links
+        if not links_are_safe:
+            continue
         o = add_validation_obligation(doc, "item-file-is-indexed", item.id, "Every indexed item must belong to an indexed PlainFile.", item.span.id)
         file_evidence = (
             f"ambiguous duplicate file={item.file_id} count={file_id_counts[item.file_id]}"

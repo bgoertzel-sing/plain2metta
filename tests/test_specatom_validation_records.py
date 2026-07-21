@@ -859,6 +859,41 @@ class ValidationRecordTests(unittest.TestCase):
             ],
         )
 
+    def test_plain_item_link_validation_refuses_backend_unsafe_values(self):
+        span = SourceSpan("span-1", "file-1", 0, 1, 1, 1)
+        section = Section("section-1", "file-1", "Items", "requirements", 0, span)
+        doc = SpecDocument(
+            files=[PlainFile("file-1", "items.plain", "digest", "text")],
+            spans=[span],
+            sections=[section],
+            items=[
+                PlainItem("item-file-list", ["file-1"], "section-1", None, 0, 0, "text", span),
+                PlainItem("item-section-blank", "file-1", "   ", None, 1, 0, "text", span),
+                PlainItem("item-parent-list", "file-1", "section-1", ["parent"], 2, 0, "text", span),
+                PlainItem("item-parent-blank", "file-1", "section-1", "", 3, 0, "text", span),
+                PlainItem("item-valid", "file-1", "section-1", None, 4, 0, "text", span),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "item-has-safe-link-identities"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "file_id=['file-1'] type=list"),
+                (CheckStatus.FAIL, "section_id is empty"),
+                (CheckStatus.FAIL, "parent_item_id=['parent'] type=list"),
+                (CheckStatus.FAIL, "parent_item_id is empty"),
+                (CheckStatus.PASS, "file, section, and optional parent link identities are backend-safe"),
+            ],
+        )
+
     def test_item_file_validation_uses_canonical_indexed_span(self):
         indexed_span = SourceSpan("span-shared", "file-other", 0, 4, 1, 1)
         masked_span = SourceSpan("span-shared", "file-item", 0, 4, 1, 1)
