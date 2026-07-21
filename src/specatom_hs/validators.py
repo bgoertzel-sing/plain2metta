@@ -1212,6 +1212,28 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             else f"unsupported item identity={item.id!r} type={type(item.id).__name__}"
         )
         add_check(doc, o, CheckStatus.PASS if identity_is_safe else CheckStatus.FAIL, identity_evidence)
+        o = add_validation_obligation(
+            doc,
+            "item-has-safe-fields",
+            item.id,
+            "Backend-safe PlainItem ordinals must be non-negative non-boolean integers and raw text must be non-blank text.",
+            item.span.id,
+        )
+        unsafe_fields = []
+        if not isinstance(item.ordinal, int) or isinstance(item.ordinal, bool):
+            unsafe_fields.append(f"ordinal={item.ordinal!r} type={type(item.ordinal).__name__}")
+        elif item.ordinal < 0:
+            unsafe_fields.append(f"ordinal={item.ordinal} is negative")
+        if not isinstance(item.raw_text, str):
+            unsafe_fields.append(f"raw_text={item.raw_text!r} type={type(item.raw_text).__name__}")
+        elif not item.raw_text.strip():
+            unsafe_fields.append("raw_text is empty")
+        add_check(
+            doc,
+            o,
+            CheckStatus.FAIL if unsafe_fields else CheckStatus.PASS,
+            "; ".join(unsafe_fields) if unsafe_fields else "ordinal and raw_text are backend-safe",
+        )
         o = add_validation_obligation(doc, "item-file-is-indexed", item.id, "Every indexed item must belong to an indexed PlainFile.", item.span.id)
         file_evidence = (
             f"ambiguous duplicate file={item.file_id} count={file_id_counts[item.file_id]}"

@@ -820,6 +820,41 @@ class ValidationRecordTests(unittest.TestCase):
             "section.file_id=file-section span.file_id=file-other",
         )
 
+    def test_plain_item_field_validation_refuses_backend_unsafe_values(self):
+        span = SourceSpan("span-1", "file-1", 0, 1, 1, 1)
+        section = Section("section-1", "file-1", "Items", "requirements", 0, span)
+        doc = SpecDocument(
+            files=[PlainFile("file-1", "items.plain", "digest", "text")],
+            spans=[span],
+            sections=[section],
+            items=[
+                PlainItem("item-ordinal-bool", "file-1", "section-1", None, True, 0, "text", span),
+                PlainItem("item-ordinal-negative", "file-1", "section-1", None, -1, 0, "text", span),
+                PlainItem("item-text-list", "file-1", "section-1", None, 0, 0, ["text"], span),
+                PlainItem("item-text-blank", "file-1", "section-1", None, 0, 0, "   ", span),
+                PlainItem("item-valid", "file-1", "section-1", None, 0, 0, "text", span),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "item-has-safe-fields"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "ordinal=True type=bool"),
+                (CheckStatus.FAIL, "ordinal=-1 is negative"),
+                (CheckStatus.FAIL, "raw_text=['text'] type=list"),
+                (CheckStatus.FAIL, "raw_text is empty"),
+                (CheckStatus.PASS, "ordinal and raw_text are backend-safe"),
+            ],
+        )
+
     def test_item_file_validation_uses_canonical_indexed_span(self):
         indexed_span = SourceSpan("span-shared", "file-other", 0, 4, 1, 1)
         masked_span = SourceSpan("span-shared", "file-item", 0, 4, 1, 1)
