@@ -576,6 +576,37 @@ class ValidationRecordTests(unittest.TestCase):
             any(c.property == "source-span-within-file-bounds" and c.target_id == "span-missing-file" and c.status == CheckStatus.FAIL and "file-missing" in c.evidence for c in bad.checks)
         )
 
+    def test_source_span_validator_refuses_backend_unsafe_bound_types(self):
+        doc = SpecDocument(
+            files=[PlainFile("file-1", "bad.plain", "digest", "text")],
+            spans=[
+                SourceSpan("span-list", "file-1", [0], 1, 1, 1),
+                SourceSpan("span-bool", "file-1", 0, True, 1, 1),
+                SourceSpan("span-line", "file-1", 0, 1, None, 1),
+                SourceSpan("span-reversed", "file-1", 2, 1, 2, 1),
+                SourceSpan("span-valid", "file-1", 0, 1, 1, 1),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "source-span-has-safe-bounds"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported source span byte bounds start=[0] type=list end=1 type=int"),
+                (CheckStatus.FAIL, "unsupported source span byte bounds start=0 type=int end=True type=bool"),
+                (CheckStatus.FAIL, "unsupported source span line bounds start=None type=NoneType end=1 type=int"),
+                (CheckStatus.FAIL, "invalid source span bounds bytes=2:1 lines=2:1"),
+                (CheckStatus.PASS, "bytes=0:1 lines=1:1"),
+            ],
+        )
+
     def test_source_span_identity_validation_refuses_unhashable_and_blank_ids(self):
         doc = SpecDocument(
             files=[PlainFile("file-1", "bad.plain", "digest", "text")],

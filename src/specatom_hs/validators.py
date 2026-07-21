@@ -298,6 +298,62 @@ def _validate_source_spans(doc: SpecDocument) -> None:
     }
 
     for span in doc.spans:
+        field_obligation = add_validation_obligation(
+            doc,
+            "source-span-has-safe-bounds",
+            span.id,
+            "Backend-safe SourceSpan byte and line bounds must be ordered non-boolean integers.",
+            span.id,
+        )
+        byte_fields = (span.start_byte, span.end_byte)
+        line_fields = (span.start_line, span.end_line)
+        byte_types_are_safe = all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in byte_fields
+        )
+        line_types_are_safe = all(
+            isinstance(value, int) and not isinstance(value, bool)
+            for value in line_fields
+        )
+        bounds_are_safe = (
+            byte_types_are_safe
+            and line_types_are_safe
+            and span.start_byte >= 0
+            and span.end_byte >= span.start_byte
+            and span.start_line >= 1
+            and span.end_line >= span.start_line
+        )
+        if bounds_are_safe:
+            bounds_evidence = (
+                f"bytes={span.start_byte}:{span.end_byte} "
+                f"lines={span.start_line}:{span.end_line}"
+            )
+        elif not byte_types_are_safe:
+            bounds_evidence = (
+                "unsupported source span byte bounds "
+                f"start={span.start_byte!r} type={type(span.start_byte).__name__} "
+                f"end={span.end_byte!r} type={type(span.end_byte).__name__}"
+            )
+        elif not line_types_are_safe:
+            bounds_evidence = (
+                "unsupported source span line bounds "
+                f"start={span.start_line!r} type={type(span.start_line).__name__} "
+                f"end={span.end_line!r} type={type(span.end_line).__name__}"
+            )
+        else:
+            bounds_evidence = (
+                f"invalid source span bounds bytes={span.start_byte}:{span.end_byte} "
+                f"lines={span.start_line}:{span.end_line}"
+            )
+        add_check(
+            doc,
+            field_obligation,
+            CheckStatus.PASS if bounds_are_safe else CheckStatus.FAIL,
+            bounds_evidence,
+        )
+        if not bounds_are_safe:
+            continue
+
         bounds_obligation = add_validation_obligation(
             doc,
             "source-span-within-file-bounds",
