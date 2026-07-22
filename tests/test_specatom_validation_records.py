@@ -6,6 +6,20 @@ from specatom_hs.validators import add_check, add_validation_obligation
 
 
 class ValidationRecordTests(unittest.TestCase):
+    def test_spec_object_record_validation_refuses_malformed_entries(self):
+        valid = SpecObject("object-valid", Role.CONCEPT_OBJECT, SemanticLevel.TEMPLATE_PARSED)
+        doc = SpecDocument(objects=[None, ["not-an-object"], valid])
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [(record.status, record.evidence) for record in doc.checks if record.property == "object-has-valid-record-type"]
+        self.assertEqual(records, [
+            (CheckStatus.FAIL, "unsupported object record type=NoneType"),
+            (CheckStatus.FAIL, "unsupported object record type=list"),
+            (CheckStatus.PASS, "record type=SpecObject"),
+        ])
+
     def test_plain_item_record_validation_refuses_malformed_entries(self):
         span = SourceSpan("span-valid", "file-valid", 0, 1, 1, 1)
         valid = PlainItem("item-valid", "file-valid", "section-valid", None, 0, 0, "text", span)

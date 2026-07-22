@@ -362,6 +362,8 @@ def _compute_information_flow_summary(doc: SpecDocument) -> dict[str, int]:
     temporal_edges: list[tuple[str, str]] = []  # (source, target)
 
     for obj in doc.objects:
+        if not isinstance(obj, SpecObject):
+            continue
         for fact in obj.facts:
             if not isinstance(fact, tuple) or len(fact) < 2:
                 continue
@@ -727,6 +729,8 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
         atoms.append(_atom(["derived-from", item.id, item.span.id]))
     object_id_counts: dict[str, int] = {}
     for obj in doc.objects:
+        if not isinstance(obj, SpecObject):
+            continue
         if isinstance(obj.id, str) and obj.id.strip():
             object_id_counts[obj.id] = object_id_counts.get(obj.id, 0) + 1
     duplicate_object_ids = {
@@ -734,6 +738,9 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
     }
     emitted_objects: list[SpecObject] = []
     for obj in doc.objects:
+        if not isinstance(obj, SpecObject):
+            refusals.append(BackendRefusal("petta_reified_v0", f"unsupported-spec-object-record-type:{type(obj).__name__}"))
+            continue
         if isinstance(obj.id, str) and obj.id in duplicate_object_ids:
             refusals.append(
                 BackendRefusal(

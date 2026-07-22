@@ -42,6 +42,19 @@ def document_with_checks(
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_refuses_malformed_spec_object_record_types_without_crashing(self):
+        valid = SpecObject("valid-object", Role.CONCEPT_OBJECT, SemanticLevel.TEMPLATE_PARSED)
+        atoms, refusals = emit_reified_atoms(SpecDocument(objects=[None, ["bad"], valid]))
+
+        self.assertIn("(spec-object valid-object ConceptObject TemplateParsed)", atoms)
+        self.assertEqual(
+            [(refusal.object_id, refusal.reason) for refusal in refusals],
+            [
+                (None, "unsupported-spec-object-record-type:NoneType"),
+                (None, "unsupported-spec-object-record-type:list"),
+            ],
+        )
+
     def test_refuses_plain_items_with_dangling_or_inconsistent_parents(self):
         plain_file = PlainFile("file", "valid.plain", "digest", "text")
         span = SourceSpan("span", plain_file.id, 0, 4, 1, 1)

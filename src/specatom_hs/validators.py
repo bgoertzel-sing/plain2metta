@@ -504,11 +504,13 @@ def _validate_source_spans(doc: SpecDocument) -> None:
 def _validate_petta_reified_profile_levels(doc: SpecDocument) -> None:
     """Make PeTTa reified-profile semantic-level support explicit in validation."""
     existing_ids = {
-        obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
+        obj.id for obj in doc.objects if isinstance(obj, SpecObject) and isinstance(obj.id, str) and obj.id.strip()
     }
     profile_questions: list[SpecObject] = []
 
     for obj in list(doc.objects):
+        if not isinstance(obj, SpecObject):
+            continue
         semantic_level_value = (
             obj.semantic_level.value
             if isinstance(obj.semantic_level, SemanticLevel)
@@ -552,7 +554,7 @@ def _validate_petta_reified_profile_levels(doc: SpecDocument) -> None:
 def _validate_object_facts(doc: SpecDocument) -> None:
     """Check fact arities and declared references without inferring semantics."""
     known_objects = {
-        obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
+        obj.id for obj in doc.objects if isinstance(obj, SpecObject) and isinstance(obj.id, str) and obj.id.strip()
     }
     known_items = {
         item.id
@@ -565,11 +567,13 @@ def _validate_object_facts(doc: SpecDocument) -> None:
         if isinstance(obligation.id, str) and obligation.id.strip()
     }
     existing_ids = {
-        obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
+        obj.id for obj in doc.objects if isinstance(obj, SpecObject) and isinstance(obj.id, str) and obj.id.strip()
     }
     unknown_predicate_questions: list[SpecObject] = []
 
     for obj in list(doc.objects):
+        if not isinstance(obj, SpecObject):
+            continue
         for index, fact in enumerate(obj.facts):
             is_fact_tuple = isinstance(fact, tuple)
             predicate = fact[0] if is_fact_tuple and fact else "empty"
@@ -710,6 +714,8 @@ def _validate_question_objects(doc: SpecDocument) -> None:
     }
 
     for obj in doc.objects:
+        if not isinstance(obj, SpecObject):
+            continue
         if obj.role != Role.QUESTION_OBJECT:
             continue
         question_texts = [str(fact[2]).strip() for fact in obj.facts if len(fact) == 3 and fact[0] == "QuestionText"]
@@ -767,7 +773,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
         | {
             obj.id
             for obj in doc.objects
-            if isinstance(obj.id, str) and obj.id.strip()
+            if isinstance(obj, SpecObject) and isinstance(obj.id, str) and obj.id.strip()
         }
         | {
             obligation.id
@@ -788,7 +794,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
         and span.id.strip()
     }
     object_ids = {
-        obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
+        obj.id for obj in doc.objects if isinstance(obj, SpecObject) and isinstance(obj.id, str) and obj.id.strip()
     }
 
     def target_is_declared(target_id: str) -> bool:
@@ -1107,6 +1113,8 @@ def _validate_edge_source_provenance(doc: SpecDocument) -> None:
         return None
 
     for obj in doc.objects:
+        if not isinstance(obj, SpecObject):
+            continue
         has_edge_fact = any(fact and str(fact[0]) in edge_predicates for fact in obj.facts)
         if not has_edge_fact:
             continue
@@ -1184,7 +1192,7 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     object_id_counts = Counter(
         obj.id
         for obj in doc.objects
-        if isinstance(obj.id, str) and obj.id.strip()
+        if isinstance(obj, SpecObject) and isinstance(obj.id, str) and obj.id.strip()
     )
     obligation_id_counts = Counter(
         obligation.id
@@ -1593,7 +1601,13 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             )
             add_check(doc, o, CheckStatus.PASS if context_matches else CheckStatus.FAIL, context_evidence)
 
-    for obj in doc.objects:
+    for index, obj in enumerate(doc.objects):
+        record_target = obj.id if isinstance(obj, SpecObject) and isinstance(obj.id, str) and obj.id.strip() else stable_id("malformed-object", index, repr(obj))
+        record_obligation = add_validation_obligation(doc, "object-has-valid-record-type", record_target, "Every semantic-object entry must be a SpecObject record.")
+        is_object = isinstance(obj, SpecObject)
+        add_check(doc, record_obligation, CheckStatus.PASS if is_object else CheckStatus.FAIL, "record type=SpecObject" if is_object else f"unsupported object record type={type(obj).__name__}")
+        if not is_object:
+            continue
         o = add_validation_obligation(doc, "object-identity-is-unique", obj.id, "Every SpecObject must have a unique identity before backend export.", obj.source_span_id)
         object_id_is_safe = isinstance(obj.id, str) and bool(obj.id.strip())
         object_id_count = object_id_counts[obj.id] if object_id_is_safe else 0
