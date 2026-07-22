@@ -919,6 +919,48 @@ class ValidationRecordTests(unittest.TestCase):
             ],
         )
 
+    def test_plain_item_source_span_validation_refuses_backend_unsafe_values(self):
+        span = SourceSpan("span-1", "file-1", 0, 1, 1, 1)
+        section = Section("section-1", "file-1", "Items", "requirements", 0, span)
+        doc = SpecDocument(
+            files=[PlainFile("file-1", "items.plain", "digest", "text")],
+            spans=[span],
+            sections=[section],
+            items=[
+                PlainItem("item-none-span", "file-1", "section-1", None, 0, 0, "bad", None),
+                PlainItem("item-list-span", "file-1", "section-1", None, 1, 0, "bad", ["span-1"]),
+                PlainItem(
+                    "item-blank-span",
+                    "file-1",
+                    "section-1",
+                    None,
+                    2,
+                    0,
+                    "bad",
+                    SourceSpan("   ", "file-1", 0, 1, 1, 1),
+                ),
+                PlainItem("item-valid", "file-1", "section-1", None, 3, 0, "good", span),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "item-has-safe-source-span"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported item span=None type=NoneType"),
+                (CheckStatus.FAIL, "unsupported item span=['span-1'] type=list"),
+                (CheckStatus.FAIL, "unsupported item span=SourceSpan(id='   ', file_id='file-1', start_byte=0, end_byte=1, start_line=1, end_line=1) type=SourceSpan"),
+                (CheckStatus.PASS, "span=span-1"),
+            ],
+        )
+
     def test_plain_item_link_validation_refuses_backend_unsafe_values(self):
         span = SourceSpan("span-1", "file-1", 0, 1, 1, 1)
         section = Section("section-1", "file-1", "Items", "requirements", 0, span)

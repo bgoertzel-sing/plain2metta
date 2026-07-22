@@ -1244,7 +1244,36 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         )
 
     for item in doc.items:
-        o = add_validation_obligation(doc, "item-identity-is-unique", item.id, "Every indexed item must have a unique identity.", item.span.id)
+        item_span_id = (
+            item.span.id
+            if isinstance(item.span, SourceSpan)
+            and isinstance(item.span.id, str)
+            and item.span.id.strip()
+            else None
+        )
+        o = add_validation_obligation(
+            doc,
+            "item-has-safe-source-span",
+            item.id,
+            "A backend-safe PlainItem source span must be a SourceSpan with a non-blank string identity.",
+            item_span_id,
+        )
+        span_is_safe = item_span_id is not None
+        span_evidence = (
+            f"span={item_span_id}"
+            if span_is_safe
+            else f"unsupported item span={item.span!r} type={type(item.span).__name__}"
+        )
+        add_check(
+            doc,
+            o,
+            CheckStatus.PASS if span_is_safe else CheckStatus.FAIL,
+            span_evidence,
+        )
+        if not span_is_safe:
+            continue
+
+        o = add_validation_obligation(doc, "item-identity-is-unique", item.id, "Every indexed item must have a unique identity.", item_span_id)
         identity_is_safe = isinstance(item.id, str) and bool(item.id.strip())
         count = item_id_counts[item.id] if identity_is_safe else 0
         item_identity_evidence = (
