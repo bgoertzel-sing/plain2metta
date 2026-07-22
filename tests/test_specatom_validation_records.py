@@ -6,6 +6,32 @@ from specatom_hs.validators import add_check, add_validation_obligation
 
 
 class ValidationRecordTests(unittest.TestCase):
+    def test_validation_obligation_record_validation_refuses_malformed_entries(self):
+        valid = ValidationObligation(
+            "obligation-valid",
+            "property-valid",
+            "obligation-valid",
+            "valid neighboring record",
+        )
+        doc = SpecDocument(validation_obligations=[None, ["not-an-obligation"], valid])
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "validation-obligation-has-valid-record-type"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported validation obligation record type=NoneType"),
+                (CheckStatus.FAIL, "unsupported validation obligation record type=list"),
+                (CheckStatus.PASS, "record type=ValidationObligation"),
+            ],
+        )
+
     def test_spec_object_facts_container_validation_refuses_malformed_values(self):
         malformed_none = SpecObject("object-none", Role.CONCEPT_OBJECT, SemanticLevel.TEMPLATE_PARSED)
         malformed_none.facts = None

@@ -564,7 +564,9 @@ def _validate_object_facts(doc: SpecDocument) -> None:
     known_obligations = {
         obligation.id
         for obligation in doc.validation_obligations
-        if isinstance(obligation.id, str) and obligation.id.strip()
+        if isinstance(obligation, ValidationObligation)
+        and isinstance(obligation.id, str)
+        and obligation.id.strip()
     }
     existing_ids = {
         obj.id for obj in doc.objects if isinstance(obj, SpecObject) and isinstance(obj.id, str) and obj.id.strip()
@@ -712,7 +714,9 @@ def _validate_question_objects(doc: SpecDocument) -> None:
     known_obligations = {
         obligation.id
         for obligation in doc.validation_obligations
-        if isinstance(obligation.id, str) and obligation.id.strip()
+        if isinstance(obligation, ValidationObligation)
+        and isinstance(obligation.id, str)
+        and obligation.id.strip()
     }
 
     for obj in doc.objects:
@@ -782,7 +786,9 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
         | {
             obligation.id
             for obligation in original_obligations
-            if isinstance(obligation.id, str) and obligation.id.strip()
+            if isinstance(obligation, ValidationObligation)
+            and isinstance(obligation.id, str)
+            and obligation.id.strip()
         }
         | {
             check.id
@@ -813,6 +819,8 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
         return False
 
     for original in original_obligations:
+        if not isinstance(original, ValidationObligation):
+            continue
         obligation = add_validation_obligation(
             doc,
             "validation-obligation-has-safe-property",
@@ -939,7 +947,9 @@ def _validate_check_records(doc: SpecDocument) -> None:
     obligation_by_id = {
         obligation.id: obligation
         for obligation in doc.validation_obligations
-        if isinstance(obligation.id, str) and obligation.id.strip()
+        if isinstance(obligation, ValidationObligation)
+        and isinstance(obligation.id, str)
+        and obligation.id.strip()
     }
     original_checks = list(doc.checks)
 
@@ -1203,7 +1213,9 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     obligation_id_counts = Counter(
         obligation.id
         for obligation in original_obligations
-        if isinstance(obligation.id, str) and obligation.id.strip()
+        if isinstance(obligation, ValidationObligation)
+        and isinstance(obligation.id, str)
+        and obligation.id.strip()
     )
     check_id_counts = Counter(
         check.id
@@ -1700,7 +1712,31 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         )
         add_check(doc, o, CheckStatus.PASS if ok else CheckStatus.FAIL, provenance_evidence)
 
-    for obligation in original_obligations:
+    for index, obligation in enumerate(original_obligations):
+        record_target = (
+            obligation.id
+            if isinstance(obligation, ValidationObligation)
+            and isinstance(obligation.id, str)
+            and obligation.id.strip()
+            else stable_id("malformed-validation-obligation", index, repr(obligation))
+        )
+        record_check = add_validation_obligation(
+            doc,
+            "validation-obligation-has-valid-record-type",
+            record_target,
+            "Every validation-obligation entry must be a ValidationObligation record.",
+        )
+        is_obligation = isinstance(obligation, ValidationObligation)
+        add_check(
+            doc,
+            record_check,
+            CheckStatus.PASS if is_obligation else CheckStatus.FAIL,
+            "record type=ValidationObligation"
+            if is_obligation
+            else f"unsupported validation obligation record type={type(obligation).__name__}",
+        )
+        if not is_obligation:
+            continue
         o = add_validation_obligation(
             doc,
             "validation-obligation-identity-is-unique",
