@@ -793,7 +793,9 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
         | {
             check.id
             for check in doc.checks
-            if isinstance(check.id, str) and check.id.strip()
+            if isinstance(check, CheckRecord)
+            and isinstance(check.id, str)
+            and check.id.strip()
         }
     )
     known_spans = {
@@ -954,6 +956,8 @@ def _validate_check_records(doc: SpecDocument) -> None:
     original_checks = list(doc.checks)
 
     for check in original_checks:
+        if not isinstance(check, CheckRecord):
+            continue
         obligation_id_is_safe = (
             isinstance(check.obligation_id, str)
             and bool(check.obligation_id.strip())
@@ -1220,7 +1224,9 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     check_id_counts = Counter(
         check.id
         for check in original_checks
-        if isinstance(check.id, str) and check.id.strip()
+        if isinstance(check, CheckRecord)
+        and isinstance(check.id, str)
+        and check.id.strip()
     )
     known_levels = {level for level in SemanticLevel}
 
@@ -1768,7 +1774,31 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         )
         add_check(doc, o, CheckStatus.PASS if identity_is_safe else CheckStatus.FAIL, identity_evidence)
 
-    for check in original_checks:
+    for index, check in enumerate(original_checks):
+        record_target = (
+            check.id
+            if isinstance(check, CheckRecord)
+            and isinstance(check.id, str)
+            and check.id.strip()
+            else stable_id("malformed-check-record", index, repr(check))
+        )
+        record_obligation = add_validation_obligation(
+            doc,
+            "check-has-valid-record-type",
+            record_target,
+            "Every check entry must be a CheckRecord.",
+        )
+        is_check = isinstance(check, CheckRecord)
+        add_check(
+            doc,
+            record_obligation,
+            CheckStatus.PASS if is_check else CheckStatus.FAIL,
+            "record type=CheckRecord"
+            if is_check
+            else f"unsupported check record type={type(check).__name__}",
+        )
+        if not is_check:
+            continue
         o = add_validation_obligation(
             doc,
             "check-identity-is-unique",
