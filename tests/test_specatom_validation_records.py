@@ -637,6 +637,35 @@ class ValidationRecordTests(unittest.TestCase):
             ],
         )
 
+    def test_source_span_validator_refuses_backend_unsafe_file_identities(self):
+        doc = SpecDocument(
+            files=[PlainFile("file-1", "bad.plain", "digest", "text")],
+            spans=[
+                SourceSpan("span-none", None, 0, 1, 1, 1),
+                SourceSpan("span-list", ["file-1"], 0, 1, 1, 1),
+                SourceSpan("span-blank", "   ", 0, 1, 1, 1),
+                SourceSpan("span-valid", "file-1", 0, 1, 1, 1),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "source-span-has-safe-file-identity"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported source span file identity=None type=NoneType"),
+                (CheckStatus.FAIL, "unsupported source span file identity=['file-1'] type=list"),
+                (CheckStatus.FAIL, "unsupported source span file identity='   ' type=str"),
+                (CheckStatus.PASS, "file=file-1"),
+            ],
+        )
+
     def test_source_span_identity_validation_refuses_unhashable_and_blank_ids(self):
         doc = SpecDocument(
             files=[PlainFile("file-1", "bad.plain", "digest", "text")],

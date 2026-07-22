@@ -324,6 +324,28 @@ def _validate_source_spans(doc: SpecDocument) -> None:
     }
 
     for span in doc.spans:
+        file_obligation = add_validation_obligation(
+            doc,
+            "source-span-has-safe-file-identity",
+            span.id,
+            "Backend-safe SourceSpan file links must be non-blank strings.",
+            span.id,
+        )
+        file_identity_is_safe = isinstance(span.file_id, str) and bool(span.file_id.strip())
+        file_evidence = (
+            f"file={span.file_id}"
+            if file_identity_is_safe
+            else f"unsupported source span file identity={span.file_id!r} type={type(span.file_id).__name__}"
+        )
+        add_check(
+            doc,
+            file_obligation,
+            CheckStatus.PASS if file_identity_is_safe else CheckStatus.FAIL,
+            file_evidence,
+        )
+        if not file_identity_is_safe:
+            continue
+
         field_obligation = add_validation_obligation(
             doc,
             "source-span-has-safe-bounds",
