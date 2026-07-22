@@ -79,6 +79,62 @@ class ValidationRecordTests(unittest.TestCase):
             (CheckStatus.PASS, "facts container type=list"),
         ])
 
+    def test_question_validation_ignores_malformed_facts_and_preserves_valid_neighbors(self):
+        obligation = ValidationObligation(
+            "obligation-valid",
+            "property-valid",
+            "target-valid",
+            "valid neighboring obligation",
+        )
+        question = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[
+                None,
+                7,
+                ("QuestionText", "question-valid", "Review this question."),
+                ("Blocks", "question-valid", obligation.id),
+            ],
+        )
+        doc = SpecDocument(objects=[question], validation_obligations=[obligation])
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        malformed_fact_records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "fact-has-supported-arity"
+            and record.target_id.startswith(f"{question.id}:fact:")
+        ]
+        self.assertEqual(
+            malformed_fact_records,
+            [
+                (CheckStatus.FAIL, "unsupported fact record type=NoneType"),
+                (CheckStatus.FAIL, "unsupported fact record type=int"),
+                (CheckStatus.PASS, "arity=3"),
+                (CheckStatus.PASS, "arity=3"),
+            ],
+        )
+        question_records = {
+            record.property: (record.status, record.evidence)
+            for record in doc.checks
+            if record.target_id == question.id
+            and record.property
+            in {"question-has-review-text", "question-blocks-validation-obligation"}
+        }
+        self.assertEqual(
+            question_records,
+            {
+                "question-has-review-text": (CheckStatus.PASS, "question text present"),
+                "question-blocks-validation-obligation": (
+                    CheckStatus.PASS,
+                    "blocks=obligation-valid",
+                ),
+            },
+        )
+
     def test_spec_object_record_validation_refuses_malformed_entries(self):
         valid = SpecObject("object-valid", Role.CONCEPT_OBJECT, SemanticLevel.TEMPLATE_PARSED)
         doc = SpecDocument(objects=[None, ["not-an-object"], valid])

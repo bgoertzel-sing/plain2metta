@@ -726,7 +726,13 @@ def _validate_question_objects(doc: SpecDocument) -> None:
             continue
         if not isinstance(obj.facts, list):
             continue
-        question_texts = [str(fact[2]).strip() for fact in obj.facts if len(fact) == 3 and fact[0] == "QuestionText"]
+        question_texts = [
+            str(fact[2]).strip()
+            for fact in obj.facts
+            if isinstance(fact, tuple)
+            and len(fact) == 3
+            and fact[0] == "QuestionText"
+        ]
         text_obligation = add_validation_obligation(
             doc,
             "question-has-review-text",
@@ -741,7 +747,13 @@ def _validate_question_objects(doc: SpecDocument) -> None:
             "question text present" if any(question_texts) else "missing non-empty QuestionText fact",
         )
 
-        block_targets = [str(fact[2]) for fact in obj.facts if len(fact) == 3 and fact[0] == "Blocks"]
+        block_targets = [
+            str(fact[2])
+            for fact in obj.facts
+            if isinstance(fact, tuple)
+            and len(fact) == 3
+            and fact[0] == "Blocks"
+        ]
         known_block_targets = [target for target in block_targets if target in known_obligations]
         block_obligation = add_validation_obligation(
             doc,
@@ -1135,7 +1147,12 @@ def _validate_edge_source_provenance(doc: SpecDocument) -> None:
             continue
         if not isinstance(obj.facts, list):
             continue
-        has_edge_fact = any(fact and str(fact[0]) in edge_predicates for fact in obj.facts)
+        has_edge_fact = any(
+            isinstance(fact, tuple)
+            and bool(fact)
+            and str(fact[0]) in edge_predicates
+            for fact in obj.facts
+        )
         if not has_edge_fact:
             continue
         obligation = add_validation_obligation(
