@@ -574,6 +574,8 @@ def _validate_object_facts(doc: SpecDocument) -> None:
     for obj in list(doc.objects):
         if not isinstance(obj, SpecObject):
             continue
+        if not isinstance(obj.facts, list):
+            continue
         for index, fact in enumerate(obj.facts):
             is_fact_tuple = isinstance(fact, tuple)
             predicate = fact[0] if is_fact_tuple and fact else "empty"
@@ -717,6 +719,8 @@ def _validate_question_objects(doc: SpecDocument) -> None:
         if not isinstance(obj, SpecObject):
             continue
         if obj.role != Role.QUESTION_OBJECT:
+            continue
+        if not isinstance(obj.facts, list):
             continue
         question_texts = [str(fact[2]).strip() for fact in obj.facts if len(fact) == 3 and fact[0] == "QuestionText"]
         text_obligation = add_validation_obligation(
@@ -1114,6 +1118,8 @@ def _validate_edge_source_provenance(doc: SpecDocument) -> None:
 
     for obj in doc.objects:
         if not isinstance(obj, SpecObject):
+            continue
+        if not isinstance(obj.facts, list):
             continue
         has_edge_fact = any(fact and str(fact[0]) in edge_predicates for fact in obj.facts)
         if not has_edge_fact:
@@ -1646,6 +1652,10 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             CheckStatus.PASS if semantic_level_is_known else CheckStatus.FAIL,
             semantic_level_evidence,
         )
+        o = add_validation_obligation(doc, "object-has-valid-facts-container", obj.id, "Every SpecObject facts container must be a list before validation or backend export.", obj.source_span_id)
+        facts_container_is_valid = isinstance(obj.facts, list)
+        facts_container_evidence = "facts container type=list" if facts_container_is_valid else f"unsupported facts container type={type(obj.facts).__name__}"
+        add_check(doc, o, CheckStatus.PASS if facts_container_is_valid else CheckStatus.FAIL, facts_container_evidence)
         o = add_validation_obligation(
             doc,
             "object-has-safe-source-span-id",
@@ -1677,10 +1687,10 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         ok = (
             isinstance(obj.source_span_id, str)
             and obj.source_span_id in known_spans
-        ) or any(
+        ) or (isinstance(obj.facts, list) and any(
             isinstance(fact, tuple) and bool(fact) and fact[0] == "GeneratedFrom"
             for fact in obj.facts
-        )
+        ))
         provenance_evidence = (
             obj.source_span_id
             if isinstance(obj.source_span_id, str) and obj.source_span_id

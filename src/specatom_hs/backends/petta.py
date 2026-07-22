@@ -303,6 +303,13 @@ def reified_atom_for_object(obj: SpecObject) -> str | BackendRefusal:
         )
     if obj.semantic_level not in SUPPORTED_REIFIED_LEVELS:
         return BackendRefusal("petta_reified_v0", "unsupported-semantic-level-for-reified-emission", obj.id, _semantic_level_value(obj))
+    if not isinstance(obj.facts, list):
+        return BackendRefusal(
+            "petta_reified_v0",
+            f"unsupported-object-facts-container-type:{type(obj.facts).__name__}",
+            obj.id,
+            _semantic_level_value(obj),
+        )
     return _atom(["spec-object", obj.id, obj.role.value, _semantic_level_value(obj)])
 
 
@@ -363,6 +370,8 @@ def _compute_information_flow_summary(doc: SpecDocument) -> dict[str, int]:
 
     for obj in doc.objects:
         if not isinstance(obj, SpecObject):
+            continue
+        if not isinstance(obj.facts, list):
             continue
         for fact in obj.facts:
             if not isinstance(fact, tuple) or len(fact) < 2:

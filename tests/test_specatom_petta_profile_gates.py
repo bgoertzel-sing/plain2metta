@@ -42,6 +42,17 @@ def document_with_checks(
 
 
 class PettaProfileGateTests(unittest.TestCase):
+    def test_reified_profile_refuses_malformed_object_facts_containers(self):
+        malformed = SpecObject("object-malformed", Role.CONCEPT_OBJECT, SemanticLevel.TEMPLATE_PARSED)
+        malformed.facts = None
+        valid = SpecObject("object-valid", Role.CONCEPT_OBJECT, SemanticLevel.TEMPLATE_PARSED)
+
+        atoms, refusals = emit_reified_atoms(SpecDocument(objects=[malformed, valid]))
+
+        self.assertNotIn("(spec-object object-malformed ConceptObject TemplateParsed)", atoms)
+        self.assertIn("(spec-object object-valid ConceptObject TemplateParsed)", atoms)
+        self.assertTrue(any(refusal.reason == "unsupported-object-facts-container-type:NoneType" and refusal.object_id == "object-malformed" for refusal in refusals))
+
     def test_refuses_malformed_spec_object_record_types_without_crashing(self):
         valid = SpecObject("valid-object", Role.CONCEPT_OBJECT, SemanticLevel.TEMPLATE_PARSED)
         atoms, refusals = emit_reified_atoms(SpecDocument(objects=[None, ["bad"], valid]))

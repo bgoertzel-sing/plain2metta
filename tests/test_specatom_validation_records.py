@@ -6,6 +6,24 @@ from specatom_hs.validators import add_check, add_validation_obligation
 
 
 class ValidationRecordTests(unittest.TestCase):
+    def test_spec_object_facts_container_validation_refuses_malformed_values(self):
+        malformed_none = SpecObject("object-none", Role.CONCEPT_OBJECT, SemanticLevel.TEMPLATE_PARSED)
+        malformed_none.facts = None
+        malformed_mapping = SpecObject("object-mapping", Role.CONCEPT_OBJECT, SemanticLevel.TEMPLATE_PARSED)
+        malformed_mapping.facts = {"ConceptName": "unsafe"}
+        valid = SpecObject("object-valid", Role.CONCEPT_OBJECT, SemanticLevel.TEMPLATE_PARSED)
+        doc = SpecDocument(objects=[malformed_none, malformed_mapping, valid])
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [(record.status, record.evidence) for record in doc.checks if record.property == "object-has-valid-facts-container"]
+        self.assertEqual(records, [
+            (CheckStatus.FAIL, "unsupported facts container type=NoneType"),
+            (CheckStatus.FAIL, "unsupported facts container type=dict"),
+            (CheckStatus.PASS, "facts container type=list"),
+        ])
+
     def test_spec_object_record_validation_refuses_malformed_entries(self):
         valid = SpecObject("object-valid", Role.CONCEPT_OBJECT, SemanticLevel.TEMPLATE_PARSED)
         doc = SpecDocument(objects=[None, ["not-an-object"], valid])
