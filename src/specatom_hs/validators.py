@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 import math
 
-from .schema import CheckRecord, CheckStatus, PlainFile, Role, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation, stable_id
+from .schema import CheckRecord, CheckStatus, PlainFile, Role, Section, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation, stable_id
 
 
 def _line_for_offset(text: str, offset: int) -> int:
@@ -755,7 +755,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             and isinstance(plain_file.id, str)
             and plain_file.id.strip()
         }
-        | {section.id for section in doc.sections if isinstance(section.id, str) and section.id.strip()}
+        | {section.id for section in doc.sections if isinstance(section, Section) and isinstance(section.id, str) and section.id.strip()}
         | {item.id for item in doc.items if isinstance(item.id, str) and item.id.strip()}
         | {
             span.id
@@ -1148,10 +1148,12 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         and file_id_counts[f.id] == 1
     }
     section_id_counts = Counter(
-        s.id for s in doc.sections if isinstance(s.id, str) and s.id.strip()
+        s.id
+        for s in doc.sections
+        if isinstance(s, Section) and isinstance(s.id, str) and s.id.strip()
     )
-    known_sections = {s.id for s in doc.sections if isinstance(s.id, str) and s.id.strip() and section_id_counts[s.id] == 1}
-    sections_by_id = {s.id: s for s in doc.sections if isinstance(s.id, str) and s.id.strip() and section_id_counts[s.id] == 1}
+    known_sections = {s.id for s in doc.sections if isinstance(s, Section) and isinstance(s.id, str) and s.id.strip() and section_id_counts[s.id] == 1}
+    sections_by_id = {s.id: s for s in doc.sections if isinstance(s, Section) and isinstance(s.id, str) and s.id.strip() and section_id_counts[s.id] == 1}
     item_id_counts = Counter(
         item.id for item in doc.items if isinstance(item.id, str) and item.id.strip()
     )
@@ -1241,7 +1243,33 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         )
         add_check(doc, o, CheckStatus.PASS if identity_is_safe else CheckStatus.FAIL, identity_evidence)
 
-    for section in doc.sections:
+    for index, section in enumerate(doc.sections):
+        record_target = (
+            section.id
+            if isinstance(section, Section)
+            and isinstance(section.id, str)
+            and section.id.strip()
+            else stable_id("malformed-section", index, repr(section))
+        )
+        record_obligation = add_validation_obligation(
+            doc,
+            "section-has-valid-record-type",
+            record_target,
+            "Every source-manifest section entry must be a Section record.",
+            None,
+        )
+        is_section = isinstance(section, Section)
+        add_check(
+            doc,
+            record_obligation,
+            CheckStatus.PASS if is_section else CheckStatus.FAIL,
+            "record type=Section"
+            if is_section
+            else f"unsupported section record type={type(section).__name__}",
+        )
+        if not is_section:
+            continue
+
         section_span_id = (
             section.span.id
             if isinstance(section.span, SourceSpan)
