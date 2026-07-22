@@ -6,6 +6,27 @@ from specatom_hs.validators import add_check, add_validation_obligation
 
 
 class ValidationRecordTests(unittest.TestCase):
+    def test_source_span_record_validation_refuses_malformed_entries(self):
+        valid = SourceSpan("span-valid", "file-valid", 0, 1, 1, 1)
+        doc = SpecDocument(spans=[None, ["not-a-span"], valid])
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "source-span-has-valid-record-type"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported source span record type=NoneType"),
+                (CheckStatus.FAIL, "unsupported source span record type=list"),
+                (CheckStatus.PASS, "record type=SourceSpan"),
+            ],
+        )
+
     def test_plain_file_record_validation_refuses_malformed_entries(self):
         valid = PlainFile("file-valid", "valid.plain", "digest", "text")
         doc = SpecDocument(files=[None, ["not-a-file"], valid])

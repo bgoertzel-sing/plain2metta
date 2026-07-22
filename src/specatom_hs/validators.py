@@ -351,7 +351,33 @@ def _validate_source_spans(doc: SpecDocument) -> None:
         and file_id_counts[plain_file.id] == 1
     }
 
-    for span in doc.spans:
+    for index, span in enumerate(doc.spans):
+        record_target = (
+            span.id
+            if isinstance(span, SourceSpan)
+            and isinstance(span.id, str)
+            and span.id.strip()
+            else stable_id("malformed-source-span", index, repr(span))
+        )
+        record_obligation = add_validation_obligation(
+            doc,
+            "source-span-has-valid-record-type",
+            record_target,
+            "Every source-manifest span entry must be a SourceSpan record.",
+            None,
+        )
+        is_source_span = isinstance(span, SourceSpan)
+        add_check(
+            doc,
+            record_obligation,
+            CheckStatus.PASS if is_source_span else CheckStatus.FAIL,
+            "record type=SourceSpan"
+            if is_source_span
+            else f"unsupported source span record type={type(span).__name__}",
+        )
+        if not is_source_span:
+            continue
+
         file_obligation = add_validation_obligation(
             doc,
             "source-span-has-safe-file-identity",
@@ -731,7 +757,13 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
         }
         | {section.id for section in doc.sections if isinstance(section.id, str) and section.id.strip()}
         | {item.id for item in doc.items if isinstance(item.id, str) and item.id.strip()}
-        | {span.id for span in doc.spans if isinstance(span.id, str) and span.id.strip()}
+        | {
+            span.id
+            for span in doc.spans
+            if isinstance(span, SourceSpan)
+            and isinstance(span.id, str)
+            and span.id.strip()
+        }
         | {
             obj.id
             for obj in doc.objects
@@ -748,7 +780,13 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             if isinstance(check.id, str) and check.id.strip()
         }
     )
-    known_spans = {span.id for span in doc.spans if isinstance(span.id, str) and span.id.strip()}
+    known_spans = {
+        span.id
+        for span in doc.spans
+        if isinstance(span, SourceSpan)
+        and isinstance(span.id, str)
+        and span.id.strip()
+    }
     object_ids = {
         obj.id for obj in doc.objects if isinstance(obj.id, str) and obj.id.strip()
     }
@@ -1048,7 +1086,9 @@ def _validate_edge_source_provenance(doc: SpecDocument) -> None:
     spans_by_id = {
         span.id: span
         for span in doc.spans
-        if isinstance(span.id, str) and span.id.strip()
+        if isinstance(span, SourceSpan)
+        and isinstance(span.id, str)
+        and span.id.strip()
     }
     item_spans = [item.span for item in doc.items]
     edge_predicates = {"DataFlowEdge", "TemporalOrderEdge"}
@@ -1117,17 +1157,25 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     )
     items_by_id = {item.id: item for item in doc.items if isinstance(item.id, str) and item.id.strip() and item_id_counts[item.id] == 1}
     span_id_counts = Counter(
-        s.id for s in doc.spans if isinstance(s.id, str) and s.id.strip()
+        s.id
+        for s in doc.spans
+        if isinstance(s, SourceSpan) and isinstance(s.id, str) and s.id.strip()
     )
     known_spans = {
         s.id
         for s in doc.spans
-        if isinstance(s.id, str) and s.id.strip() and span_id_counts[s.id] == 1
+        if isinstance(s, SourceSpan)
+        and isinstance(s.id, str)
+        and s.id.strip()
+        and span_id_counts[s.id] == 1
     }
     spans_by_id = {
         s.id: s
         for s in doc.spans
-        if isinstance(s.id, str) and s.id.strip() and span_id_counts[s.id] == 1
+        if isinstance(s, SourceSpan)
+        and isinstance(s.id, str)
+        and s.id.strip()
+        and span_id_counts[s.id] == 1
     }
     object_id_counts = Counter(
         obj.id
@@ -1172,6 +1220,8 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         add_check(doc, o, CheckStatus.PASS if identity_is_safe else CheckStatus.FAIL, identity_evidence)
 
     for span in doc.spans:
+        if not isinstance(span, SourceSpan):
+            continue
         o = add_validation_obligation(doc, "source-span-identity-is-unique", span.id, "Every indexed SourceSpan must have a unique identity.", span.id)
         identity_is_safe = isinstance(span.id, str) and bool(span.id.strip())
         count = span_id_counts[span.id] if identity_is_safe else 0
