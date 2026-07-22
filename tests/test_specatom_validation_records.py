@@ -849,6 +849,37 @@ class ValidationRecordTests(unittest.TestCase):
             ],
         )
 
+    def test_section_source_span_validation_refuses_backend_unsafe_values(self):
+        span = SourceSpan("span-1", "file-1", 0, 1, 1, 1)
+        doc = SpecDocument(
+            files=[PlainFile("file-1", "sections.plain", "digest", "text")],
+            spans=[span],
+            sections=[
+                Section("section-none-span", "file-1", "Bad", "requirements", 0, None),
+                Section("section-list-span", "file-1", "Bad", "requirements", 1, ["span-1"]),
+                Section("section-blank-span", "file-1", "Bad", "requirements", 2, SourceSpan("   ", "file-1", 0, 1, 1, 1)),
+                Section("section-valid", "file-1", "Good", "requirements", 3, span),
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "section-has-safe-source-span"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported section span=None type=NoneType"),
+                (CheckStatus.FAIL, "unsupported section span=['span-1'] type=list"),
+                (CheckStatus.FAIL, "unsupported section span=SourceSpan(id='   ', file_id='file-1', start_byte=0, end_byte=1, start_line=1, end_line=1) type=SourceSpan"),
+                (CheckStatus.PASS, "span=span-1"),
+            ],
+        )
+
     def test_plain_item_field_validation_refuses_backend_unsafe_values(self):
         span = SourceSpan("span-1", "file-1", 0, 1, 1, 1)
         section = Section("section-1", "file-1", "Items", "requirements", 0, span)

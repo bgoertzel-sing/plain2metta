@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 import math
 
-from .schema import CheckRecord, CheckStatus, Role, SemanticLevel, SpecDocument, SpecObject, ValidationObligation, stable_id
+from .schema import CheckRecord, CheckStatus, Role, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation, stable_id
 
 
 def _line_for_offset(text: str, offset: int) -> int:
@@ -1125,7 +1125,36 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
         add_check(doc, o, CheckStatus.PASS if identity_is_safe else CheckStatus.FAIL, identity_evidence)
 
     for section in doc.sections:
-        o = add_validation_obligation(doc, "section-identity-is-unique", section.id, "Every indexed section must have a unique identity.", section.span.id)
+        section_span_id = (
+            section.span.id
+            if isinstance(section.span, SourceSpan)
+            and isinstance(section.span.id, str)
+            and section.span.id.strip()
+            else None
+        )
+        o = add_validation_obligation(
+            doc,
+            "section-has-safe-source-span",
+            section.id,
+            "A backend-safe Section source span must be a SourceSpan with a non-blank string identity.",
+            section_span_id,
+        )
+        span_is_safe = section_span_id is not None
+        span_evidence = (
+            f"span={section_span_id}"
+            if span_is_safe
+            else f"unsupported section span={section.span!r} type={type(section.span).__name__}"
+        )
+        add_check(
+            doc,
+            o,
+            CheckStatus.PASS if span_is_safe else CheckStatus.FAIL,
+            span_evidence,
+        )
+        if not span_is_safe:
+            continue
+
+        o = add_validation_obligation(doc, "section-identity-is-unique", section.id, "Every indexed section must have a unique identity.", section_span_id)
         identity_is_safe = isinstance(section.id, str) and bool(section.id.strip())
         count = section_id_counts[section.id] if identity_is_safe else 0
         section_identity_evidence = (
@@ -1136,7 +1165,7 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             else f"identity cannot be indexed safely: {section.id!r} type={type(section.id).__name__}"
         )
         add_check(doc, o, CheckStatus.PASS if count == 1 else CheckStatus.FAIL, section_identity_evidence)
-        o = add_validation_obligation(doc, "section-has-safe-identity", section.id, "Backend-safe Section identities must be non-blank strings.", section.span.id)
+        o = add_validation_obligation(doc, "section-has-safe-identity", section.id, "Backend-safe Section identities must be non-blank strings.", section_span_id)
         identity_evidence = (
             f"section={section.id}"
             if identity_is_safe
