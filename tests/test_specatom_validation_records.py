@@ -6,6 +6,27 @@ from specatom_hs.validators import add_check, add_validation_obligation
 
 
 class ValidationRecordTests(unittest.TestCase):
+    def test_plain_file_record_validation_refuses_malformed_entries(self):
+        valid = PlainFile("file-valid", "valid.plain", "digest", "text")
+        doc = SpecDocument(files=[None, ["not-a-file"], valid])
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        records = [
+            (record.status, record.evidence)
+            for record in doc.checks
+            if record.property == "plain-file-has-valid-record-type"
+        ]
+        self.assertEqual(
+            records,
+            [
+                (CheckStatus.FAIL, "unsupported plain file record type=NoneType"),
+                (CheckStatus.FAIL, "unsupported plain file record type=list"),
+                (CheckStatus.PASS, "record type=PlainFile"),
+            ],
+        )
+
     def test_validation_obligation_and_check_records_are_first_class(self):
         doc = compile_source("***definitions***\n- :Task: is work.\n", "minimal.plain")
         self.assertTrue(doc.validation_obligations)

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 import math
 
-from .schema import CheckRecord, CheckStatus, Role, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation, stable_id
+from .schema import CheckRecord, CheckStatus, PlainFile, Role, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation, stable_id
 
 
 def _line_for_offset(text: str, offset: int) -> int:
@@ -265,7 +265,32 @@ SUPPORTED_PETTA_REIFIED_LEVELS = {
 
 def _validate_plain_files(doc: SpecDocument) -> None:
     """Check indexed file digests against the preserved source text."""
-    for plain_file in doc.files:
+    for index, plain_file in enumerate(doc.files):
+        record_target = (
+            plain_file.id
+            if isinstance(plain_file, PlainFile)
+            and isinstance(plain_file.id, str)
+            and plain_file.id.strip()
+            else stable_id("malformed-plain-file", index, repr(plain_file))
+        )
+        record_obligation = add_validation_obligation(
+            doc,
+            "plain-file-has-valid-record-type",
+            record_target,
+            "Every source-manifest file entry must be a PlainFile record.",
+            None,
+        )
+        is_plain_file = isinstance(plain_file, PlainFile)
+        add_check(
+            doc,
+            record_obligation,
+            CheckStatus.PASS if is_plain_file else CheckStatus.FAIL,
+            "record type=PlainFile"
+            if is_plain_file
+            else f"unsupported plain file record type={type(plain_file).__name__}",
+        )
+        if not is_plain_file:
+            continue
         fields_obligation = add_validation_obligation(
             doc,
             "plain-file-has-safe-fields",
@@ -313,12 +338,15 @@ def _validate_source_spans(doc: SpecDocument) -> None:
     file_id_counts = Counter(
         plain_file.id
         for plain_file in doc.files
-        if isinstance(plain_file.id, str) and plain_file.id.strip()
+        if isinstance(plain_file, PlainFile)
+        and isinstance(plain_file.id, str)
+        and plain_file.id.strip()
     )
     files_by_id = {
         plain_file.id: plain_file
         for plain_file in doc.files
-        if isinstance(plain_file.id, str)
+        if isinstance(plain_file, PlainFile)
+        and isinstance(plain_file.id, str)
         and plain_file.id.strip()
         and file_id_counts[plain_file.id] == 1
     }
@@ -694,7 +722,13 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
     """Validate obligation provenance and target links without recursion."""
     original_obligations = list(doc.validation_obligations)
     known_targets = (
-        {plain_file.id for plain_file in doc.files if isinstance(plain_file.id, str) and plain_file.id.strip()}
+        {
+            plain_file.id
+            for plain_file in doc.files
+            if isinstance(plain_file, PlainFile)
+            and isinstance(plain_file.id, str)
+            and plain_file.id.strip()
+        }
         | {section.id for section in doc.sections if isinstance(section.id, str) and section.id.strip()}
         | {item.id for item in doc.items if isinstance(item.id, str) and item.id.strip()}
         | {span.id for span in doc.spans if isinstance(span.id, str) and span.id.strip()}
@@ -1061,9 +1095,18 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     original_obligations = list(doc.validation_obligations)
     original_checks = list(doc.checks)
     file_id_counts = Counter(
-        f.id for f in doc.files if isinstance(f.id, str) and f.id.strip()
+        f.id
+        for f in doc.files
+        if isinstance(f, PlainFile) and isinstance(f.id, str) and f.id.strip()
     )
-    known_files = {f.id for f in doc.files if isinstance(f.id, str) and f.id.strip() and file_id_counts[f.id] == 1}
+    known_files = {
+        f.id
+        for f in doc.files
+        if isinstance(f, PlainFile)
+        and isinstance(f.id, str)
+        and f.id.strip()
+        and file_id_counts[f.id] == 1
+    }
     section_id_counts = Counter(
         s.id for s in doc.sections if isinstance(s.id, str) and s.id.strip()
     )
@@ -1107,6 +1150,8 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     _validate_source_spans(doc)
 
     for plain_file in doc.files:
+        if not isinstance(plain_file, PlainFile):
+            continue
         o = add_validation_obligation(doc, "plain-file-identity-is-unique", plain_file.id, "Every indexed PlainFile must have a unique identity.")
         identity_is_safe = isinstance(plain_file.id, str) and bool(plain_file.id.strip())
         count = file_id_counts[plain_file.id] if identity_is_safe else 0
@@ -1595,6 +1640,16 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     _validate_edge_source_provenance(doc)
 
     if not doc.objects:
-        o = add_validation_obligation(doc, "semantic-objects-present", doc.files[0].id if doc.files else "document", "A compiler pass should create semantic objects after source indexing.")
+        document_target = next(
+            (
+                plain_file.id
+                for plain_file in doc.files
+                if isinstance(plain_file, PlainFile)
+                and isinstance(plain_file.id, str)
+                and plain_file.id.strip()
+            ),
+            "document",
+        )
+        o = add_validation_obligation(doc, "semantic-objects-present", document_target, "A compiler pass should create semantic objects after source indexing.")
         add_check(doc, o, CheckStatus.UNKNOWN, "source indexing only; semantic pass not yet run")
     return doc
