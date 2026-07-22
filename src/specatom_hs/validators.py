@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 import math
 
-from .schema import CheckRecord, CheckStatus, PlainFile, Role, Section, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation, stable_id
+from .schema import CheckRecord, CheckStatus, PlainFile, PlainItem, Role, Section, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation, stable_id
 
 
 def _line_for_offset(text: str, offset: int) -> int:
@@ -557,7 +557,7 @@ def _validate_object_facts(doc: SpecDocument) -> None:
     known_items = {
         item.id
         for item in doc.items
-        if isinstance(item.id, str) and item.id.strip()
+        if isinstance(item, PlainItem) and isinstance(item.id, str) and item.id.strip()
     }
     known_obligations = {
         obligation.id
@@ -756,7 +756,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             and plain_file.id.strip()
         }
         | {section.id for section in doc.sections if isinstance(section, Section) and isinstance(section.id, str) and section.id.strip()}
-        | {item.id for item in doc.items if isinstance(item.id, str) and item.id.strip()}
+        | {item.id for item in doc.items if isinstance(item, PlainItem) and isinstance(item.id, str) and item.id.strip()}
         | {
             span.id
             for span in doc.spans
@@ -1090,7 +1090,7 @@ def _validate_edge_source_provenance(doc: SpecDocument) -> None:
         and isinstance(span.id, str)
         and span.id.strip()
     }
-    item_spans = [item.span for item in doc.items]
+    item_spans = [item.span for item in doc.items if isinstance(item, PlainItem)]
     edge_predicates = {"DataFlowEdge", "TemporalOrderEdge"}
 
     def containing_item_span_id(span_id: str | None) -> str | None:
@@ -1155,9 +1155,11 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     known_sections = {s.id for s in doc.sections if isinstance(s, Section) and isinstance(s.id, str) and s.id.strip() and section_id_counts[s.id] == 1}
     sections_by_id = {s.id: s for s in doc.sections if isinstance(s, Section) and isinstance(s.id, str) and s.id.strip() and section_id_counts[s.id] == 1}
     item_id_counts = Counter(
-        item.id for item in doc.items if isinstance(item.id, str) and item.id.strip()
+        item.id
+        for item in doc.items
+        if isinstance(item, PlainItem) and isinstance(item.id, str) and item.id.strip()
     )
-    items_by_id = {item.id: item for item in doc.items if isinstance(item.id, str) and item.id.strip() and item_id_counts[item.id] == 1}
+    items_by_id = {item.id: item for item in doc.items if isinstance(item, PlainItem) and isinstance(item.id, str) and item.id.strip() and item_id_counts[item.id] == 1}
     span_id_counts = Counter(
         s.id
         for s in doc.spans
@@ -1388,7 +1390,33 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
             evidence,
         )
 
-    for item in doc.items:
+    for index, item in enumerate(doc.items):
+        record_target = (
+            item.id
+            if isinstance(item, PlainItem)
+            and isinstance(item.id, str)
+            and item.id.strip()
+            else stable_id("malformed-item", index, repr(item))
+        )
+        record_obligation = add_validation_obligation(
+            doc,
+            "item-has-valid-record-type",
+            record_target,
+            "Every source-manifest item entry must be a PlainItem record.",
+            None,
+        )
+        is_item = isinstance(item, PlainItem)
+        add_check(
+            doc,
+            record_obligation,
+            CheckStatus.PASS if is_item else CheckStatus.FAIL,
+            "record type=PlainItem"
+            if is_item
+            else f"unsupported item record type={type(item).__name__}",
+        )
+        if not is_item:
+            continue
+
         item_span_id = (
             item.span.id
             if isinstance(item.span, SourceSpan)
