@@ -99,11 +99,12 @@ class DiagnosticsTests(unittest.TestCase):
         summary = diagnostics_summary(doc)
         report = format_diagnostics_report(doc)
 
-        self.assertEqual(summary["questions"], 2)
+        self.assertEqual(summary["questions"], 1)
         self.assertGreater(summary["fail"], 0)
         self.assertIn("Review this.", report)
         self.assertIn("unsupported-spec-object-record-type:NoneType", report)
         self.assertIn("unsupported-check-record-type:NoneType", report)
+        self.assertIn("unsupported-object-facts-container-type:NoneType", report)
 
     def test_diagnostics_fail_closed_on_malformed_check_fields(self):
         obligation = ValidationObligation(
