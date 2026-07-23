@@ -10,7 +10,7 @@ from .petta import emit_reified_atoms
 
 def _status_key(status: object) -> str:
     value = status.value if hasattr(status, "value") else str(status)
-    lowered = value.lower()
+    lowered = str(value).lower()
     if lowered == "pass":
         return "pass"
     if lowered == "fail":
@@ -27,7 +27,12 @@ def diagnostics_summary(doc: SpecDocument) -> dict:
     for check in valid_checks:
         key = _status_key(check.status)
         counts[key] += 1
-        by_property[check.property][key] += 1
+        property_key = (
+            check.property
+            if isinstance(check.property, str)
+            else f"<invalid {type(check.property).__name__}: {check.property!r}>"
+        )
+        by_property[property_key][key] += 1
 
     concept_counts = {"defined": 0, "external": 0, "unresolved": 0}
     questions = 0
@@ -58,7 +63,17 @@ def diagnostics_summary(doc: SpecDocument) -> dict:
             ):
                 concept_counts[str(fact[2])] += 1
 
-    coverage_checks = [check for check in valid_checks if check.property in {"requirement-has-acceptance-test", "acceptance-test-covers-requirement", "coverage-claim-target-resolved"}]
+    coverage_checks = [
+        check
+        for check in valid_checks
+        if isinstance(check.property, str)
+        and check.property
+        in {
+            "requirement-has-acceptance-test",
+            "acceptance-test-covers-requirement",
+            "coverage-claim-target-resolved",
+        }
+    ]
 
     return {
         "total_objects": len(doc.objects),

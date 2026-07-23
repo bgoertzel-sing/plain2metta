@@ -5,7 +5,7 @@ from pathlib import Path
 from specatom_hs.backends.diagnostics import diagnostics_summary, format_diagnostics_report
 from specatom_hs.backends.petta import emit_metta_file, emit_reified_atoms, emit_reified_atoms_grouped
 from specatom_hs.passes import compile_path
-from specatom_hs.schema import Role, SemanticLevel, SpecDocument, SpecObject
+from specatom_hs.schema import CheckRecord, CheckStatus, Role, SemanticLevel, SpecDocument, SpecObject, ValidationObligation
 from specatom_hs.validators import validate_document
 
 
@@ -104,6 +104,39 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("Review this.", report)
         self.assertIn("unsupported-spec-object-record-type:NoneType", report)
         self.assertIn("unsupported-check-record-type:NoneType", report)
+
+    def test_diagnostics_fail_closed_on_malformed_check_fields(self):
+        obligation = ValidationObligation(
+            "obligation-valid", "review", "target-valid", "Review target."
+        )
+        malformed = CheckRecord(
+            "check-malformed",
+            obligation.id,
+            ["review"],
+            obligation.target_id,
+            ["Pass"],
+            "invalid structured fields",
+        )
+        valid = CheckRecord(
+            "check-valid",
+            obligation.id,
+            obligation.property,
+            obligation.target_id,
+            CheckStatus.PASS,
+            "reviewed",
+        )
+        doc = SpecDocument(
+            validation_obligations=[obligation], checks=[malformed, valid]
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["pass"], 1)
+        self.assertEqual(summary["unknown"], 1)
+        self.assertIn("<invalid list: ['review']>", summary["by_property"])
+        self.assertEqual(summary["by_property"]["review"]["pass"], 1)
+        self.assertIn("unsupported-check-property-type:list", report)
 
 
 if __name__ == "__main__":
