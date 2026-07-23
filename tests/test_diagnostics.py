@@ -5,6 +5,8 @@ from pathlib import Path
 from specatom_hs.backends.diagnostics import diagnostics_summary, format_diagnostics_report
 from specatom_hs.backends.petta import emit_metta_file, emit_reified_atoms, emit_reified_atoms_grouped
 from specatom_hs.passes import compile_path
+from specatom_hs.schema import Role, SemanticLevel, SpecDocument, SpecObject
+from specatom_hs.validators import validate_document
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "task_manager.plain"
@@ -76,6 +78,32 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("AUTH-2", report)
         self.assertIn("AUTH-99", report)
         self.assertIn("AuditSink", report)
+
+    def test_diagnostics_fail_closed_on_malformed_records_and_facts(self):
+        valid = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[None, ("QuestionText", "question-valid", "Review this."), 7],
+        )
+        malformed_facts = SpecObject(
+            "question-malformed-facts",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        malformed_facts.facts = None
+        doc = SpecDocument(objects=[None, valid, malformed_facts])
+        validate_document(doc)
+        doc.checks.insert(0, None)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["questions"], 2)
+        self.assertGreater(summary["fail"], 0)
+        self.assertIn("Review this.", report)
+        self.assertIn("unsupported-spec-object-record-type:NoneType", report)
+        self.assertIn("unsupported-check-record-type:NoneType", report)
 
 
 if __name__ == "__main__":

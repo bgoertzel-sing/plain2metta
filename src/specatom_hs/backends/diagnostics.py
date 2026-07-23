@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from ..schema import CheckStatus, Role, SpecDocument
+from ..schema import CheckRecord, CheckStatus, Role, SpecDocument, SpecObject
 from .petta import emit_reified_atoms
 
 
@@ -23,7 +23,8 @@ def diagnostics_summary(doc: SpecDocument) -> dict:
     _, refusals = emit_reified_atoms(doc)
     by_property: dict[str, dict[str, int]] = defaultdict(lambda: {"pass": 0, "fail": 0, "unknown": 0})
     counts = {"pass": 0, "fail": 0, "unknown": 0}
-    for check in doc.checks:
+    valid_checks = [check for check in doc.checks if isinstance(check, CheckRecord)]
+    for check in valid_checks:
         key = _status_key(check.status)
         counts[key] += 1
         by_property[check.property][key] += 1
@@ -33,17 +34,31 @@ def diagnostics_summary(doc: SpecDocument) -> dict:
     requirements = 0
     acceptance_tests = 0
     for obj in doc.objects:
+        if not isinstance(obj, SpecObject):
+            continue
         if obj.role == Role.QUESTION_OBJECT:
             questions += 1
         if obj.role == Role.REQUIREMENT_OBJECT:
             requirements += 1
-        if obj.role == Role.VALIDATION_OBJECT and any(len(fact) >= 3 and fact[0] == "TestKind" and fact[2] == "Acceptance" for fact in obj.facts):
+        facts = obj.facts if isinstance(obj.facts, list) else []
+        if obj.role == Role.VALIDATION_OBJECT and any(
+            isinstance(fact, tuple)
+            and len(fact) >= 3
+            and fact[0] == "TestKind"
+            and fact[2] == "Acceptance"
+            for fact in facts
+        ):
             acceptance_tests += 1
-        for fact in obj.facts:
-            if len(fact) >= 3 and fact[0] == "ConceptStatus" and fact[2] in concept_counts:
+        for fact in facts:
+            if (
+                isinstance(fact, tuple)
+                and len(fact) >= 3
+                and fact[0] == "ConceptStatus"
+                and fact[2] in concept_counts
+            ):
                 concept_counts[str(fact[2])] += 1
 
-    coverage_checks = [check for check in doc.checks if check.property in {"requirement-has-acceptance-test", "acceptance-test-covers-requirement", "coverage-claim-target-resolved"}]
+    coverage_checks = [check for check in valid_checks if check.property in {"requirement-has-acceptance-test", "acceptance-test-covers-requirement", "coverage-claim-target-resolved"}]
 
     return {
         "total_objects": len(doc.objects),
@@ -72,9 +87,21 @@ def _markdown_table(headers: list[str], rows: list[list[object]]) -> str:
 def _question_texts(doc: SpecDocument) -> list[str]:
     texts: list[str] = []
     for obj in doc.objects:
+        if not isinstance(obj, SpecObject):
+            continue
         if obj.role != Role.QUESTION_OBJECT:
             continue
-        text = next((str(fact[2]) for fact in obj.facts if len(fact) >= 3 and fact[0] == "QuestionText"), "")
+        facts = obj.facts if isinstance(obj.facts, list) else []
+        text = next(
+            (
+                str(fact[2])
+                for fact in facts
+                if isinstance(fact, tuple)
+                and len(fact) >= 3
+                and fact[0] == "QuestionText"
+            ),
+            "",
+        )
         texts.append(f"- {obj.id}: {text}" if text else f"- {obj.id}")
     return texts
 
@@ -94,8 +121,9 @@ def format_diagnostics_report(doc: SpecDocument) -> str:
         for prop, counts in summary["by_property"].items()
     ] or [["(none)", 0, 0, 0]]
 
-    fail_lines = [f"- {c.id} `{c.property}` target `{c.target_id}`: {c.evidence}" for c in doc.checks if _status_key(c.status) == "fail"] or ["- (none)"]
-    unknown_lines = [f"- {c.id} `{c.property}` target `{c.target_id}`: {c.evidence}" for c in doc.checks if _status_key(c.status) == "unknown"] or ["- (none)"]
+    valid_checks = [check for check in doc.checks if isinstance(check, CheckRecord)]
+    fail_lines = [f"- {c.id} `{c.property}` target `{c.target_id}`: {c.evidence}" for c in valid_checks if _status_key(c.status) == "fail"] or ["- (none)"]
+    unknown_lines = [f"- {c.id} `{c.property}` target `{c.target_id}`: {c.evidence}" for c in valid_checks if _status_key(c.status) == "unknown"] or ["- (none)"]
     question_lines = _question_texts(doc) or ["- (none)"]
     refusal_lines = [f"- {r.reason} {r.object_id or ''}".rstrip() for r in refusals] or ["- (none)"]
 
