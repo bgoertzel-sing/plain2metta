@@ -286,6 +286,55 @@ class DiagnosticsTests(unittest.TestCase):
             report,
         )
 
+    def test_diagnostics_fail_closed_on_mismatched_fact_subjects(self):
+        malformed_concept = SpecObject(
+            "concept-malformed",
+            Role.CONCEPT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("ConceptStatus", "different-object", "defined")],
+        )
+        malformed_validation = SpecObject(
+            "validation-malformed",
+            Role.VALIDATION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("TestKind", "different-object", "Acceptance")],
+        )
+        malformed_question = SpecObject(
+            "question-malformed",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "different-object", "Do not report this.")],
+        )
+        valid_question = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-valid", "Review this.")],
+        )
+        doc = SpecDocument(
+            objects=[
+                malformed_concept,
+                malformed_validation,
+                malformed_question,
+                valid_question,
+            ]
+        )
+        validate_document(doc)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(
+            summary["concepts"],
+            {"defined": 0, "external": 0, "unresolved": 0},
+        )
+        self.assertEqual(summary["acceptance_tests"], 0)
+        self.assertIn("Review this.", report)
+        self.assertNotIn("Do not report this.", report)
+        self.assertIn("fact-subject-matches-object", report)
+        self.assertIn("fact-subject-mismatch:TestKind", report)
+        self.assertIn("fact-subject-mismatch:QuestionText", report)
+
 
 if __name__ == "__main__":
     unittest.main()

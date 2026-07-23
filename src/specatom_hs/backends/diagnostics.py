@@ -49,6 +49,7 @@ def diagnostics_summary(doc: SpecDocument) -> dict:
             isinstance(fact, tuple)
             and len(fact) >= 3
             and fact[0] == "TestKind"
+            and fact[1] == obj.id
             and fact[2] == "Acceptance"
             for fact in facts
         ):
@@ -58,6 +59,7 @@ def diagnostics_summary(doc: SpecDocument) -> dict:
                 isinstance(fact, tuple)
                 and len(fact) >= 3
                 and fact[0] == "ConceptStatus"
+                and fact[1] == obj.id
                 and isinstance(fact[2], str)
                 and fact[2] in concept_counts
             ):
@@ -114,6 +116,7 @@ def _question_texts(doc: SpecDocument) -> list[str]:
                 if isinstance(fact, tuple)
                 and len(fact) >= 3
                 and fact[0] == "QuestionText"
+                and fact[1] == obj.id
                 and isinstance(fact[2], str)
                 and fact[2].strip()
             ),
