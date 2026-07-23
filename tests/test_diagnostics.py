@@ -178,6 +178,50 @@ class DiagnosticsTests(unittest.TestCase):
             report,
         )
 
+    def test_diagnostics_fail_closed_on_string_object_roles(self):
+        malformed_question = SpecObject(
+            "question-malformed-role",
+            "QuestionObject",
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-malformed-role", "Do not report this.")],
+        )
+        malformed_requirement = SpecObject(
+            "requirement-malformed-role",
+            "RequirementObject",
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        malformed_validation = SpecObject(
+            "validation-malformed-role",
+            "ValidationObject",
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("TestKind", "validation-malformed-role", "Acceptance")],
+        )
+        valid_question = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-valid", "Review this.")],
+        )
+        doc = SpecDocument(
+            objects=[
+                malformed_question,
+                malformed_requirement,
+                malformed_validation,
+                valid_question,
+            ]
+        )
+        validate_document(doc)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["questions"], 1)
+        self.assertEqual(summary["requirements"], 0)
+        self.assertEqual(summary["acceptance_tests"], 0)
+        self.assertIn("Review this.", report)
+        self.assertNotIn("Do not report this.", report)
+        self.assertIn("unsupported-object-role-type-for-reified-emission:str", report)
+
 
 if __name__ == "__main__":
     unittest.main()

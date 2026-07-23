@@ -39,12 +39,13 @@ def diagnostics_summary(doc: SpecDocument) -> dict:
     for obj in doc.objects:
         if not isinstance(obj, SpecObject):
             continue
-        if obj.role == Role.QUESTION_OBJECT:
+        role = obj.role if isinstance(obj.role, Role) else None
+        if role == Role.QUESTION_OBJECT:
             questions += 1
-        if obj.role == Role.REQUIREMENT_OBJECT:
+        if role == Role.REQUIREMENT_OBJECT:
             requirements += 1
         facts = obj.facts if isinstance(obj.facts, list) else []
-        if obj.role == Role.VALIDATION_OBJECT and any(
+        if role == Role.VALIDATION_OBJECT and any(
             isinstance(fact, tuple)
             and len(fact) >= 3
             and fact[0] == "TestKind"
@@ -103,7 +104,7 @@ def _question_texts(doc: SpecDocument) -> list[str]:
     for obj in doc.objects:
         if not isinstance(obj, SpecObject):
             continue
-        if obj.role != Role.QUESTION_OBJECT:
+        if not isinstance(obj.role, Role) or obj.role != Role.QUESTION_OBJECT:
             continue
         facts = obj.facts if isinstance(obj.facts, list) else []
         text = next(
