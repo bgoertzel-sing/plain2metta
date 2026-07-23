@@ -117,6 +117,14 @@ class DiagnosticsTests(unittest.TestCase):
             ["Pass"],
             "invalid structured fields",
         )
+        malformed_string_status = CheckRecord(
+            "check-malformed-string-status",
+            obligation.id,
+            obligation.property,
+            obligation.target_id,
+            "Pass",
+            "invalid string status",
+        )
         valid = CheckRecord(
             "check-valid",
             obligation.id,
@@ -126,17 +134,20 @@ class DiagnosticsTests(unittest.TestCase):
             "reviewed",
         )
         doc = SpecDocument(
-            validation_obligations=[obligation], checks=[malformed, valid]
+            validation_obligations=[obligation],
+            checks=[malformed, malformed_string_status, valid],
         )
 
         summary = diagnostics_summary(doc)
         report = format_diagnostics_report(doc)
 
         self.assertEqual(summary["pass"], 1)
-        self.assertEqual(summary["unknown"], 1)
+        self.assertEqual(summary["unknown"], 2)
         self.assertIn("<invalid list: ['review']>", summary["by_property"])
         self.assertEqual(summary["by_property"]["review"]["pass"], 1)
+        self.assertEqual(summary["by_property"]["review"]["unknown"], 1)
         self.assertIn("unsupported-check-property-type:list", report)
+        self.assertIn("unsupported-check-status-type:str", report)
 
 
 if __name__ == "__main__":

@@ -9,11 +9,9 @@ from .petta import emit_reified_atoms
 
 
 def _status_key(status: object) -> str:
-    value = status.value if hasattr(status, "value") else str(status)
-    lowered = str(value).lower()
-    if lowered == "pass":
+    if status == CheckStatus.PASS and isinstance(status, CheckStatus):
         return "pass"
-    if lowered == "fail":
+    if status == CheckStatus.FAIL and isinstance(status, CheckStatus):
         return "fail"
     return "unknown"
 
