@@ -109,11 +109,13 @@ def _question_texts(doc: SpecDocument) -> list[str]:
         facts = obj.facts if isinstance(obj.facts, list) else []
         text = next(
             (
-                str(fact[2])
+                fact[2]
                 for fact in facts
                 if isinstance(fact, tuple)
                 and len(fact) >= 3
                 and fact[0] == "QuestionText"
+                and isinstance(fact[2], str)
+                and fact[2].strip()
             ),
             "",
         )

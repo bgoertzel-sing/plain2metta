@@ -727,11 +727,12 @@ def _validate_question_objects(doc: SpecDocument) -> None:
         if not isinstance(obj.facts, list):
             continue
         question_texts = [
-            str(fact[2]).strip()
+            fact[2].strip()
             for fact in obj.facts
             if isinstance(fact, tuple)
             and len(fact) == 3
             and fact[0] == "QuestionText"
+            and isinstance(fact[2], str)
         ]
         text_obligation = add_validation_obligation(
             doc,
@@ -748,11 +749,13 @@ def _validate_question_objects(doc: SpecDocument) -> None:
         )
 
         block_targets = [
-            str(fact[2])
+            fact[2]
             for fact in obj.facts
             if isinstance(fact, tuple)
             and len(fact) == 3
             and fact[0] == "Blocks"
+            and isinstance(fact[2], str)
+            and fact[2].strip()
         ]
         known_block_targets = [target for target in block_targets if target in known_obligations]
         block_obligation = add_validation_obligation(

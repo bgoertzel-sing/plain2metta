@@ -222,6 +222,70 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertNotIn("Do not report this.", report)
         self.assertIn("unsupported-object-role-type-for-reified-emission:str", report)
 
+    def test_diagnostics_fail_closed_on_structured_question_facts(self):
+        obligation = ValidationObligation(
+            "obligation-valid", "review", "target-valid", "Review target."
+        )
+        malformed = SpecObject(
+            "question-malformed",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[
+                ("QuestionText", "question-malformed", ["Do not report this."]),
+                ("Blocks", "question-malformed", [obligation.id]),
+            ],
+        )
+        valid = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[
+                ("QuestionText", "question-valid", "Review this."),
+                ("Blocks", "question-valid", obligation.id),
+            ],
+        )
+        doc = SpecDocument(
+            objects=[malformed, valid],
+            validation_obligations=[obligation],
+        )
+        validate_document(doc)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        checks = {
+            (check.property, check.target_id): check
+            for check in doc.checks
+            if isinstance(check, CheckRecord)
+        }
+
+        self.assertEqual(summary["questions"], 2)
+        self.assertEqual(
+            checks[("question-has-review-text", malformed.id)].status,
+            CheckStatus.FAIL,
+        )
+        self.assertEqual(
+            checks[("question-blocks-validation-obligation", malformed.id)].status,
+            CheckStatus.FAIL,
+        )
+        self.assertEqual(
+            checks[("question-has-review-text", valid.id)].status,
+            CheckStatus.PASS,
+        )
+        self.assertEqual(
+            checks[("question-blocks-validation-obligation", valid.id)].status,
+            CheckStatus.PASS,
+        )
+        self.assertIn("Review this.", report)
+        self.assertNotIn("Do not report this.", report)
+        self.assertIn(
+            "unsupported-fact-argument-type:QuestionText:position-2:list",
+            report,
+        )
+        self.assertIn(
+            "unsupported-fact-argument-type:Blocks:position-2:list",
+            report,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
