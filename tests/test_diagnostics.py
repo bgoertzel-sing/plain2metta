@@ -392,6 +392,53 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("unsupported-fact-arity:TestKind:expected-3:got-4", report)
         self.assertIn("unsupported-fact-arity:QuestionText:expected-3:got-4", report)
 
+    def test_diagnostics_fail_closed_on_refused_object_identities(self):
+        blank = SpecObject(
+            " ",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", " ", "Do not report blank.")],
+        )
+        structured = SpecObject(
+            ["question-structured"],
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", ["question-structured"], "Do not report structured.")],
+        )
+        duplicate_a = SpecObject(
+            "question-duplicate",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-duplicate", "Do not report duplicate A.")],
+        )
+        duplicate_b = SpecObject(
+            "question-duplicate",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-duplicate", "Do not report duplicate B.")],
+        )
+        valid = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-valid", "Review this.")],
+        )
+        doc = SpecDocument(
+            objects=[blank, structured, duplicate_a, duplicate_b, valid]
+        )
+        validate_document(doc)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["questions"], 1)
+        self.assertIn("Review this.", report)
+        self.assertNotIn("Do not report blank.", report)
+        self.assertNotIn("Do not report structured.", report)
+        self.assertNotIn("Do not report duplicate", report)
+        self.assertIn("missing-object-id-for-reified-emission", report)
+        self.assertIn("duplicate-object-id-for-reified-emission", report)
+
 
 if __name__ == "__main__":
     unittest.main()

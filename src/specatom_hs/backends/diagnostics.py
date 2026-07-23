@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 from ..schema import CheckRecord, CheckStatus, Role, SpecDocument, SpecObject
 from .petta import emit_reified_atoms
@@ -14,6 +14,19 @@ def _status_key(status: object) -> str:
     if status == CheckStatus.FAIL and isinstance(status, CheckStatus):
         return "fail"
     return "unknown"
+
+
+def _admitted_objects(doc: SpecDocument) -> list[SpecObject]:
+    """Return objects whose identities are safe and unambiguous for export."""
+    valid_objects = [obj for obj in doc.objects if isinstance(obj, SpecObject)]
+    id_counts = Counter(
+        obj.id for obj in valid_objects if isinstance(obj.id, str) and obj.id.strip()
+    )
+    return [
+        obj
+        for obj in valid_objects
+        if isinstance(obj.id, str) and obj.id.strip() and id_counts[obj.id] == 1
+    ]
 
 
 def diagnostics_summary(doc: SpecDocument) -> dict:
@@ -36,9 +49,7 @@ def diagnostics_summary(doc: SpecDocument) -> dict:
     questions = 0
     requirements = 0
     acceptance_tests = 0
-    for obj in doc.objects:
-        if not isinstance(obj, SpecObject):
-            continue
+    for obj in _admitted_objects(doc):
         role = obj.role if isinstance(obj.role, Role) else None
         if role == Role.QUESTION_OBJECT:
             questions += 1
@@ -103,9 +114,7 @@ def _markdown_table(headers: list[str], rows: list[list[object]]) -> str:
 
 def _question_texts(doc: SpecDocument) -> list[str]:
     texts: list[str] = []
-    for obj in doc.objects:
-        if not isinstance(obj, SpecObject):
-            continue
+    for obj in _admitted_objects(doc):
         if not isinstance(obj.role, Role) or obj.role != Role.QUESTION_OBJECT:
             continue
         facts = obj.facts if isinstance(obj.facts, list) else []
