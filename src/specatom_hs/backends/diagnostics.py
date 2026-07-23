@@ -47,7 +47,7 @@ def diagnostics_summary(doc: SpecDocument) -> dict:
         facts = obj.facts if isinstance(obj.facts, list) else []
         if role == Role.VALIDATION_OBJECT and any(
             isinstance(fact, tuple)
-            and len(fact) >= 3
+            and len(fact) == 3
             and fact[0] == "TestKind"
             and fact[1] == obj.id
             and fact[2] == "Acceptance"
@@ -57,7 +57,7 @@ def diagnostics_summary(doc: SpecDocument) -> dict:
         for fact in facts:
             if (
                 isinstance(fact, tuple)
-                and len(fact) >= 3
+                and len(fact) == 3
                 and fact[0] == "ConceptStatus"
                 and fact[1] == obj.id
                 and isinstance(fact[2], str)
@@ -114,7 +114,7 @@ def _question_texts(doc: SpecDocument) -> list[str]:
                 fact[2]
                 for fact in facts
                 if isinstance(fact, tuple)
-                and len(fact) >= 3
+                and len(fact) == 3
                 and fact[0] == "QuestionText"
                 and fact[1] == obj.id
                 and isinstance(fact[2], str)
