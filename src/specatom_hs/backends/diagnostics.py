@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 
-from ..schema import CheckRecord, CheckStatus, Role, SpecDocument, SpecObject
-from .petta import emit_reified_atoms
+from ..schema import (
+    CheckRecord,
+    CheckStatus,
+    Role,
+    SemanticLevel,
+    SpecDocument,
+    SpecObject,
+)
+from .petta import SUPPORTED_REIFIED_LEVELS, emit_reified_atoms
 
 
 def _status_key(status: object) -> str:
@@ -26,6 +33,8 @@ def _admitted_objects(doc: SpecDocument) -> list[SpecObject]:
         obj
         for obj in valid_objects
         if isinstance(obj.id, str) and obj.id.strip() and id_counts[obj.id] == 1
+        and isinstance(obj.semantic_level, SemanticLevel)
+        and obj.semantic_level in SUPPORTED_REIFIED_LEVELS
     ]
 
 

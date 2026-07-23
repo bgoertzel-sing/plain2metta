@@ -439,6 +439,71 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("missing-object-id-for-reified-emission", report)
         self.assertIn("duplicate-object-id-for-reified-emission", report)
 
+    def test_diagnostics_fail_closed_on_refused_semantic_levels(self):
+        raw_question = SpecObject(
+            "question-raw",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.RAW_TEXT_ONLY,
+            facts=[("QuestionText", "question-raw", "Do not report raw text.")],
+        )
+        malformed_question = SpecObject(
+            "question-malformed-level",
+            Role.QUESTION_OBJECT,
+            "TemplateParsed",
+            facts=[
+                (
+                    "QuestionText",
+                    "question-malformed-level",
+                    "Do not report malformed level.",
+                )
+            ],
+        )
+        raw_concept = SpecObject(
+            "concept-raw",
+            Role.CONCEPT_OBJECT,
+            SemanticLevel.RAW_TEXT_ONLY,
+            facts=[("ConceptStatus", "concept-raw", "defined")],
+        )
+        raw_validation = SpecObject(
+            "validation-raw",
+            Role.VALIDATION_OBJECT,
+            SemanticLevel.RAW_TEXT_ONLY,
+            facts=[("TestKind", "validation-raw", "Acceptance")],
+        )
+        valid = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-valid", "Review this.")],
+        )
+        doc = SpecDocument(
+            objects=[
+                raw_question,
+                malformed_question,
+                raw_concept,
+                raw_validation,
+                valid,
+            ]
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["questions"], 1)
+        self.assertEqual(
+            summary["concepts"],
+            {"defined": 0, "external": 0, "unresolved": 0},
+        )
+        self.assertEqual(summary["acceptance_tests"], 0)
+        self.assertIn("Review this.", report)
+        self.assertNotIn("Do not report raw text.", report)
+        self.assertNotIn("Do not report malformed level.", report)
+        self.assertIn("unsupported-semantic-level-for-reified-emission", report)
+        self.assertIn(
+            "unsupported-semantic-level-type-for-reified-emission:str",
+            report,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
