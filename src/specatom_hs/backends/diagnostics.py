@@ -23,6 +23,23 @@ def _status_key(status: object) -> str:
     return "unknown"
 
 
+def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
+    """Return checks whose identities are safe and unambiguous for export."""
+    valid_checks = [check for check in doc.checks if isinstance(check, CheckRecord)]
+    id_counts = Counter(
+        check.id
+        for check in valid_checks
+        if isinstance(check.id, str) and check.id.strip()
+    )
+    return [
+        check
+        for check in valid_checks
+        if isinstance(check.id, str)
+        and check.id.strip()
+        and id_counts[check.id] == 1
+    ]
+
+
 def _admitted_objects(doc: SpecDocument) -> list[SpecObject]:
     """Return objects whose identities are safe and unambiguous for export."""
     valid_objects = [obj for obj in doc.objects if isinstance(obj, SpecObject)]
@@ -44,7 +61,7 @@ def diagnostics_summary(doc: SpecDocument) -> dict:
     _, refusals = emit_reified_atoms(doc)
     by_property: dict[str, dict[str, int]] = defaultdict(lambda: {"pass": 0, "fail": 0, "unknown": 0})
     counts = {"pass": 0, "fail": 0, "unknown": 0}
-    valid_checks = [check for check in doc.checks if isinstance(check, CheckRecord)]
+    valid_checks = _admitted_checks(doc)
     for check in valid_checks:
         key = _status_key(check.status)
         counts[key] += 1
@@ -160,7 +177,7 @@ def format_diagnostics_report(doc: SpecDocument) -> str:
         for prop, counts in summary["by_property"].items()
     ] or [["(none)", 0, 0, 0]]
 
-    valid_checks = [check for check in doc.checks if isinstance(check, CheckRecord)]
+    valid_checks = _admitted_checks(doc)
     fail_lines = [f"- {c.id} `{c.property}` target `{c.target_id}`: {c.evidence}" for c in valid_checks if _status_key(c.status) == "fail"] or ["- (none)"]
     unknown_lines = [f"- {c.id} `{c.property}` target `{c.target_id}`: {c.evidence}" for c in valid_checks if _status_key(c.status) == "unknown"] or ["- (none)"]
     question_lines = _question_texts(doc) or ["- (none)"]

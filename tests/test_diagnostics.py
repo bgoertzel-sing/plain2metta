@@ -150,6 +150,39 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("unsupported-check-property-type:list", report)
         self.assertIn("unsupported-check-status-type:str", report)
 
+    def test_diagnostics_fail_closed_on_refused_check_identities(self):
+        def check(check_id, status, evidence):
+            return CheckRecord(
+                check_id,
+                "obligation",
+                "property",
+                "target",
+                status,
+                evidence,
+            )
+
+        doc = SpecDocument(
+            checks=[
+                check(" ", CheckStatus.FAIL, "Do not report blank."),
+                check(["check-structured"], CheckStatus.FAIL, "Do not report structured."),
+                check("check-duplicate", CheckStatus.FAIL, "Do not report duplicate A."),
+                check("check-duplicate", CheckStatus.FAIL, "Do not report duplicate B."),
+                check("check-valid", CheckStatus.PASS, "Report valid."),
+            ]
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["pass"], 1)
+        self.assertEqual(summary["fail"], 0)
+        self.assertNotIn("Do not report blank.", report)
+        self.assertNotIn("Do not report structured.", report)
+        self.assertNotIn("Do not report duplicate", report)
+        self.assertIn("missing-check-id", report)
+        self.assertIn("unsupported-check-id-type:list", report)
+        self.assertIn("duplicate-check-id", report)
+
     def test_diagnostics_fail_closed_on_structured_concept_status(self):
         malformed = SpecObject(
             "concept-malformed",
