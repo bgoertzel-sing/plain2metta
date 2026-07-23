@@ -149,6 +149,35 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("unsupported-check-property-type:list", report)
         self.assertIn("unsupported-check-status-type:str", report)
 
+    def test_diagnostics_fail_closed_on_structured_concept_status(self):
+        malformed = SpecObject(
+            "concept-malformed",
+            Role.CONCEPT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("ConceptStatus", "concept-malformed", ["defined"])],
+        )
+        valid = SpecObject(
+            "concept-valid",
+            Role.CONCEPT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("ConceptStatus", "concept-valid", "defined")],
+        )
+        doc = SpecDocument(objects=[malformed, valid])
+        validate_document(doc)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(
+            summary["concepts"],
+            {"defined": 1, "external": 0, "unresolved": 0},
+        )
+        self.assertGreater(summary["fail"], 0)
+        self.assertIn(
+            "unsupported-fact-argument-type:ConceptStatus:position-2:list",
+            report,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

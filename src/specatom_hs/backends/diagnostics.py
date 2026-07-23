@@ -57,9 +57,10 @@ def diagnostics_summary(doc: SpecDocument) -> dict:
                 isinstance(fact, tuple)
                 and len(fact) >= 3
                 and fact[0] == "ConceptStatus"
+                and isinstance(fact[2], str)
                 and fact[2] in concept_counts
             ):
-                concept_counts[str(fact[2])] += 1
+                concept_counts[fact[2]] += 1
 
     coverage_checks = [
         check
