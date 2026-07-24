@@ -1930,6 +1930,40 @@ class ValidationRecordTests(unittest.TestCase):
             any(c.property == "obligation-target-is-declared" and c.status == CheckStatus.FAIL and "missing-target" in c.evidence for c in bad.checks)
         )
 
+    def test_validation_obligation_accepts_colon_bearing_object_subtarget(self):
+        doc = SpecDocument(
+            objects=[
+                SpecObject(
+                    "object:child",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                )
+            ],
+            validation_obligations=[
+                ValidationObligation(
+                    "vobl-child",
+                    "synthetic-property",
+                    "object:child:fact:0",
+                    "The fact target belongs to the colon-bearing object.",
+                )
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        matches = [
+            check
+            for check in doc.checks
+            if check.property == "obligation-target-is-declared"
+            and check.target_id == "vobl-child"
+        ]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(
+            (matches[0].status, matches[0].evidence),
+            (CheckStatus.PASS, "target=object:child:fact:0"),
+        )
+
     def test_question_objects_validate_review_text_and_blocked_obligations(self):
         doc = compile_source("***requirements***\n- The system mentions [ref:GhostConcept].\n", "question-links.plain")
         unresolved_questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT and any(fact[0] == "UnresolvedConcept" for fact in obj.facts)]

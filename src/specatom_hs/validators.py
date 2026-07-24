@@ -829,11 +829,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             return False
         if target_id in known_targets:
             return True
-        if ":fact:" in target_id:
-            return target_id.split(":fact:", 1)[0] in object_ids
-        if ":" in target_id:
-            return target_id.split(":", 1)[0] in object_ids
-        return False
+        return any(target_id.startswith(f"{object_id}:") for object_id in object_ids)
 
     for original in original_obligations:
         if not isinstance(original, ValidationObligation):
