@@ -2525,6 +2525,38 @@ class PettaProfileGateTests(unittest.TestCase):
             {(refusal.object_id, refusal.reason) for refusal in refusals},
         )
 
+    def test_refuses_target_owned_by_most_specific_colon_bearing_object_id(self):
+        parent = SpecObject(
+            "object",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        refused_child = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.RAW_TEXT_ONLY,
+        )
+        obligation = ValidationObligation(
+            "obligation-child", "reviewed", "object:child:fact:0",
+            "The longest matching object identity owns the target.",
+        )
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(
+                objects=[parent, refused_child],
+                validation_obligations=[obligation],
+            )
+        )
+
+        self.assertNotIn(
+            "(validation-obligation obligation-child reviewed object:child:fact:0)",
+            atoms,
+        )
+        self.assertIn(
+            ("obligation-child", "validation-obligation-target-object-not-emitted"),
+            {(refusal.object_id, refusal.reason) for refusal in refusals},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

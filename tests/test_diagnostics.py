@@ -956,6 +956,42 @@ class DiagnosticsTests(unittest.TestCase):
             {refusal.reason for refusal in refusals},
         )
 
+    def test_diagnostics_use_most_specific_colon_bearing_target_owner(self):
+        parent = SpecObject(
+            "object",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        refused_child = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.RAW_TEXT_ONLY,
+        )
+        obligation = ValidationObligation(
+            "obligation-child", "reviewed", "object:child:fact:0",
+            "Refused child target.",
+        )
+        check = CheckRecord(
+            "check-child", "obligation-child", "reviewed",
+            "object:child:fact:0", CheckStatus.FAIL, "must not leak",
+        )
+        doc = SpecDocument(
+            objects=[parent, refused_child],
+            validation_obligations=[obligation],
+            checks=[check],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        atoms, _ = emit_reified_atoms(doc)
+
+        self.assertEqual(
+            (summary["pass"], summary["fail"], summary["unknown"]),
+            (0, 0, 0),
+        )
+        self.assertNotIn("must not leak", report)
+        self.assertFalse(any(atom.startswith("(check check-child ") for atom in atoms))
+
 
 if __name__ == "__main__":
     unittest.main()

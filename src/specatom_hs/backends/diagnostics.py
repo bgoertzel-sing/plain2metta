@@ -17,6 +17,7 @@ from .petta import (
     SUPPORTED_REIFIED_LEVELS,
     admitted_source_span_ids,
     emit_reified_atoms,
+    target_object_id,
 )
 
 
@@ -61,8 +62,9 @@ def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
         and isinstance(obligation.target_id, str)
         and obligation.target_id.strip()
         and (
-            obligation.target_id.split(":", 1)[0] not in declared_object_ids
-            or obligation.target_id.split(":", 1)[0] in emitted_object_ids
+            target_object_id(obligation.target_id, declared_object_ids) is None
+            or target_object_id(obligation.target_id, declared_object_ids)
+            in emitted_object_ids
         )
         and isinstance(obligation.rationale, str)
         and obligation.rationale.strip()

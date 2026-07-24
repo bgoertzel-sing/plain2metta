@@ -48,6 +48,16 @@ class BackendRefusal:
     semantic_level: str | None = None
 
 
+def target_object_id(target_id: str, declared_object_ids: set[str]) -> str | None:
+    """Return the most specific declared object owning a validation target."""
+    matches = (
+        object_id
+        for object_id in declared_object_ids
+        if target_id == object_id or target_id.startswith(f"{object_id}:")
+    )
+    return max(matches, key=len, default=None)
+
+
 def _semantic_level_value(obj: SpecObject) -> str | None:
     """Return diagnostic text without trusting runtime schema annotations."""
     level = obj.semantic_level
@@ -934,10 +944,12 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 )
             )
             continue
-        target_object_id = obligation.target_id.split(":", 1)[0]
+        owning_object_id = target_object_id(
+            obligation.target_id, declared_object_ids
+        )
         if (
-            target_object_id in declared_object_ids
-            and target_object_id not in emitted_object_ids
+            owning_object_id is not None
+            and owning_object_id not in emitted_object_ids
         ):
             refusals.append(
                 BackendRefusal(
