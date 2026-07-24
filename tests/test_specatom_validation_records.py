@@ -1964,6 +1964,40 @@ class ValidationRecordTests(unittest.TestCase):
             (CheckStatus.PASS, "target=object:child:fact:0"),
         )
 
+    def test_validation_obligation_rejects_empty_object_subtarget(self):
+        doc = SpecDocument(
+            objects=[
+                SpecObject(
+                    "object:child",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                )
+            ],
+            validation_obligations=[
+                ValidationObligation(
+                    "vobl-empty-child",
+                    "synthetic-property",
+                    "object:child:",
+                    "A trailing separator does not identify a subtarget.",
+                )
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        matches = [
+            check
+            for check in doc.checks
+            if check.property == "obligation-target-is-declared"
+            and check.target_id == "vobl-empty-child"
+        ]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(
+            (matches[0].status, matches[0].evidence),
+            (CheckStatus.FAIL, "undeclared target=object:child:"),
+        )
+
     def test_question_objects_validate_review_text_and_blocked_obligations(self):
         doc = compile_source("***requirements***\n- The system mentions [ref:GhostConcept].\n", "question-links.plain")
         unresolved_questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT and any(fact[0] == "UnresolvedConcept" for fact in obj.facts)]

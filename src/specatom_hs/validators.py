@@ -829,7 +829,11 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             return False
         if target_id in known_targets:
             return True
-        return any(target_id.startswith(f"{object_id}:") for object_id in object_ids)
+        return any(
+            target_id.startswith(f"{object_id}:")
+            and len(target_id) > len(object_id) + 1
+            for object_id in object_ids
+        )
 
     for original in original_obligations:
         if not isinstance(original, ValidationObligation):
