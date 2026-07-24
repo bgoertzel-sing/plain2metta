@@ -219,7 +219,83 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("unsupported-check-target-id-type:NoneType", report)
         self.assertIn("missing-check-evidence", report)
 
+    def test_diagnostics_fail_closed_on_refused_check_obligation_links(self):
+        refused_obligation = ValidationObligation(
+            "obligation-refused", " ", "target-refused", "Do not admit."
+        )
+        valid_obligation = ValidationObligation(
+            "obligation-valid", "review", "target-valid", "Review target."
+        )
+
+        def check(check_id, obligation_id, property_name, target_id, evidence):
+            return CheckRecord(
+                check_id,
+                obligation_id,
+                property_name,
+                target_id,
+                CheckStatus.FAIL,
+                evidence,
+            )
+
+        doc = SpecDocument(
+            validation_obligations=[refused_obligation, valid_obligation],
+            checks=[
+                check(
+                    "check-missing-obligation",
+                    "obligation-missing",
+                    "review",
+                    "target-valid",
+                    "Do not report missing obligation.",
+                ),
+                check(
+                    "check-refused-obligation",
+                    refused_obligation.id,
+                    "review",
+                    refused_obligation.target_id,
+                    "Do not report refused obligation.",
+                ),
+                check(
+                    "check-property-mismatch",
+                    valid_obligation.id,
+                    "different-property",
+                    valid_obligation.target_id,
+                    "Do not report property mismatch.",
+                ),
+                check(
+                    "check-target-mismatch",
+                    valid_obligation.id,
+                    valid_obligation.property,
+                    "different-target",
+                    "Do not report target mismatch.",
+                ),
+                CheckRecord(
+                    "check-valid",
+                    valid_obligation.id,
+                    valid_obligation.property,
+                    valid_obligation.target_id,
+                    CheckStatus.PASS,
+                    "Report valid.",
+                ),
+            ],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["pass"], 1)
+        self.assertEqual(summary["fail"], 0)
+        self.assertEqual(summary["by_property"], {"review": {"pass": 1, "fail": 0, "unknown": 0}})
+        self.assertNotIn("Do not report", report)
+        self.assertIn("check-obligation-not-emitted:obligation-missing", report)
+        self.assertIn("check-obligation-not-emitted:obligation-refused", report)
+        self.assertIn("check-property-mismatch-with-obligation", report)
+        self.assertIn("check-target-mismatch-with-obligation", report)
+
     def test_diagnostics_fail_closed_on_refused_check_identities(self):
+        obligation = ValidationObligation(
+            "obligation", "property", "target", "Review target."
+        )
+
         def check(check_id, status, evidence):
             return CheckRecord(
                 check_id,
@@ -231,6 +307,7 @@ class DiagnosticsTests(unittest.TestCase):
             )
 
         doc = SpecDocument(
+            validation_obligations=[obligation],
             checks=[
                 check(" ", CheckStatus.FAIL, "Do not report blank."),
                 check(["check-structured"], CheckStatus.FAIL, "Do not report structured."),

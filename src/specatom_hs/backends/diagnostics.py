@@ -11,6 +11,7 @@ from ..schema import (
     SemanticLevel,
     SpecDocument,
     SpecObject,
+    ValidationObligation,
 )
 from .petta import SUPPORTED_REIFIED_LEVELS, emit_reified_atoms
 
@@ -25,6 +26,29 @@ def _status_key(status: object) -> str:
 
 def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
     """Return checks whose scalar fields are safe and unambiguous for export."""
+    valid_obligations = [
+        obligation
+        for obligation in doc.validation_obligations
+        if isinstance(obligation, ValidationObligation)
+    ]
+    obligation_id_counts = Counter(
+        obligation.id
+        for obligation in valid_obligations
+        if isinstance(obligation.id, str) and obligation.id.strip()
+    )
+    admitted_obligations = {
+        obligation.id: obligation
+        for obligation in valid_obligations
+        if isinstance(obligation.id, str)
+        and obligation.id.strip()
+        and obligation_id_counts[obligation.id] == 1
+        and isinstance(obligation.property, str)
+        and obligation.property.strip()
+        and isinstance(obligation.target_id, str)
+        and obligation.target_id.strip()
+        and isinstance(obligation.rationale, str)
+        and obligation.rationale.strip()
+    }
     valid_checks = [check for check in doc.checks if isinstance(check, CheckRecord)]
     id_counts = Counter(
         check.id
@@ -39,10 +63,13 @@ def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
         and id_counts[check.id] == 1
         and isinstance(check.obligation_id, str)
         and check.obligation_id.strip()
+        and check.obligation_id in admitted_obligations
         and isinstance(check.property, str)
         and check.property.strip()
         and isinstance(check.target_id, str)
         and check.target_id.strip()
+        and check.property == admitted_obligations[check.obligation_id].property
+        and check.target_id == admitted_obligations[check.obligation_id].target_id
         and isinstance(check.status, CheckStatus)
         and isinstance(check.evidence, str)
         and check.evidence.strip()
