@@ -376,6 +376,12 @@ class DiagnosticsTests(unittest.TestCase):
             SemanticLevel.TEMPLATE_PARSED,
             facts=[("TestKind", "validation-malformed-role", "Acceptance")],
         )
+        malformed_concept = SpecObject(
+            "concept-malformed-role",
+            "ConceptObject",
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("ConceptStatus", "concept-malformed-role", "defined")],
+        )
         valid_question = SpecObject(
             "question-valid",
             Role.QUESTION_OBJECT,
@@ -387,6 +393,7 @@ class DiagnosticsTests(unittest.TestCase):
                 malformed_question,
                 malformed_requirement,
                 malformed_validation,
+                malformed_concept,
                 valid_question,
             ]
         )
@@ -394,12 +401,24 @@ class DiagnosticsTests(unittest.TestCase):
 
         summary = diagnostics_summary(doc)
         report = format_diagnostics_report(doc)
+        atoms, _ = emit_reified_atoms(doc)
 
         self.assertEqual(summary["questions"], 1)
         self.assertEqual(summary["requirements"], 0)
         self.assertEqual(summary["acceptance_tests"], 0)
+        self.assertEqual(
+            summary["concepts"],
+            {"defined": 0, "external": 0, "unresolved": 0},
+        )
         self.assertIn("Review this.", report)
         self.assertNotIn("Do not report this.", report)
+        self.assertFalse(
+            any(atom.startswith("(spec-object concept-malformed-role ") for atom in atoms)
+        )
+        self.assertNotIn(
+            "(ConceptStatus concept-malformed-role defined)",
+            atoms,
+        )
         self.assertIn("unsupported-object-role-type-for-reified-emission:str", report)
 
     def test_diagnostics_fail_closed_on_structured_question_facts(self):

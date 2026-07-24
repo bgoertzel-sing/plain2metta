@@ -106,6 +106,7 @@ def _admitted_objects(doc: SpecDocument) -> list[SpecObject]:
         obj
         for obj in valid_objects
         if isinstance(obj.id, str) and obj.id.strip() and id_counts[obj.id] == 1
+        and isinstance(obj.role, Role)
         and isinstance(obj.semantic_level, SemanticLevel)
         and obj.semantic_level in SUPPORTED_REIFIED_LEVELS
         and isinstance(obj.facts, list)
