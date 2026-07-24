@@ -143,12 +143,81 @@ class DiagnosticsTests(unittest.TestCase):
         report = format_diagnostics_report(doc)
 
         self.assertEqual(summary["pass"], 1)
-        self.assertEqual(summary["unknown"], 2)
-        self.assertIn("<invalid list: ['review']>", summary["by_property"])
+        self.assertEqual(summary["unknown"], 0)
+        self.assertNotIn("<invalid list: ['review']>", summary["by_property"])
         self.assertEqual(summary["by_property"]["review"]["pass"], 1)
-        self.assertEqual(summary["by_property"]["review"]["unknown"], 1)
+        self.assertNotIn("invalid structured fields", report)
+        self.assertNotIn("invalid string status", report)
         self.assertIn("unsupported-check-property-type:list", report)
         self.assertIn("unsupported-check-status-type:str", report)
+
+    def test_diagnostics_fail_closed_on_refused_check_scalar_fields(self):
+        obligation = ValidationObligation(
+            "obligation-valid", "review", "target-valid", "Review target."
+        )
+
+        def check(check_id, obligation_id, property_name, target_id, evidence):
+            return CheckRecord(
+                check_id,
+                obligation_id,
+                property_name,
+                target_id,
+                CheckStatus.FAIL,
+                evidence,
+            )
+
+        doc = SpecDocument(
+            validation_obligations=[obligation],
+            checks=[
+                check(
+                    "check-obligation",
+                    ["obligation-valid"],
+                    obligation.property,
+                    obligation.target_id,
+                    "Do not report structured obligation.",
+                ),
+                check(
+                    "check-property",
+                    obligation.id,
+                    " ",
+                    obligation.target_id,
+                    "Do not report blank property.",
+                ),
+                check(
+                    "check-target",
+                    obligation.id,
+                    obligation.property,
+                    None,
+                    "Do not report missing target.",
+                ),
+                check(
+                    "check-evidence",
+                    obligation.id,
+                    obligation.property,
+                    obligation.target_id,
+                    " ",
+                ),
+                CheckRecord(
+                    "check-valid",
+                    obligation.id,
+                    obligation.property,
+                    obligation.target_id,
+                    CheckStatus.PASS,
+                    "Report valid.",
+                ),
+            ],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["pass"], 1)
+        self.assertEqual(summary["fail"], 0)
+        self.assertNotIn("Do not report", report)
+        self.assertIn("unsupported-check-obligation-id-type:list", report)
+        self.assertIn("missing-check-property", report)
+        self.assertIn("unsupported-check-target-id-type:NoneType", report)
+        self.assertIn("missing-check-evidence", report)
 
     def test_diagnostics_fail_closed_on_refused_check_identities(self):
         def check(check_id, status, evidence):

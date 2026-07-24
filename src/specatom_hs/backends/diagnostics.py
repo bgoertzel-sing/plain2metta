@@ -24,7 +24,7 @@ def _status_key(status: object) -> str:
 
 
 def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
-    """Return checks whose identities are safe and unambiguous for export."""
+    """Return checks whose scalar fields are safe and unambiguous for export."""
     valid_checks = [check for check in doc.checks if isinstance(check, CheckRecord)]
     id_counts = Counter(
         check.id
@@ -37,6 +37,15 @@ def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
         if isinstance(check.id, str)
         and check.id.strip()
         and id_counts[check.id] == 1
+        and isinstance(check.obligation_id, str)
+        and check.obligation_id.strip()
+        and isinstance(check.property, str)
+        and check.property.strip()
+        and isinstance(check.target_id, str)
+        and check.target_id.strip()
+        and isinstance(check.status, CheckStatus)
+        and isinstance(check.evidence, str)
+        and check.evidence.strip()
     ]
 
 
