@@ -781,6 +781,19 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 )
             )
             continue
+        provenance_refusal = _optional_source_provenance_refusal_reason(
+            obj.source_span_id
+        )
+        if provenance_refusal:
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    f"{provenance_refusal}-for-reified-emission",
+                    obj.id,
+                    _semantic_level_value(obj),
+                )
+            )
+            continue
         if (
             (doc.files or doc.spans)
             and obj.source_span_id
@@ -803,19 +816,7 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
         else:
             atoms.append(emitted)
             emitted_objects.append(obj)
-            provenance_refusal = _optional_source_provenance_refusal_reason(
-                obj.source_span_id
-            )
-            if provenance_refusal:
-                refusals.append(
-                    BackendRefusal(
-                        "petta_reified_v0",
-                        f"{provenance_refusal}-for-reified-emission",
-                        obj.id,
-                        _semantic_level_value(obj),
-                    )
-                )
-            elif obj.source_span_id:
+            if obj.source_span_id:
                 atoms.append(_atom(["derived-from", obj.id, obj.source_span_id]))
             for fact in obj.facts:
                 refusal = _profile_fact_refusal(obj, fact)

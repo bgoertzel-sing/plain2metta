@@ -1883,6 +1883,15 @@ class PettaProfileGateTests(unittest.TestCase):
         executable_refusals = refuse_executable_skeleton([malformed, referencing])
 
         self.assertNotIn("(derived-from malformed-provenance 7)", atoms)
+        self.assertNotIn(
+            "(spec-object malformed-provenance RequirementObject BackendLowered)",
+            atoms,
+        )
+        self.assertNotIn("(Requirement malformed-provenance)", atoms)
+        self.assertIn(
+            "(spec-object referencing ValidationObject BackendLowered)",
+            atoms,
+        )
         self.assertTrue(
             any(
                 refusal.reason
@@ -1960,7 +1969,7 @@ class PettaProfileGateTests(unittest.TestCase):
         )
         rendered = "\n".join(atoms)
 
-        self.assertIn(
+        self.assertNotIn(
             "(spec-object object-blank-provenance RequirementObject TemplateParsed)",
             atoms,
         )

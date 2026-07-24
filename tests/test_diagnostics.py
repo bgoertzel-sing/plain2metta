@@ -849,6 +849,44 @@ class DiagnosticsTests(unittest.TestCase):
             {refusal.reason for refusal in refusals},
         )
 
+    def test_diagnostics_and_export_fail_closed_on_structured_object_source_span(self):
+        refused = SpecObject(
+            "question-refused",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[(
+                "QuestionText",
+                "question-refused",
+                "Do not report or emit structured provenance.",
+            )],
+            source_span_id=["span-structured"],
+        )
+        valid = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[(
+                "QuestionText",
+                "question-valid",
+                "Report the valid neighboring question.",
+            )],
+        )
+        doc = SpecDocument(objects=[refused, valid])
+
+        atoms, refusals = emit_reified_atoms(doc)
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["questions"], 1)
+        self.assertFalse(any("question-refused" in atom for atom in atoms))
+        self.assertTrue(any("question-valid" in atom for atom in atoms))
+        self.assertNotIn("Do not report or emit structured provenance.", report)
+        self.assertIn("Report the valid neighboring question.", report)
+        self.assertIn(
+            "unsupported-source-span-id-type:list-for-reified-emission",
+            {refusal.reason for refusal in refusals},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
