@@ -901,9 +901,6 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 )
             )
             continue
-        atoms.append(_atom(["validation-obligation", obligation.id, obligation.property, obligation.target_id]))
-        atoms.append(_atom(["validation-rationale", obligation.id, obligation.rationale]))
-        emitted_obligations[obligation.id] = obligation
         provenance_refusal = _optional_source_provenance_refusal_reason(
             obligation.source_span_id
         )
@@ -915,8 +912,9 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                     obligation.id,
                 )
             )
-        elif (
-            doc.spans
+            continue
+        if (
+            (doc.files or doc.spans)
             and obligation.source_span_id
             and obligation.source_span_id not in emitted_spans
         ):
@@ -927,7 +925,11 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                     obligation.id,
                 )
             )
-        elif obligation.source_span_id:
+            continue
+        atoms.append(_atom(["validation-obligation", obligation.id, obligation.property, obligation.target_id]))
+        atoms.append(_atom(["validation-rationale", obligation.id, obligation.rationale]))
+        emitted_obligations[obligation.id] = obligation
+        if obligation.source_span_id:
             atoms.append(_atom(["derived-from", obligation.id, obligation.source_span_id]))
     valid_checks: list[CheckRecord] = []
     for check in doc.checks:

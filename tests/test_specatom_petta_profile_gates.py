@@ -146,6 +146,14 @@ class PettaProfileGateTests(unittest.TestCase):
             [atom for atom in atoms if atom.startswith("(derived-from obligation")],
             ["(derived-from obligation-valid span-valid)"],
         )
+        self.assertNotIn(
+            "(validation-obligation obligation-missing-span property target)",
+            atoms,
+        )
+        self.assertNotIn(
+            "(validation-obligation obligation-refused-span property target)",
+            atoms,
+        )
         self.assertEqual(
             [(refusal.object_id, refusal.reason) for refusal in refusals],
             [
@@ -1927,7 +1935,7 @@ class PettaProfileGateTests(unittest.TestCase):
             SpecDocument(validation_obligations=[obligation])
         )
 
-        self.assertIn(
+        self.assertNotIn(
             "(validation-obligation obligation-malformed-provenance manual-review target)",
             atoms,
         )
@@ -1973,7 +1981,7 @@ class PettaProfileGateTests(unittest.TestCase):
             "(spec-object object-blank-provenance RequirementObject TemplateParsed)",
             atoms,
         )
-        self.assertIn(
+        self.assertNotIn(
             "(validation-obligation obligation-blank-provenance manual-review object-blank-provenance)",
             atoms,
         )

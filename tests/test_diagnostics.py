@@ -740,10 +740,18 @@ class DiagnosticsTests(unittest.TestCase):
 
         summary = diagnostics_summary(doc)
         report = format_diagnostics_report(doc)
+        atoms, _ = emit_reified_atoms(doc)
 
         self.assertEqual(summary["pass"], 1)
         self.assertEqual(summary["fail"], 0)
         self.assertNotIn("Do not report this failure.", report)
+        self.assertNotIn(
+            "(validation-obligation obligation-malformed property-malformed target-malformed)",
+            atoms,
+        )
+        self.assertFalse(
+            any(atom.startswith("(check check-malformed ") for atom in atoms)
+        )
         self.assertIn(
             "unsupported-source-span-id-type:list-for-validation-obligation",
             report,
@@ -798,10 +806,18 @@ class DiagnosticsTests(unittest.TestCase):
 
         summary = diagnostics_summary(doc)
         report = format_diagnostics_report(doc)
+        atoms, _ = emit_reified_atoms(doc)
 
         self.assertEqual(summary["pass"], 1)
         self.assertEqual(summary["fail"], 0)
         self.assertNotIn("Do not report this failure.", report)
+        self.assertNotIn(
+            "(validation-obligation obligation-malformed property-malformed target-malformed)",
+            atoms,
+        )
+        self.assertFalse(
+            any(atom.startswith("(check check-malformed ") for atom in atoms)
+        )
         self.assertIn(
             "validation-obligation-source-span-not-emitted",
             report,
