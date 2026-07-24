@@ -684,6 +684,52 @@ class DiagnosticsTests(unittest.TestCase):
             report,
         )
 
+    def test_diagnostics_fail_closed_on_unsafe_obligation_source_span(self):
+        malformed_obligation = ValidationObligation(
+            "obligation-malformed",
+            "property-malformed",
+            "target-malformed",
+            "Malformed obligation must not admit its linked check.",
+            source_span_id=["span-malformed"],
+        )
+        valid_obligation = ValidationObligation(
+            "obligation-valid",
+            "property-valid",
+            "target-valid",
+            "Valid neighboring obligation remains admitted.",
+        )
+        malformed_check = CheckRecord(
+            "check-malformed",
+            "obligation-malformed",
+            "property-malformed",
+            "target-malformed",
+            CheckStatus.FAIL,
+            "Do not report this failure.",
+        )
+        valid_check = CheckRecord(
+            "check-valid",
+            "obligation-valid",
+            "property-valid",
+            "target-valid",
+            CheckStatus.PASS,
+            "Valid neighboring pass.",
+        )
+        doc = SpecDocument(
+            validation_obligations=[malformed_obligation, valid_obligation],
+            checks=[malformed_check, valid_check],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["pass"], 1)
+        self.assertEqual(summary["fail"], 0)
+        self.assertNotIn("Do not report this failure.", report)
+        self.assertIn(
+            "unsupported-source-span-id-type:list-for-validation-obligation",
+            report,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

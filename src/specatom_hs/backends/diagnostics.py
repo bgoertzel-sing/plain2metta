@@ -48,6 +48,14 @@ def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
         and obligation.target_id.strip()
         and isinstance(obligation.rationale, str)
         and obligation.rationale.strip()
+        and (
+            obligation.source_span_id is None
+            or obligation.source_span_id == ""
+            or (
+                isinstance(obligation.source_span_id, str)
+                and obligation.source_span_id.strip()
+            )
+        )
     }
     valid_checks = [check for check in doc.checks if isinstance(check, CheckRecord)]
     id_counts = Counter(
