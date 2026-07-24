@@ -13,7 +13,11 @@ from ..schema import (
     SpecObject,
     ValidationObligation,
 )
-from .petta import SUPPORTED_REIFIED_LEVELS, emit_reified_atoms
+from .petta import (
+    SUPPORTED_REIFIED_LEVELS,
+    admitted_source_span_ids,
+    emit_reified_atoms,
+)
 
 
 def _status_key(status: object) -> str:
@@ -26,6 +30,8 @@ def _status_key(status: object) -> str:
 
 def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
     """Return checks whose scalar fields are safe and unambiguous for export."""
+    emitted_span_ids = admitted_source_span_ids(doc)
+    source_manifest_present = bool(doc.files or doc.spans)
     valid_obligations = [
         obligation
         for obligation in doc.validation_obligations
@@ -54,6 +60,10 @@ def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
             or (
                 isinstance(obligation.source_span_id, str)
                 and obligation.source_span_id.strip()
+                and (
+                    not source_manifest_present
+                    or obligation.source_span_id in emitted_span_ids
+                )
             )
         )
     }

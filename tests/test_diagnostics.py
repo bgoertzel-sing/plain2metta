@@ -5,7 +5,7 @@ from pathlib import Path
 from specatom_hs.backends.diagnostics import diagnostics_summary, format_diagnostics_report
 from specatom_hs.backends.petta import emit_metta_file, emit_reified_atoms, emit_reified_atoms_grouped
 from specatom_hs.passes import compile_path
-from specatom_hs.schema import CheckRecord, CheckStatus, Role, SemanticLevel, SpecDocument, SpecObject, ValidationObligation
+from specatom_hs.schema import CheckRecord, CheckStatus, Role, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation
 from specatom_hs.validators import validate_document
 
 
@@ -727,6 +727,64 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertNotIn("Do not report this failure.", report)
         self.assertIn(
             "unsupported-source-span-id-type:list-for-validation-obligation",
+            report,
+        )
+
+    def test_diagnostics_fail_closed_on_obligation_source_span_not_emitted(self):
+        malformed_obligation = ValidationObligation(
+            "obligation-malformed",
+            "property-malformed",
+            "target-malformed",
+            "Missing provenance must not admit its linked check.",
+            source_span_id="span-missing",
+        )
+        valid_obligation = ValidationObligation(
+            "obligation-valid",
+            "property-valid",
+            "target-valid",
+            "Valid neighboring obligation remains admitted.",
+        )
+        doc = SpecDocument(
+            files=[],
+            spans=[
+                SourceSpan(
+                    "span-refused",
+                    "file-missing",
+                    0,
+                    1,
+                    1,
+                    1,
+                )
+            ],
+            validation_obligations=[malformed_obligation, valid_obligation],
+            checks=[
+                CheckRecord(
+                    "check-malformed",
+                    "obligation-malformed",
+                    "property-malformed",
+                    "target-malformed",
+                    CheckStatus.FAIL,
+                    "Do not report this failure.",
+                ),
+                CheckRecord(
+                    "check-valid",
+                    "obligation-valid",
+                    "property-valid",
+                    "target-valid",
+                    CheckStatus.PASS,
+                    "Valid neighboring pass.",
+                ),
+            ],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["pass"], 1)
+        self.assertEqual(summary["fail"], 0)
+        self.assertNotIn("Do not report this failure.", report)
+        self.assertIn(
+            "validation-obligation-source-span-not-emitted",
             report,
         )
 

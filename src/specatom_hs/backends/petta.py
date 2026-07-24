@@ -93,6 +93,27 @@ def _source_span_record_refusal_reason(span: SourceSpan) -> str | None:
     return None
 
 
+def admitted_source_span_ids(doc: SpecDocument) -> set[str]:
+    """Return source-span identities that the reified manifest can emit."""
+    duplicate_file_ids = _duplicate_record_ids(doc.files, PlainFile)
+    emitted_file_ids = {
+        plain_file.id
+        for plain_file in doc.files
+        if isinstance(plain_file, PlainFile)
+        and _plain_file_record_refusal_reason(plain_file) is None
+        and plain_file.id not in duplicate_file_ids
+    }
+    duplicate_span_ids = _duplicate_record_ids(doc.spans, SourceSpan)
+    return {
+        span.id
+        for span in doc.spans
+        if isinstance(span, SourceSpan)
+        and _source_span_record_refusal_reason(span) is None
+        and span.id not in duplicate_span_ids
+        and span.file_id in emitted_file_ids
+    }
+
+
 def _plain_file_record_refusal_reason(plain_file: PlainFile) -> str | None:
     """Return the first reason a source file is unsafe to reify."""
     if not isinstance(plain_file.id, str) or not plain_file.id.strip():
