@@ -32,6 +32,14 @@ def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
     """Return checks whose scalar fields are safe and unambiguous for export."""
     emitted_span_ids = admitted_source_span_ids(doc)
     source_manifest_present = bool(doc.files or doc.spans)
+    declared_object_ids = {
+        obj.id
+        for obj in doc.objects
+        if isinstance(obj, SpecObject)
+        and isinstance(obj.id, str)
+        and obj.id.strip()
+    }
+    emitted_object_ids = {obj.id for obj in _admitted_objects(doc)}
     valid_obligations = [
         obligation
         for obligation in doc.validation_obligations
@@ -52,6 +60,10 @@ def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
         and obligation.property.strip()
         and isinstance(obligation.target_id, str)
         and obligation.target_id.strip()
+        and (
+            obligation.target_id.split(":", 1)[0] not in declared_object_ids
+            or obligation.target_id.split(":", 1)[0] in emitted_object_ids
+        )
         and isinstance(obligation.rationale, str)
         and obligation.rationale.strip()
         and (

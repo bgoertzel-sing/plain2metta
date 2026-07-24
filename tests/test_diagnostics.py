@@ -903,6 +903,59 @@ class DiagnosticsTests(unittest.TestCase):
             {refusal.reason for refusal in refusals},
         )
 
+    def test_diagnostics_exclude_checks_for_refused_object_targets(self):
+        refused = SpecObject(
+            "object-refused",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.RAW_TEXT_ONLY,
+        )
+        valid = SpecObject(
+            "object-valid",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        obligations = [
+            ValidationObligation(
+                "obligation-refused", "reviewed", "object-refused:fact:0",
+                "Refused target.",
+            ),
+            ValidationObligation(
+                "obligation-valid", "reviewed", "object-valid:fact:0",
+                "Valid target.",
+            ),
+        ]
+        checks = [
+            CheckRecord(
+                "check-refused", "obligation-refused", "reviewed",
+                "object-refused:fact:0", CheckStatus.FAIL, "must not leak",
+            ),
+            CheckRecord(
+                "check-valid", "obligation-valid", "reviewed",
+                "object-valid:fact:0", CheckStatus.PASS, "reviewed",
+            ),
+        ]
+        doc = SpecDocument(
+            objects=[refused, valid],
+            validation_obligations=obligations,
+            checks=checks,
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        atoms, refusals = emit_reified_atoms(doc)
+
+        self.assertEqual(
+            (summary["pass"], summary["fail"], summary["unknown"]),
+            (1, 0, 0),
+        )
+        self.assertNotIn("must not leak", report)
+        self.assertFalse(any(atom.startswith("(check check-refused ") for atom in atoms))
+        self.assertTrue(any(atom.startswith("(check check-valid ") for atom in atoms))
+        self.assertIn(
+            "validation-obligation-target-object-not-emitted",
+            {refusal.reason for refusal in refusals},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

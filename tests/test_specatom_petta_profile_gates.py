@@ -2483,6 +2483,48 @@ class PettaProfileGateTests(unittest.TestCase):
         self.assertTrue(expected_manifest_atoms.issubset(set(atoms)))
         self.assertFalse(any(r.reason.startswith("unsupported-fact") for r in refusals))
 
+    def test_refuses_obligation_when_its_semantic_object_target_is_refused(self):
+        refused = SpecObject(
+            "object-refused",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.RAW_TEXT_ONLY,
+        )
+        valid = SpecObject(
+            "object-valid",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        obligations = [
+            ValidationObligation(
+                "obligation-refused", "reviewed", "object-refused:fact:0",
+                "Do not validate a target that was not emitted.",
+            ),
+            ValidationObligation(
+                "obligation-valid", "reviewed", "object-valid:fact:0",
+                "The valid target remains reviewable.",
+            ),
+        ]
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(objects=[refused, valid], validation_obligations=obligations)
+        )
+
+        self.assertNotIn(
+            "(validation-obligation obligation-refused reviewed object-refused:fact:0)",
+            atoms,
+        )
+        self.assertIn(
+            "(validation-obligation obligation-valid reviewed object-valid:fact:0)",
+            atoms,
+        )
+        self.assertIn(
+            (
+                "obligation-refused",
+                "validation-obligation-target-object-not-emitted",
+            ),
+            {(refusal.object_id, refusal.reason) for refusal in refusals},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

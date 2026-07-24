@@ -9,6 +9,7 @@ against expected ground-truth structure.
 import unittest
 from pathlib import Path
 
+from specatom_hs.backends.diagnostics import diagnostics_summary
 from specatom_hs.backends.petta import emit_reified_atoms, emit_reified_atoms_grouped
 from specatom_hs.passes import compile_path
 from specatom_hs.schema import CheckStatus, Role, SemanticLevel
@@ -154,10 +155,11 @@ class AuthSvcGroundTruthTests(unittest.TestCase):
 
     def test_document_validation_summary_counts_match_diagnostics(self):
         """Summary counts must match the actual check/question counts."""
-        pass_count = sum(1 for c in self.doc.checks if hasattr(c.status, "value") and c.status.value == "Pass")
-        fail_count = sum(1 for c in self.doc.checks if hasattr(c.status, "value") and c.status.value == "Fail")
-        unknown_count = sum(1 for c in self.doc.checks if hasattr(c.status, "value") and c.status.value == "Unknown")
-        question_count = sum(1 for obj in self.doc.objects if obj.role == Role.QUESTION_OBJECT)
+        diagnostics = diagnostics_summary(self.doc)
+        pass_count = diagnostics["pass"]
+        fail_count = diagnostics["fail"]
+        unknown_count = diagnostics["unknown"]
+        question_count = diagnostics["questions"]
 
         summary_atom = next(a for a in self.atoms if a.startswith("(document-validation-summary"))
         parts = self._parse_summary_atom(summary_atom)

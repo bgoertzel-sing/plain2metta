@@ -824,6 +824,14 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                     refusals.append(refusal)
                 else:
                     atoms.append(_atom(fact))
+    declared_object_ids = {
+        obj.id
+        for obj in doc.objects
+        if isinstance(obj, SpecObject)
+        and isinstance(obj.id, str)
+        and obj.id.strip()
+    }
+    emitted_object_ids = {obj.id for obj in emitted_objects}
     valid_obligations: list[ValidationObligation] = []
     for obligation in doc.validation_obligations:
         if not isinstance(obligation, ValidationObligation):
@@ -922,6 +930,19 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     "validation-obligation-source-span-not-emitted",
+                    obligation.id,
+                )
+            )
+            continue
+        target_object_id = obligation.target_id.split(":", 1)[0]
+        if (
+            target_object_id in declared_object_ids
+            and target_object_id not in emitted_object_ids
+        ):
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "validation-obligation-target-object-not-emitted",
                     obligation.id,
                 )
             )
