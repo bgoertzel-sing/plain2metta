@@ -789,5 +789,47 @@ class DiagnosticsTests(unittest.TestCase):
         )
 
 
+    def test_diagnostics_and_export_fail_closed_on_refused_object_source_span(self):
+        refused = SpecObject(
+            "question-refused",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[(
+                "QuestionText",
+                "question-refused",
+                "Do not report or emit this question.",
+            )],
+            source_span_id="span-refused",
+        )
+        valid = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[(
+                "QuestionText",
+                "question-valid",
+                "Report the valid neighboring question.",
+            )],
+        )
+        doc = SpecDocument(
+            spans=[SourceSpan("span-refused", "file-missing", 0, 1, 1, 1)],
+            objects=[refused, valid],
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["questions"], 1)
+        self.assertNotIn("Do not report or emit this question.", report)
+        self.assertIn("Report the valid neighboring question.", report)
+        self.assertFalse(any("question-refused" in atom for atom in atoms))
+        self.assertTrue(any("question-valid" in atom for atom in atoms))
+        self.assertIn(
+            "object-source-span-not-emitted",
+            {refusal.reason for refusal in refusals},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

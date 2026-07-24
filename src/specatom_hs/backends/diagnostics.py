@@ -96,6 +96,8 @@ def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
 
 def _admitted_objects(doc: SpecDocument) -> list[SpecObject]:
     """Return objects whose identities are safe and unambiguous for export."""
+    emitted_span_ids = admitted_source_span_ids(doc)
+    source_manifest_present = bool(doc.files or doc.spans)
     valid_objects = [obj for obj in doc.objects if isinstance(obj, SpecObject)]
     id_counts = Counter(
         obj.id for obj in valid_objects if isinstance(obj.id, str) and obj.id.strip()
@@ -107,6 +109,18 @@ def _admitted_objects(doc: SpecDocument) -> list[SpecObject]:
         and isinstance(obj.semantic_level, SemanticLevel)
         and obj.semantic_level in SUPPORTED_REIFIED_LEVELS
         and isinstance(obj.facts, list)
+        and (
+            obj.source_span_id is None
+            or obj.source_span_id == ""
+            or (
+                isinstance(obj.source_span_id, str)
+                and obj.source_span_id.strip()
+                and (
+                    not source_manifest_present
+                    or obj.source_span_id in emitted_span_ids
+                )
+            )
+        )
     ]
 
 

@@ -781,6 +781,22 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 )
             )
             continue
+        if (
+            (doc.files or doc.spans)
+            and obj.source_span_id
+            and isinstance(obj.source_span_id, str)
+            and obj.source_span_id.strip()
+            and obj.source_span_id not in emitted_spans
+        ):
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "object-source-span-not-emitted",
+                    obj.id,
+                    _semantic_level_value(obj),
+                )
+            )
+            continue
         emitted = reified_atom_for_object(obj)
         if isinstance(emitted, BackendRefusal):
             refusals.append(emitted)
@@ -795,19 +811,6 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                     BackendRefusal(
                         "petta_reified_v0",
                         f"{provenance_refusal}-for-reified-emission",
-                        obj.id,
-                        _semantic_level_value(obj),
-                    )
-                )
-            elif (
-                doc.spans
-                and obj.source_span_id
-                and obj.source_span_id not in emitted_spans
-            ):
-                refusals.append(
-                    BackendRefusal(
-                        "petta_reified_v0",
-                        "object-source-span-not-emitted",
                         obj.id,
                         _semantic_level_value(obj),
                     )
