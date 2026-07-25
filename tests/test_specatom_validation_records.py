@@ -2345,6 +2345,41 @@ class ValidationRecordTests(unittest.TestCase):
             "undeclared target=object:child:fact:\u200b0",
         )
 
+    def test_validation_obligation_rejects_interior_control_in_object_subtarget(self):
+        doc = SpecDocument(
+            objects=[
+                SpecObject(
+                    "object:child",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                )
+            ],
+            validation_obligations=[
+                ValidationObligation(
+                    "vobl-interior-control",
+                    "synthetic-property",
+                    "object:child:fact:\u00070",
+                    "An invisible control character changes the subtarget identity.",
+                )
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        matches = [
+            check
+            for check in doc.checks
+            if check.property == "obligation-target-is-declared"
+            and check.target_id == "vobl-interior-control"
+        ]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0].status, CheckStatus.FAIL)
+        self.assertEqual(
+            matches[0].evidence,
+            "undeclared target=object:child:fact:\u00070",
+        )
+
     def test_question_objects_validate_review_text_and_blocked_obligations(self):
         doc = compile_source("***requirements***\n- The system mentions [ref:GhostConcept].\n", "question-links.plain")
         unresolved_questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT and any(fact[0] == "UnresolvedConcept" for fact in obj.facts)]
