@@ -2585,6 +2585,32 @@ class PettaProfileGateTests(unittest.TestCase):
             {(refusal.object_id, refusal.reason) for refusal in refusals},
         )
 
+    def test_whitespace_only_suffix_is_not_an_object_scoped_target(self):
+        obj = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        obligation = ValidationObligation(
+            "obligation-blank-subtarget", "reviewed", "object:child: \t ",
+            "Whitespace does not identify a subtarget.",
+        )
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(objects=[obj], validation_obligations=[obligation])
+        )
+
+        self.assertFalse(
+            any(atom.startswith("(validation-obligation obligation-blank-subtarget ") for atom in atoms)
+        )
+        self.assertIn(
+            (
+                "obligation-blank-subtarget",
+                "validation-obligation-target-has-empty-object-subtarget",
+            ),
+            {(refusal.object_id, refusal.reason) for refusal in refusals},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

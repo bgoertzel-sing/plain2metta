@@ -65,8 +65,12 @@ def target_object_id(target_id: str, declared_object_ids: set[str]) -> str | Non
 def has_empty_object_subtarget(
     target_id: str, declared_object_ids: set[str]
 ) -> bool:
-    """Return whether a target is only an object ID plus a trailing separator."""
-    return target_id.endswith(":") and target_id[:-1] in declared_object_ids
+    """Return whether an object-scoped target has no non-whitespace subtarget."""
+    return any(
+        target_id.startswith(f"{object_id}:")
+        and not target_id[len(object_id) + 1 :].strip()
+        for object_id in declared_object_ids
+    )
 
 
 def _semantic_level_value(obj: SpecObject) -> str | None:

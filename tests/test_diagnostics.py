@@ -1027,6 +1027,41 @@ class DiagnosticsTests(unittest.TestCase):
             {refusal.reason for refusal in refusals},
         )
 
+    def test_diagnostics_exclude_whitespace_only_object_subtargets(self):
+        obj = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        obligation = ValidationObligation(
+            "obligation-empty", "reviewed", "object:child: \t ",
+            "Whitespace is not a subtarget.",
+        )
+        check = CheckRecord(
+            "check-empty", "obligation-empty", "reviewed",
+            "object:child: \t ", CheckStatus.FAIL, "must not leak",
+        )
+        doc = SpecDocument(
+            objects=[obj],
+            validation_obligations=[obligation],
+            checks=[check],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        atoms, refusals = emit_reified_atoms(doc)
+
+        self.assertEqual(
+            (summary["pass"], summary["fail"], summary["unknown"]),
+            (0, 0, 0),
+        )
+        self.assertNotIn("must not leak", report)
+        self.assertFalse(any(atom.startswith("(check check-empty ") for atom in atoms))
+        self.assertIn(
+            "validation-obligation-target-has-empty-object-subtarget",
+            {refusal.reason for refusal in refusals},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
