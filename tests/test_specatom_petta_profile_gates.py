@@ -2557,6 +2557,34 @@ class PettaProfileGateTests(unittest.TestCase):
             {(refusal.object_id, refusal.reason) for refusal in refusals},
         )
 
+    def test_trailing_colon_is_not_an_object_scoped_target(self):
+        obj = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        obligation = ValidationObligation(
+            "obligation-empty-subtarget", "reviewed", "object:child:",
+            "A trailing separator does not identify a subtarget.",
+        )
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(objects=[obj], validation_obligations=[obligation])
+        )
+
+        self.assertIn("(spec-object object:child RequirementObject TemplateParsed)", atoms)
+        self.assertNotIn(
+            "(validation-obligation obligation-empty-subtarget reviewed object:child:)",
+            atoms,
+        )
+        self.assertIn(
+            (
+                "obligation-empty-subtarget",
+                "validation-obligation-target-has-empty-object-subtarget",
+            ),
+            {(refusal.object_id, refusal.reason) for refusal in refusals},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

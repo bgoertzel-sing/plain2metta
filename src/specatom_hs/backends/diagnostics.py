@@ -17,6 +17,7 @@ from .petta import (
     SUPPORTED_REIFIED_LEVELS,
     admitted_source_span_ids,
     emit_reified_atoms,
+    has_empty_object_subtarget,
     target_object_id,
 )
 
@@ -61,6 +62,9 @@ def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
         and obligation.property.strip()
         and isinstance(obligation.target_id, str)
         and obligation.target_id.strip()
+        and not has_empty_object_subtarget(
+            obligation.target_id, declared_object_ids
+        )
         and (
             target_object_id(obligation.target_id, declared_object_ids) is None
             or target_object_id(obligation.target_id, declared_object_ids)
