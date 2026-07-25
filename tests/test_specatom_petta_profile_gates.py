@@ -2641,6 +2641,36 @@ class PettaProfileGateTests(unittest.TestCase):
             {(refusal.object_id, refusal.reason) for refusal in refusals},
         )
 
+    def test_leading_padded_object_subtarget_is_not_exported(self):
+        obj = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        obligation = ValidationObligation(
+            "obligation-leading-padded-subtarget", "reviewed",
+            " object:child:fact:0",
+            "Leading whitespace is ambiguous.",
+        )
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(objects=[obj], validation_obligations=[obligation])
+        )
+
+        self.assertFalse(any(
+            atom.startswith(
+                "(validation-obligation obligation-leading-padded-subtarget "
+            )
+            for atom in atoms
+        ))
+        self.assertIn(
+            (
+                "obligation-leading-padded-subtarget",
+                "validation-obligation-target-has-padded-object-subtarget",
+            ),
+            {(refusal.object_id, refusal.reason) for refusal in refusals},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

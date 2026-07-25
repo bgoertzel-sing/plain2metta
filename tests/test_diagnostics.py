@@ -1076,10 +1076,19 @@ class DiagnosticsTests(unittest.TestCase):
             "check-padded", "obligation-padded", "reviewed",
             "object:child: fact:0 ", CheckStatus.FAIL, "must not leak",
         )
+        leading_obligation = ValidationObligation(
+            "obligation-leading-padded", "reviewed", " object:child:fact:0",
+            "Leading whitespace is ambiguous.",
+        )
+        leading_check = CheckRecord(
+            "check-leading-padded", "obligation-leading-padded", "reviewed",
+            " object:child:fact:0", CheckStatus.FAIL,
+            "leading padding must not leak",
+        )
         doc = SpecDocument(
             objects=[obj],
-            validation_obligations=[obligation],
-            checks=[check],
+            validation_obligations=[obligation, leading_obligation],
+            checks=[check, leading_check],
         )
 
         summary = diagnostics_summary(doc)
@@ -1091,8 +1100,10 @@ class DiagnosticsTests(unittest.TestCase):
             (0, 0, 0),
         )
         self.assertNotIn("must not leak", report)
+        self.assertNotIn("leading padding must not leak", report)
         self.assertFalse(any(
-            atom.startswith("(check check-padded ") for atom in atoms
+            atom.startswith(("(check check-padded ", "(check check-leading-padded "))
+            for atom in atoms
         ))
         self.assertIn(
             "validation-obligation-target-has-padded-object-subtarget",
