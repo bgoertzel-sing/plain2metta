@@ -1062,6 +1062,43 @@ class DiagnosticsTests(unittest.TestCase):
             {refusal.reason for refusal in refusals},
         )
 
+    def test_diagnostics_exclude_padded_object_subtargets(self):
+        obj = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        obligation = ValidationObligation(
+            "obligation-padded", "reviewed", "object:child: fact:0 ",
+            "Outer whitespace is ambiguous.",
+        )
+        check = CheckRecord(
+            "check-padded", "obligation-padded", "reviewed",
+            "object:child: fact:0 ", CheckStatus.FAIL, "must not leak",
+        )
+        doc = SpecDocument(
+            objects=[obj],
+            validation_obligations=[obligation],
+            checks=[check],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        atoms, refusals = emit_reified_atoms(doc)
+
+        self.assertEqual(
+            (summary["pass"], summary["fail"], summary["unknown"]),
+            (0, 0, 0),
+        )
+        self.assertNotIn("must not leak", report)
+        self.assertFalse(any(
+            atom.startswith("(check check-padded ") for atom in atoms
+        ))
+        self.assertIn(
+            "validation-obligation-target-has-padded-object-subtarget",
+            {refusal.reason for refusal in refusals},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

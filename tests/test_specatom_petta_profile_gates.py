@@ -2611,6 +2611,36 @@ class PettaProfileGateTests(unittest.TestCase):
             {(refusal.object_id, refusal.reason) for refusal in refusals},
         )
 
+    def test_padded_suffix_is_not_an_object_scoped_target(self):
+        obj = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        obligation = ValidationObligation(
+            "obligation-padded-subtarget", "reviewed",
+            "object:child: fact:0 ",
+            "Outer whitespace is ambiguous.",
+        )
+
+        atoms, refusals = emit_reified_atoms(
+            SpecDocument(objects=[obj], validation_obligations=[obligation])
+        )
+
+        self.assertFalse(any(
+            atom.startswith(
+                "(validation-obligation obligation-padded-subtarget "
+            )
+            for atom in atoms
+        ))
+        self.assertIn(
+            (
+                "obligation-padded-subtarget",
+                "validation-obligation-target-has-padded-object-subtarget",
+            ),
+            {(refusal.object_id, refusal.reason) for refusal in refusals},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

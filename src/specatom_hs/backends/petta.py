@@ -73,6 +73,18 @@ def has_empty_object_subtarget(
     )
 
 
+def has_padded_object_subtarget(
+    target_id: str, declared_object_ids: set[str]
+) -> bool:
+    """Return whether an object-scoped target has ambiguous outer whitespace."""
+    return any(
+        target_id.startswith(f"{object_id}:")
+        and target_id[len(object_id) + 1 :]
+        != target_id[len(object_id) + 1 :].strip()
+        for object_id in declared_object_ids
+    )
+
+
 def _semantic_level_value(obj: SpecObject) -> str | None:
     """Return diagnostic text without trusting runtime schema annotations."""
     level = obj.semantic_level
@@ -964,6 +976,15 @@ def emit_reified_atoms(doc: SpecDocument) -> tuple[list[str], list[BackendRefusa
                 BackendRefusal(
                     "petta_reified_v0",
                     "validation-obligation-target-has-empty-object-subtarget",
+                    obligation.id,
+                )
+            )
+            continue
+        if has_padded_object_subtarget(obligation.target_id, declared_object_ids):
+            refusals.append(
+                BackendRefusal(
+                    "petta_reified_v0",
+                    "validation-obligation-target-has-padded-object-subtarget",
                     obligation.id,
                 )
             )

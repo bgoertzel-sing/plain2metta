@@ -2030,6 +2030,41 @@ class ValidationRecordTests(unittest.TestCase):
         self.assertEqual(matches[0].status, CheckStatus.FAIL)
         self.assertEqual(matches[0].evidence, "undeclared target=object:child: \t ")
 
+    def test_validation_obligation_rejects_padded_object_subtarget(self):
+        doc = SpecDocument(
+            objects=[
+                SpecObject(
+                    "object:child",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                )
+            ],
+            validation_obligations=[
+                ValidationObligation(
+                    "vobl-padded-child",
+                    "synthetic-property",
+                    "object:child: fact:0 ",
+                    "Outer whitespace makes the subtarget identity ambiguous.",
+                )
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        matches = [
+            check
+            for check in doc.checks
+            if check.property == "obligation-target-is-declared"
+            and check.target_id == "vobl-padded-child"
+        ]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0].status, CheckStatus.FAIL)
+        self.assertEqual(
+            matches[0].evidence,
+            "undeclared target=object:child: fact:0 ",
+        )
+
     def test_question_objects_validate_review_text_and_blocked_obligations(self):
         doc = compile_source("***requirements***\n- The system mentions [ref:GhostConcept].\n", "question-links.plain")
         unresolved_questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT and any(fact[0] == "UnresolvedConcept" for fact in obj.facts)]

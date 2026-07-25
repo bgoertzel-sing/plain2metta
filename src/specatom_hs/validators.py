@@ -831,7 +831,9 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             return True
         return any(
             target_id.startswith(f"{object_id}:")
-            and bool(target_id[len(object_id) + 1 :].strip())
+            and bool(target_id[len(object_id) + 1 :])
+            and target_id[len(object_id) + 1 :]
+            == target_id[len(object_id) + 1 :].strip()
             for object_id in object_ids
         )
 

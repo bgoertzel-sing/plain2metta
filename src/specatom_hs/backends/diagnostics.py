@@ -18,6 +18,7 @@ from .petta import (
     admitted_source_span_ids,
     emit_reified_atoms,
     has_empty_object_subtarget,
+    has_padded_object_subtarget,
     target_object_id,
 )
 
@@ -63,6 +64,9 @@ def _admitted_checks(doc: SpecDocument) -> list[CheckRecord]:
         and isinstance(obligation.target_id, str)
         and obligation.target_id.strip()
         and not has_empty_object_subtarget(
+            obligation.target_id, declared_object_ids
+        )
+        and not has_padded_object_subtarget(
             obligation.target_id, declared_object_ids
         )
         and (
