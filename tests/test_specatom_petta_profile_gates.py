@@ -2938,6 +2938,67 @@ class PettaProfileGateTests(unittest.TestCase):
             for atom in atoms
         ))
 
+    def test_zero_width_space_before_object_subtarget_separator_is_not_exported_or_reported(self):
+        obj = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        malformed = ValidationObligation(
+            "obligation-pre-separator-zero-width-space", "reviewed",
+            "object:child\u200b:fact:0",
+            "Invisible format padding before the separator is ambiguous.",
+        )
+        malformed_check = CheckRecord(
+            "check-pre-separator-zero-width-space",
+            malformed.id,
+            malformed.property,
+            malformed.target_id,
+            CheckStatus.FAIL,
+            "must not leak",
+        )
+        valid = ValidationObligation(
+            "obligation-valid-pre-zero-width-neighbor", "reviewed",
+            "object:child:fact:0",
+            "Canonical neighboring target.",
+        )
+        valid_check = CheckRecord(
+            "check-valid-pre-zero-width-neighbor",
+            valid.id,
+            valid.property,
+            valid.target_id,
+            CheckStatus.PASS,
+            "canonical target",
+        )
+        doc = SpecDocument(
+            objects=[obj],
+            validation_obligations=[malformed, valid],
+            checks=[malformed_check, valid_check],
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertFalse(any(malformed.id in atom for atom in atoms))
+        self.assertFalse(any(malformed_check.id in atom for atom in atoms))
+        self.assertIn(
+            (
+                malformed.id,
+                "validation-obligation-target-has-padded-object-subtarget",
+            ),
+            {(refusal.object_id, refusal.reason) for refusal in refusals},
+        )
+        self.assertEqual(
+            {key: summary[key] for key in ("pass", "fail", "unknown")},
+            {"pass": 1, "fail": 0, "unknown": 0},
+        )
+        self.assertNotIn("must not leak", report)
+        self.assertTrue(any(
+            valid_check.id in atom and "canonical target" in atom
+            for atom in atoms
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()
