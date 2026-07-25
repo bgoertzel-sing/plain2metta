@@ -93,6 +93,10 @@ def has_padded_object_subtarget(
                     )
                     == "Cf"
                 )
+                or (
+                    bool(stripped_target[len(object_id) + 1 :])
+                    and unicodedata.category(stripped_target[-1]) == "Cf"
+                )
             )
         )
         or (
