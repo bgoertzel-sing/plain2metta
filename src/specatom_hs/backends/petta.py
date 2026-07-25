@@ -90,7 +90,8 @@ def has_padded_object_subtarget(
         or (
             stripped_target.startswith(object_id)
             and stripped_target[len(object_id) :].lstrip().startswith(":")
-            and stripped_target[len(object_id) :].startswith((" ", "\t", "\r", "\n"))
+            and bool(stripped_target[len(object_id) :])
+            and stripped_target[len(object_id)].isspace()
         )
         for object_id in declared_object_ids
     )
