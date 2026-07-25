@@ -9,6 +9,7 @@ from __future__ import annotations
 import heapq
 import json
 import math
+import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
@@ -85,13 +86,26 @@ def has_padded_object_subtarget(
                 target_id != stripped_target
                 or stripped_target[len(object_id) + 1 :]
                 != stripped_target[len(object_id) + 1 :].strip()
+                or (
+                    bool(stripped_target[len(object_id) + 1 :])
+                    and unicodedata.category(
+                        stripped_target[len(object_id) + 1]
+                    )
+                    == "Cf"
+                )
             )
         )
         or (
             stripped_target.startswith(object_id)
-            and stripped_target[len(object_id) :].lstrip().startswith(":")
+            and stripped_target[len(object_id) :]
+            .lstrip("\u200b\u200c\u200d\u2060\ufeff")
+            .lstrip()
+            .startswith(":")
             and bool(stripped_target[len(object_id) :])
-            and stripped_target[len(object_id)].isspace()
+            and (
+                stripped_target[len(object_id)].isspace()
+                or unicodedata.category(stripped_target[len(object_id)]) == "Cf"
+            )
         )
         for object_id in declared_object_ids
     )

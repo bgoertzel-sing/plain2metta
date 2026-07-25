@@ -6,6 +6,7 @@ from collections import Counter
 from dataclasses import dataclass
 from hashlib import sha256
 import math
+import unicodedata
 
 from .schema import CheckRecord, CheckStatus, PlainFile, PlainItem, Role, Section, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation, stable_id
 
@@ -834,6 +835,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             and bool(target_id[len(object_id) + 1 :])
             and target_id[len(object_id) + 1 :]
             == target_id[len(object_id) + 1 :].strip()
+            and unicodedata.category(target_id[len(object_id) + 1]) != "Cf"
             for object_id in object_ids
         )
 
