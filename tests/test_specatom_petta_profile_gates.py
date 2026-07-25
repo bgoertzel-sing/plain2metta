@@ -1,5 +1,6 @@
 import unittest
 
+from specatom_hs.backends.diagnostics import diagnostics_summary, format_diagnostics_report
 from specatom_hs.backends.petta import emit_reified_atoms, refuse_executable_skeleton
 from specatom_hs.passes import compile_source
 from specatom_hs.schema import (
@@ -2670,6 +2671,75 @@ class PettaProfileGateTests(unittest.TestCase):
             ),
             {(refusal.object_id, refusal.reason) for refusal in refusals},
         )
+
+    def test_space_before_object_subtarget_separator_is_not_exported_or_reported(self):
+        obj = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        malformed = ValidationObligation(
+            "obligation-pre-separator-space", "reviewed",
+            "object:child :fact:0",
+            "Whitespace before the separator is ambiguous.",
+        )
+        malformed_check = CheckRecord(
+            "check-pre-separator-space",
+            malformed.id,
+            malformed.property,
+            malformed.target_id,
+            CheckStatus.FAIL,
+            "must not leak",
+        )
+        valid = ValidationObligation(
+            "obligation-valid-neighbor", "reviewed",
+            "object:child:fact:0",
+            "Canonical neighboring target.",
+        )
+        valid_check = CheckRecord(
+            "check-valid-neighbor",
+            valid.id,
+            valid.property,
+            valid.target_id,
+            CheckStatus.PASS,
+            "canonical target",
+        )
+        doc = SpecDocument(
+            objects=[obj],
+            validation_obligations=[malformed, valid],
+            checks=[malformed_check, valid_check],
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertFalse(any(
+            atom.startswith(
+                "(validation-obligation obligation-pre-separator-space "
+            )
+            for atom in atoms
+        ))
+        self.assertFalse(any(
+            "check-pre-separator-space" in atom
+            for atom in atoms
+        ))
+        self.assertIn(
+            (
+                "obligation-pre-separator-space",
+                "validation-obligation-target-has-padded-object-subtarget",
+            ),
+            {(refusal.object_id, refusal.reason) for refusal in refusals},
+        )
+        self.assertEqual(
+            {key: summary[key] for key in ("pass", "fail", "unknown")},
+            {"pass": 1, "fail": 0, "unknown": 0},
+        )
+        self.assertNotIn("must not leak", report)
+        self.assertTrue(any(
+            "check-valid-neighbor" in atom and "canonical target" in atom
+            for atom in atoms
+        ))
 
 
 if __name__ == "__main__":

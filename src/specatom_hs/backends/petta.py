@@ -79,11 +79,18 @@ def has_padded_object_subtarget(
     """Return whether an object-scoped target has ambiguous outer whitespace."""
     stripped_target = target_id.strip()
     return any(
-        stripped_target.startswith(f"{object_id}:")
-        and (
-            target_id != stripped_target
-            or stripped_target[len(object_id) + 1 :]
-            != stripped_target[len(object_id) + 1 :].strip()
+        (
+            stripped_target.startswith(f"{object_id}:")
+            and (
+                target_id != stripped_target
+                or stripped_target[len(object_id) + 1 :]
+                != stripped_target[len(object_id) + 1 :].strip()
+            )
+        )
+        or (
+            stripped_target.startswith(object_id)
+            and stripped_target[len(object_id) :].lstrip().startswith(":")
+            and stripped_target[len(object_id) :].startswith((" ", "\t", "\r", "\n"))
         )
         for object_id in declared_object_ids
     )
