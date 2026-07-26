@@ -3487,6 +3487,67 @@ class PettaProfileGateTests(unittest.TestCase):
             for atom in atoms
         ))
 
+    def test_non_nfkc_object_subtarget_is_not_exported_or_reported(self):
+        obj = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        malformed = ValidationObligation(
+            "obligation-non-nfkc", "reviewed",
+            "object:child:\uff46act:0",
+            "Compatibility-equivalent spellings must not create distinct identities.",
+        )
+        malformed_check = CheckRecord(
+            "check-non-nfkc",
+            malformed.id,
+            malformed.property,
+            malformed.target_id,
+            CheckStatus.FAIL,
+            "must not leak",
+        )
+        valid = ValidationObligation(
+            "obligation-valid-nfkc-neighbor", "reviewed",
+            "object:child:fact:0",
+            "Canonical NFKC target.",
+        )
+        valid_check = CheckRecord(
+            "check-valid-nfkc-neighbor",
+            valid.id,
+            valid.property,
+            valid.target_id,
+            CheckStatus.PASS,
+            "canonical target",
+        )
+        doc = SpecDocument(
+            objects=[obj],
+            validation_obligations=[malformed, valid],
+            checks=[malformed_check, valid_check],
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertFalse(any(malformed.id in atom for atom in atoms))
+        self.assertFalse(any(malformed_check.id in atom for atom in atoms))
+        self.assertIn(
+            (
+                malformed.id,
+                "validation-obligation-target-has-padded-object-subtarget",
+            ),
+            {(refusal.object_id, refusal.reason) for refusal in refusals},
+        )
+        self.assertEqual(
+            {key: summary[key] for key in ("pass", "fail", "unknown")},
+            {"pass": 1, "fail": 0, "unknown": 0},
+        )
+        self.assertNotIn("must not leak", report)
+        self.assertTrue(any(
+            valid_check.id in atom and "canonical target" in atom
+            for atom in atoms
+        ))
+
 
 if __name__ == "__main__":
     unittest.main()

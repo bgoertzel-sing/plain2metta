@@ -2555,6 +2555,41 @@ class ValidationRecordTests(unittest.TestCase):
             "undeclared target=object:child:cafe\u0301",
         )
 
+    def test_validation_obligation_rejects_non_nfkc_object_subtarget(self):
+        doc = SpecDocument(
+            objects=[
+                SpecObject(
+                    "object:child",
+                    Role.REQUIREMENT_OBJECT,
+                    SemanticLevel.TEMPLATE_PARSED,
+                )
+            ],
+            validation_obligations=[
+                ValidationObligation(
+                    "vobl-non-nfkc",
+                    "synthetic-property",
+                    "object:child:\uff46act:0",
+                    "Compatibility-equivalent spellings must not create distinct identities.",
+                )
+            ],
+        )
+        from specatom_hs.validators import validate_document
+
+        validate_document(doc)
+
+        matches = [
+            check
+            for check in doc.checks
+            if check.property == "obligation-target-is-declared"
+            and check.target_id == "vobl-non-nfkc"
+        ]
+        self.assertEqual(len(matches), 1)
+        self.assertEqual(matches[0].status, CheckStatus.FAIL)
+        self.assertEqual(
+            matches[0].evidence,
+            "undeclared target=object:child:\uff46act:0",
+        )
+
     def test_question_objects_validate_review_text_and_blocked_obligations(self):
         doc = compile_source("***requirements***\n- The system mentions [ref:GhostConcept].\n", "question-links.plain")
         unresolved_questions = [obj for obj in doc.objects if obj.role == Role.QUESTION_OBJECT and any(fact[0] == "UnresolvedConcept" for fact in obj.facts)]

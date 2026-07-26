@@ -95,6 +95,10 @@ def has_padded_object_subtarget(
                 != unicodedata.normalize(
                     "NFC", stripped_target[len(object_id) + 1 :]
                 )
+                or stripped_target[len(object_id) + 1 :]
+                != unicodedata.normalize(
+                    "NFKC", stripped_target[len(object_id) + 1 :]
+                )
                 or any(
                     unicodedata.category(character) in {"Cc", "Cf", "Cn", "Co", "Cs"}
                     or _is_unicode_noncharacter(character)
