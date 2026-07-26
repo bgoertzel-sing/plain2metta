@@ -851,6 +851,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             == unicodedata.normalize("NFKC", target_id[len(object_id) + 1 :])
             and not any(
                 unicodedata.category(character) in {"Cc", "Cf", "Cn", "Co", "Cs"}
+                or unicodedata.category(character).startswith("M")
                 or _is_unicode_noncharacter(character)
                 or _is_unicode_variation_selector(character)
                 for character in target_id[len(object_id) + 1 :]
