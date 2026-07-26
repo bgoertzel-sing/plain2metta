@@ -49,6 +49,11 @@ class BackendRefusal:
     semantic_level: str | None = None
 
 
+def _is_unicode_noncharacter(character: str) -> bool:
+    codepoint = ord(character)
+    return 0xFDD0 <= codepoint <= 0xFDEF or codepoint & 0xFFFF in {0xFFFE, 0xFFFF}
+
+
 def target_object_id(target_id: str, declared_object_ids: set[str]) -> str | None:
     """Return the most specific declared object owning a validation target."""
     matches = (
@@ -88,6 +93,7 @@ def has_padded_object_subtarget(
                 != stripped_target[len(object_id) + 1 :].strip()
                 or any(
                     unicodedata.category(character) in {"Cc", "Cf", "Cs"}
+                    or _is_unicode_noncharacter(character)
                     for character in stripped_target[len(object_id) + 1 :]
                 )
             )

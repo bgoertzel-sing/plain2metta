@@ -11,6 +11,11 @@ import unicodedata
 from .schema import CheckRecord, CheckStatus, PlainFile, PlainItem, Role, Section, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation, stable_id
 
 
+def _is_unicode_noncharacter(character: str) -> bool:
+    codepoint = ord(character)
+    return 0xFDD0 <= codepoint <= 0xFDEF or codepoint & 0xFFFF in {0xFFFE, 0xFFFF}
+
+
 def _line_for_offset(text: str, offset: int) -> int:
     """Return the 1-based line number containing ``offset`` in ``text``."""
     return text.count("\n", 0, offset) + 1
@@ -837,6 +842,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             == target_id[len(object_id) + 1 :].strip()
             and not any(
                 unicodedata.category(character) in {"Cc", "Cf", "Cs"}
+                or _is_unicode_noncharacter(character)
                 for character in target_id[len(object_id) + 1 :]
             )
             for object_id in object_ids
