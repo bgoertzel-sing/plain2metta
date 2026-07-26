@@ -61,6 +61,14 @@ skeleton_refusals = refuse_executable_skeleton(doc.objects)
 
 ## CLI usage
 
+Install the frozen v0.1 alpha into an isolated environment:
+
+```bash
+python3 -m venv .venv
+.venv/bin/python -m pip install --no-build-isolation .
+.venv/bin/plain2metta --all examples/auth_service.plain
+```
+
 Compile a Plain spec to all scaffold outputs beside the input:
 
 ```bash
