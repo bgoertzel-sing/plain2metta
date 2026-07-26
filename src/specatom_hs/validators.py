@@ -840,6 +840,8 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             and bool(target_id[len(object_id) + 1 :])
             and target_id[len(object_id) + 1 :]
             == target_id[len(object_id) + 1 :].strip()
+            and target_id[len(object_id) + 1 :]
+            == unicodedata.normalize("NFC", target_id[len(object_id) + 1 :])
             and not any(
                 unicodedata.category(character) in {"Cc", "Cf", "Cn", "Co", "Cs"}
                 or _is_unicode_noncharacter(character)
