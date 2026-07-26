@@ -54,6 +54,11 @@ def _is_unicode_noncharacter(character: str) -> bool:
     return 0xFDD0 <= codepoint <= 0xFDEF or codepoint & 0xFFFF in {0xFFFE, 0xFFFF}
 
 
+def _is_unicode_variation_selector(character: str) -> bool:
+    codepoint = ord(character)
+    return 0xFE00 <= codepoint <= 0xFE0F or 0xE0100 <= codepoint <= 0xE01EF
+
+
 def target_object_id(target_id: str, declared_object_ids: set[str]) -> str | None:
     """Return the most specific declared object owning a validation target."""
     matches = (
@@ -102,6 +107,7 @@ def has_padded_object_subtarget(
                 or any(
                     unicodedata.category(character) in {"Cc", "Cf", "Cn", "Co", "Cs"}
                     or _is_unicode_noncharacter(character)
+                    or _is_unicode_variation_selector(character)
                     for character in stripped_target[len(object_id) + 1 :]
                 )
             )

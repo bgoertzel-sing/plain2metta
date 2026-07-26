@@ -16,6 +16,11 @@ def _is_unicode_noncharacter(character: str) -> bool:
     return 0xFDD0 <= codepoint <= 0xFDEF or codepoint & 0xFFFF in {0xFFFE, 0xFFFF}
 
 
+def _is_unicode_variation_selector(character: str) -> bool:
+    codepoint = ord(character)
+    return 0xFE00 <= codepoint <= 0xFE0F or 0xE0100 <= codepoint <= 0xE01EF
+
+
 def _line_for_offset(text: str, offset: int) -> int:
     """Return the 1-based line number containing ``offset`` in ``text``."""
     return text.count("\n", 0, offset) + 1
@@ -847,6 +852,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             and not any(
                 unicodedata.category(character) in {"Cc", "Cf", "Cn", "Co", "Cs"}
                 or _is_unicode_noncharacter(character)
+                or _is_unicode_variation_selector(character)
                 for character in target_id[len(object_id) + 1 :]
             )
             for object_id in object_ids
