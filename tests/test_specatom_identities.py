@@ -10,6 +10,8 @@ class CanonicalIdentityTests(unittest.TestCase):
             "fact:0": True,
             "café": True,
             "": False,
+            "fact 0": False,
+            "fact\u20030": False,
             " fact:0": False,
             "fact:0 ": False,
             "fact:\u200b0": False,

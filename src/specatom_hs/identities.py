@@ -23,7 +23,8 @@ def is_canonical_object_subtarget(subtarget: str) -> bool:
         and subtarget == unicodedata.normalize("NFC", subtarget)
         and subtarget == unicodedata.normalize("NFKC", subtarget)
         and not any(
-            unicodedata.category(character) in {"Cc", "Cf", "Cn", "Co", "Cs"}
+            character.isspace()
+            or unicodedata.category(character) in {"Cc", "Cf", "Cn", "Co", "Cs"}
             or unicodedata.category(character).startswith("M")
             or _is_unicode_noncharacter(character)
             or _is_unicode_variation_selector(character)
