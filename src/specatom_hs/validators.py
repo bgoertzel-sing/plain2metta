@@ -6,19 +6,9 @@ from collections import Counter
 from dataclasses import dataclass
 from hashlib import sha256
 import math
-import unicodedata
 
+from .identities import is_canonical_object_subtarget
 from .schema import CheckRecord, CheckStatus, PlainFile, PlainItem, Role, Section, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation, stable_id
-
-
-def _is_unicode_noncharacter(character: str) -> bool:
-    codepoint = ord(character)
-    return 0xFDD0 <= codepoint <= 0xFDEF or codepoint & 0xFFFF in {0xFFFE, 0xFFFF}
-
-
-def _is_unicode_variation_selector(character: str) -> bool:
-    codepoint = ord(character)
-    return 0xFE00 <= codepoint <= 0xFE0F or 0xE0100 <= codepoint <= 0xE01EF
 
 
 def _line_for_offset(text: str, offset: int) -> int:
@@ -842,20 +832,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             return True
         return any(
             target_id.startswith(f"{object_id}:")
-            and bool(target_id[len(object_id) + 1 :])
-            and target_id[len(object_id) + 1 :]
-            == target_id[len(object_id) + 1 :].strip()
-            and target_id[len(object_id) + 1 :]
-            == unicodedata.normalize("NFC", target_id[len(object_id) + 1 :])
-            and target_id[len(object_id) + 1 :]
-            == unicodedata.normalize("NFKC", target_id[len(object_id) + 1 :])
-            and not any(
-                unicodedata.category(character) in {"Cc", "Cf", "Cn", "Co", "Cs"}
-                or unicodedata.category(character).startswith("M")
-                or _is_unicode_noncharacter(character)
-                or _is_unicode_variation_selector(character)
-                for character in target_id[len(object_id) + 1 :]
-            )
+            and is_canonical_object_subtarget(target_id[len(object_id) + 1 :])
             for object_id in object_ids
         )
 

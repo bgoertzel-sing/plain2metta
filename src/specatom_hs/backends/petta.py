@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
+from ..identities import is_canonical_object_subtarget
 from ..schema import (
     CheckRecord,
     CheckStatus,
@@ -47,16 +48,6 @@ class BackendRefusal:
     reason: str
     object_id: str | None = None
     semantic_level: str | None = None
-
-
-def _is_unicode_noncharacter(character: str) -> bool:
-    codepoint = ord(character)
-    return 0xFDD0 <= codepoint <= 0xFDEF or codepoint & 0xFFFF in {0xFFFE, 0xFFFF}
-
-
-def _is_unicode_variation_selector(character: str) -> bool:
-    codepoint = ord(character)
-    return 0xFE00 <= codepoint <= 0xFE0F or 0xE0100 <= codepoint <= 0xE01EF
 
 
 def target_object_id(target_id: str, declared_object_ids: set[str]) -> str | None:
@@ -94,22 +85,8 @@ def has_padded_object_subtarget(
             stripped_target.startswith(f"{object_id}:")
             and (
                 target_id != stripped_target
-                or stripped_target[len(object_id) + 1 :]
-                != stripped_target[len(object_id) + 1 :].strip()
-                or stripped_target[len(object_id) + 1 :]
-                != unicodedata.normalize(
-                    "NFC", stripped_target[len(object_id) + 1 :]
-                )
-                or stripped_target[len(object_id) + 1 :]
-                != unicodedata.normalize(
-                    "NFKC", stripped_target[len(object_id) + 1 :]
-                )
-                or any(
-                    unicodedata.category(character) in {"Cc", "Cf", "Cn", "Co", "Cs"}
-                    or unicodedata.category(character).startswith("M")
-                    or _is_unicode_noncharacter(character)
-                    or _is_unicode_variation_selector(character)
-                    for character in stripped_target[len(object_id) + 1 :]
+                or not is_canonical_object_subtarget(
+                    stripped_target[len(object_id) + 1 :]
                 )
             )
         )
