@@ -836,7 +836,7 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
             and target_id[len(object_id) + 1 :]
             == target_id[len(object_id) + 1 :].strip()
             and not any(
-                unicodedata.category(character) in {"Cc", "Cf"}
+                unicodedata.category(character) in {"Cc", "Cf", "Cs"}
                 for character in target_id[len(object_id) + 1 :]
             )
             for object_id in object_ids

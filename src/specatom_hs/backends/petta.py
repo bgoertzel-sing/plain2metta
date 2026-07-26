@@ -87,7 +87,7 @@ def has_padded_object_subtarget(
                 or stripped_target[len(object_id) + 1 :]
                 != stripped_target[len(object_id) + 1 :].strip()
                 or any(
-                    unicodedata.category(character) in {"Cc", "Cf"}
+                    unicodedata.category(character) in {"Cc", "Cf", "Cs"}
                     for character in stripped_target[len(object_id) + 1 :]
                 )
             )

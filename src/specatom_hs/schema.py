@@ -175,7 +175,7 @@ class SpecDocument:
 def stable_id(prefix: str, *parts: object, length: int = 10) -> str:
     h = sha256()
     for part in parts:
-        h.update(str(part).encode("utf-8"))
+        h.update(str(part).encode("utf-8", errors="surrogatepass"))
         h.update(b"\0")
     return f"{prefix}-{h.hexdigest()[:length]}"
 
