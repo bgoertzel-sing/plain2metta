@@ -155,6 +155,30 @@ class SourceIndexerTests(unittest.TestCase):
                     f"- :Task: includes alpha{separator}beta.\n",
                 )
 
+    def test_semantic_marker_on_lone_cr_continuation_has_exact_span(self):
+        text = (
+            "***requirements***\r"
+            "- Review the artifact\r"
+            "  Evidence: docs/café.md\r"
+        )
+        source_bytes = text.encode("utf-8")
+        doc = compile_source(text, "cr-continuation.plain")
+        evidence = next(
+            obj for obj in doc.objects
+            if any(fact[0] == "EvidenceText" for fact in obj.facts)
+        )
+        evidence_span = next(
+            span for span in doc.spans if span.id == evidence.source_span_id
+        )
+
+        self.assertEqual(
+            source_bytes[
+                evidence_span.start_byte:evidence_span.end_byte
+            ].decode("utf-8"),
+            "Evidence: docs/café.md",
+        )
+        self.assertEqual((evidence_span.start_line, evidence_span.end_line), (3, 3))
+
 
 if __name__ == "__main__":
     unittest.main()

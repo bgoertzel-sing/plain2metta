@@ -46,6 +46,11 @@ def _line_for_offset(starts: tuple[int, ...], offset: int) -> int:
     return line
 
 
+def line_for_byte_offset(text: str, offset: int) -> int:
+    """Return the physical CR/LF/CRLF line containing a UTF-8 byte offset."""
+    return _line_for_offset(_line_starts(text), offset)
+
+
 def section_kind(title: str) -> str:
     words = re.sub(r"[^A-Za-z0-9]+", " ", title).strip().title().replace(" ", "")
     return words or "Untitled"
