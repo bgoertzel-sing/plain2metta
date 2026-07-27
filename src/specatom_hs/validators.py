@@ -776,9 +776,16 @@ def _validate_question_objects(doc: SpecDocument) -> None:
             add_check(doc, block_obligation, CheckStatus.FAIL, "missing Blocks fact")
 
 
-def _validate_validation_obligations(doc: SpecDocument) -> None:
+def _validate_validation_obligations(
+    doc: SpecDocument,
+    original_obligations: list[object] | None = None,
+) -> None:
     """Validate obligation provenance and target links without recursion."""
-    original_obligations = list(doc.validation_obligations)
+    original_obligations = (
+        list(doc.validation_obligations)
+        if original_obligations is None
+        else original_obligations
+    )
     known_targets = (
         {
             plain_file.id
@@ -962,7 +969,10 @@ def _validate_validation_obligations(doc: SpecDocument) -> None:
         )
 
 
-def _validate_check_records(doc: SpecDocument) -> None:
+def _validate_check_records(
+    doc: SpecDocument,
+    original_checks: list[object] | None = None,
+) -> None:
     """Validate the validation layer itself without recursively judging new checks."""
     obligation_by_id = {
         obligation.id: obligation
@@ -971,7 +981,7 @@ def _validate_check_records(doc: SpecDocument) -> None:
         and isinstance(obligation.id, str)
         and obligation.id.strip()
     }
-    original_checks = list(doc.checks)
+    original_checks = list(doc.checks) if original_checks is None else original_checks
 
     for check in original_checks:
         if not isinstance(check, CheckRecord):
@@ -1854,8 +1864,8 @@ def validate_document(doc: SpecDocument) -> SpecDocument:
     _validate_petta_reified_profile_levels(doc)
     _validate_object_facts(doc)
     _validate_question_objects(doc)
-    _validate_validation_obligations(doc)
-    _validate_check_records(doc)
+    _validate_validation_obligations(doc, original_obligations)
+    _validate_check_records(doc, original_checks)
     _validate_edge_source_provenance(doc)
 
     if not doc.objects:
