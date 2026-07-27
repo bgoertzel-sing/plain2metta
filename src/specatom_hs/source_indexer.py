@@ -70,8 +70,9 @@ def index_source(text: str, path: str = "inline.plain", file_ordinal: int = 1) -
     while i < len(lines):
         raw_line, line_start, line_end = lines[i]
         line = raw_line.rstrip("\n")
+        match_line = line.removeprefix("\ufeff") if line_start == 0 else line
 
-        header = HEADER_RE.match(line)
+        header = HEADER_RE.match(match_line)
         if header:
             title = header.group("title").strip()
             kind = section_kind(title)

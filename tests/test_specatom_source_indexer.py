@@ -85,6 +85,27 @@ class SourceIndexerTests(unittest.TestCase):
             "Evidence: docs/café.md",
         )
 
+    def test_utf8_bom_does_not_hide_first_heading_or_shift_byte_spans(self):
+        text = "\ufeff***definitions***\n- :Task: is work.\n"
+        source_bytes = text.encode("utf-8")
+        doc = index_source(text, "bom.plain")
+
+        self.assertEqual([section.kind for section in doc.sections], ["Definitions"])
+        self.assertEqual(len(doc.items), 1)
+        self.assertEqual(
+            source_bytes[
+                doc.sections[0].span.start_byte:doc.sections[0].span.end_byte
+            ].decode("utf-8"),
+            "\ufeff***definitions***\n",
+        )
+        self.assertEqual(
+            source_bytes[
+                doc.items[0].span.start_byte:doc.items[0].span.end_byte
+            ].decode("utf-8"),
+            "- :Task: is work.\n",
+        )
+        self.assertEqual(doc.items[0].span.start_line, 2)
+
 
 if __name__ == "__main__":
     unittest.main()
