@@ -106,6 +106,30 @@ class SourceIndexerTests(unittest.TestCase):
         )
         self.assertEqual(doc.items[0].span.start_line, 2)
 
+    def test_mixed_newline_styles_preserve_byte_slices_and_line_numbers(self):
+        text = (
+            "***definitions***\r"
+            "- :Café: is work.\r\n"
+            "***requirements***\n"
+            "- Evidence: docs/café.md\r"
+        )
+        source_bytes = text.encode("utf-8")
+        doc = index_source(text, "mixed-newlines.plain")
+
+        self.assertEqual([section.span.start_line for section in doc.sections], [1, 3])
+        self.assertEqual([item.span.start_line for item in doc.items], [2, 4])
+        expected_slices = [
+            "***definitions***\r",
+            "***requirements***\n",
+            "- :Café: is work.\r\n",
+            "- Evidence: docs/café.md\r",
+        ]
+        actual_slices = [
+            source_bytes[record.span.start_byte:record.span.end_byte].decode("utf-8")
+            for record in [*doc.sections, *doc.items]
+        ]
+        self.assertEqual(actual_slices, expected_slices)
+
 
 if __name__ == "__main__":
     unittest.main()

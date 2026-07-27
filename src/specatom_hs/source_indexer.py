@@ -19,10 +19,20 @@ BULLET_RE = re.compile(r"^(?P<indent>\s*)-\s+(?P<text>.*)$")
 def _line_starts(text: str) -> tuple[int, ...]:
     starts = [0]
     byte_offset = 0
+    previous_was_cr = False
     for ch in text:
         byte_offset += len(ch.encode("utf-8"))
-        if ch == "\n":
+        if ch == "\r":
             starts.append(byte_offset)
+            previous_was_cr = True
+        elif ch == "\n":
+            if previous_was_cr:
+                starts[-1] = byte_offset
+            else:
+                starts.append(byte_offset)
+            previous_was_cr = False
+        else:
+            previous_was_cr = False
     return tuple(starts)
 
 
