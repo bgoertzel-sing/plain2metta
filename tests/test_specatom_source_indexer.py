@@ -179,6 +179,35 @@ class SourceIndexerTests(unittest.TestCase):
         )
         self.assertEqual((evidence_span.start_line, evidence_span.end_line), (3, 3))
 
+    def test_semantic_marker_after_nonphysical_separator_has_exact_span(self):
+        separators = ("\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+        for ordinal, separator in enumerate(separators):
+            with self.subTest(code_point=f"U+{ord(separator):04X}"):
+                text = (
+                    "***requirements***\n"
+                    f"- Review alpha{separator}beta. Evidence: docs/café.md\n"
+                )
+                source_bytes = text.encode("utf-8")
+                doc = compile_source(text, f"semantic-separator-{ordinal}.plain")
+                evidence = next(
+                    obj for obj in doc.objects
+                    if any(fact[0] == "EvidenceText" for fact in obj.facts)
+                )
+                evidence_span = next(
+                    span for span in doc.spans if span.id == evidence.source_span_id
+                )
+
+                self.assertEqual(
+                    source_bytes[
+                        evidence_span.start_byte:evidence_span.end_byte
+                    ].decode("utf-8"),
+                    "Evidence: docs/café.md",
+                )
+                self.assertEqual(
+                    (evidence_span.start_line, evidence_span.end_line),
+                    (2, 2),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
