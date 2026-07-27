@@ -130,6 +130,31 @@ class SourceIndexerTests(unittest.TestCase):
         ]
         self.assertEqual(actual_slices, expected_slices)
 
+    def test_unicode_and_control_separators_remain_source_content(self):
+        separators = ("\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+        for ordinal, separator in enumerate(separators):
+            with self.subTest(code_point=f"U+{ord(separator):04X}"):
+                text = (
+                    "***definitions***\n"
+                    f"- :Task: includes alpha{separator}beta.\n"
+                    "- :Result: is reviewable.\n"
+                )
+                source_bytes = text.encode("utf-8")
+                doc = index_source(text, f"separator-{ordinal}.plain")
+
+                self.assertEqual(len(doc.items), 2)
+                self.assertEqual([item.span.start_line for item in doc.items], [2, 3])
+                self.assertEqual(
+                    doc.items[0].raw_text,
+                    f":Task: includes alpha{separator}beta.",
+                )
+                self.assertEqual(
+                    source_bytes[
+                        doc.items[0].span.start_byte:doc.items[0].span.end_byte
+                    ].decode("utf-8"),
+                    f"- :Task: includes alpha{separator}beta.\n",
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
