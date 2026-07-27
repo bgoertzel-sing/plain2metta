@@ -208,6 +208,37 @@ class SourceIndexerTests(unittest.TestCase):
                     (2, 2),
                 )
 
+    def test_concept_occurrence_after_nonphysical_separator_has_exact_span(self):
+        separators = ("\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029")
+        for ordinal, separator in enumerate(separators):
+            with self.subTest(code_point=f"U+{ord(separator):04X}"):
+                text = (
+                    "***definitions***\n"
+                    f"- Review alpha{separator}beta :Café: reference.\n"
+                )
+                source_bytes = text.encode("utf-8")
+                doc = compile_source(text, f"concept-separator-{ordinal}.plain")
+                concept_reference = next(
+                    obj for obj in doc.objects
+                    if any(fact[0] == "ConceptReference" for fact in obj.facts)
+                )
+                occurrence_span = next(
+                    span
+                    for span in doc.spans
+                    if span.id == concept_reference.source_span_id
+                )
+
+                self.assertEqual(
+                    source_bytes[
+                        occurrence_span.start_byte:occurrence_span.end_byte
+                    ].decode("utf-8"),
+                    ":Café:",
+                )
+                self.assertEqual(
+                    (occurrence_span.start_line, occurrence_span.end_line),
+                    (2, 2),
+                )
+
 
 if __name__ == "__main__":
     unittest.main()
