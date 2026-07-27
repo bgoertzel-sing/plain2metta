@@ -78,7 +78,9 @@ def build_concept_table(doc: SpecDocument) -> SpecDocument:
         This small alignment routine keeps occurrence spans exact without
         assuming a fixed bullet-prefix length.
         """
-        segment = file_text[item.file_id][item.span.start_byte:item.span.end_byte]
+        segment = file_text[item.file_id].encode("utf-8")[
+            item.span.start_byte:item.span.end_byte
+        ].decode("utf-8")
         cursor = 0
         at_line_start = True
         for offset, ch in enumerate(segment):
@@ -91,7 +93,7 @@ def build_concept_table(doc: SpecDocument) -> SpecDocument:
                     continue
                 at_line_start = False
             if cursor == raw_index:
-                return item.span.start_byte + offset
+                return item.span.start_byte + len(segment[:offset].encode("utf-8"))
             if cursor < len(item.raw_text) and ch == item.raw_text[cursor]:
                 cursor += 1
             if ch == "\n":
@@ -102,7 +104,7 @@ def build_concept_table(doc: SpecDocument) -> SpecDocument:
 
     def line_for_offset(file_id: str, byte_offset: int) -> int:
         """Return a 1-based line number for a byte offset in the source text."""
-        return file_text[file_id].count("\n", 0, byte_offset) + 1
+        return file_text[file_id].encode("utf-8").count(b"\n", 0, byte_offset) + 1
 
     def add_occurrence(item, name: str, kind: str, match_start: int, match_end: int) -> str:
         """Preserve an exact source span for one explicit concept marker."""
@@ -910,7 +912,7 @@ SUPPORTED_BRIDGE_RELATIONS = {"corresponds-to", "related", "analogy", "refines",
 
 def _line_for_source_offset(doc: SpecDocument, file_id: str, byte_offset: int) -> int:
     text = next(plain_file.text for plain_file in doc.files if plain_file.id == file_id)
-    return text.count("\n", 0, byte_offset) + 1
+    return text.encode("utf-8").count(b"\n", 0, byte_offset) + 1
 
 
 def _trim_marker_text_and_end(raw: str, match, group_name: str) -> tuple[str, int]:
@@ -932,7 +934,9 @@ def _raw_match_span(doc: SpecDocument, item, match_start: int, match_end: int) -
     repeated markers such as two ``Evidence: ...`` clauses.
     """
     file_text = next(plain_file.text for plain_file in doc.files if plain_file.id == item.file_id)
-    segment = file_text[item.span.start_byte:item.span.end_byte]
+    segment = file_text.encode("utf-8")[
+        item.span.start_byte:item.span.end_byte
+    ].decode("utf-8")
 
     def raw_index_to_source_offset(raw_index: int) -> int:
         cursor = 0
@@ -947,7 +951,7 @@ def _raw_match_span(doc: SpecDocument, item, match_start: int, match_end: int) -
                     continue
                 at_line_start = False
             if cursor == raw_index:
-                return item.span.start_byte + offset
+                return item.span.start_byte + len(segment[:offset].encode("utf-8"))
             if cursor < len(item.raw_text) and ch == item.raw_text[cursor]:
                 cursor += 1
             if ch == "\n":
@@ -2522,7 +2526,9 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
 
     def raw_index_to_source_offset(item, raw_index: int) -> int:
         """Map an index in an item's normalized raw text back to source bytes."""
-        segment = file_text[item.file_id][item.span.start_byte:item.span.end_byte]
+        segment = file_text[item.file_id].encode("utf-8")[
+            item.span.start_byte:item.span.end_byte
+        ].decode("utf-8")
         cursor = 0
         at_line_start = True
         for offset, ch in enumerate(segment):
@@ -2535,7 +2541,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                     continue
                 at_line_start = False
             if cursor == raw_index:
-                return item.span.start_byte + offset
+                return item.span.start_byte + len(segment[:offset].encode("utf-8"))
             if cursor < len(item.raw_text) and ch == item.raw_text[cursor]:
                 cursor += 1
             if ch == "\n":
@@ -2546,7 +2552,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
 
     def line_for_offset(file_id: str, byte_offset: int) -> int:
         """Return a 1-based line number for a byte offset in the source text."""
-        return file_text[file_id].count("\n", 0, byte_offset) + 1
+        return file_text[file_id].encode("utf-8").count(b"\n", 0, byte_offset) + 1
 
     def exact_match_span(item, match_start: int, match_end: int) -> str:
         """Create or reuse an exact SourceSpan for a regex match in item.raw_text."""

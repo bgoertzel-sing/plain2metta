@@ -11,9 +11,10 @@ from .identities import is_canonical_object_subtarget
 from .schema import CheckRecord, CheckStatus, PlainFile, PlainItem, Role, Section, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation, stable_id
 
 
-def _line_for_offset(text: str, offset: int) -> int:
-    """Return the 1-based line number containing ``offset`` in ``text``."""
-    return text.count("\n", 0, offset) + 1
+def _line_for_offset(text: str | bytes, offset: int) -> int:
+    """Return the 1-based line number containing ``offset`` in text or bytes."""
+    newline = b"\n" if isinstance(text, bytes) else "\n"
+    return text.count(newline, 0, offset) + 1
 
 
 def add_validation_obligation(doc: SpecDocument, property: str, target_id: str, rationale: str, source_span_id: str | None = None) -> ValidationObligation:
@@ -472,7 +473,7 @@ def _validate_source_spans(doc: SpecDocument) -> None:
                 evidence = f"missing file_id={span.file_id}"
             add_check(doc, bounds_obligation, CheckStatus.FAIL, evidence)
             continue
-        file_length = len(plain_file.text)
+        file_length = len(plain_file.text.encode("utf-8"))
         in_bounds = 0 <= span.start_byte < span.end_byte <= file_length
         add_check(
             doc,
@@ -491,8 +492,9 @@ def _validate_source_spans(doc: SpecDocument) -> None:
         if not in_bounds:
             add_check(doc, line_obligation, CheckStatus.FAIL, "line check skipped because byte range is outside file bounds")
             continue
-        expected_start = _line_for_offset(plain_file.text, span.start_byte)
-        expected_end = _line_for_offset(plain_file.text, span.end_byte - 1)
+        source_bytes = plain_file.text.encode("utf-8")
+        expected_start = _line_for_offset(source_bytes, span.start_byte)
+        expected_end = _line_for_offset(source_bytes, span.end_byte - 1)
         lines_match = span.start_line == expected_start and span.end_line == expected_end and span.start_line <= span.end_line
         add_check(
             doc,

@@ -1,5 +1,6 @@
 import unittest
 
+from specatom_hs.passes import compile_source
 from specatom_hs.source_indexer import index_source
 
 
@@ -38,6 +39,51 @@ class SourceIndexerTests(unittest.TestCase):
         self.assertEqual(child.parent_item_id, parent.id)
         self.assertEqual(text[parent.span.start_byte:parent.span.end_byte], "- The :Task: has a long rule\n  continuing on the next line.\n")
         self.assertEqual(parent.span.end_line, 3)
+
+    def test_source_spans_are_utf8_byte_offsets_after_non_ascii_text(self):
+        text = (
+            "***définitions***\n"
+            "- :Café: is reviewable. Evidence: docs/café.md\n"
+        )
+        doc = index_source(text, "unicode.plain")
+        source_bytes = text.encode("utf-8")
+        section = doc.sections[0]
+        item = doc.items[0]
+
+        self.assertEqual(
+            source_bytes[section.span.start_byte:section.span.end_byte].decode("utf-8"),
+            "***définitions***\n",
+        )
+        self.assertEqual(
+            source_bytes[item.span.start_byte:item.span.end_byte].decode("utf-8"),
+            "- :Café: is reviewable. Evidence: docs/café.md\n",
+        )
+        self.assertEqual(item.span.start_line, 2)
+        self.assertEqual(item.span.end_line, 2)
+
+        compiled = compile_source(text, "unicode.plain")
+        concept_reference = next(
+            obj for obj in compiled.objects
+            if any(fact[0] == "ConceptReference" for fact in obj.facts)
+        )
+        occurrence_span = next(
+            span for span in compiled.spans if span.id == concept_reference.source_span_id
+        )
+        self.assertEqual(
+            source_bytes[occurrence_span.start_byte:occurrence_span.end_byte].decode("utf-8"),
+            ":Café:",
+        )
+        evidence = next(
+            obj for obj in compiled.objects
+            if any(fact[0] == "EvidenceText" for fact in obj.facts)
+        )
+        evidence_span = next(
+            span for span in compiled.spans if span.id == evidence.source_span_id
+        )
+        self.assertEqual(
+            source_bytes[evidence_span.start_byte:evidence_span.end_byte].decode("utf-8"),
+            "Evidence: docs/café.md",
+        )
 
 
 if __name__ == "__main__":

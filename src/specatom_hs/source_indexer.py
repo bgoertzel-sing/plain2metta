@@ -18,9 +18,11 @@ BULLET_RE = re.compile(r"^(?P<indent>\s*)-\s+(?P<text>.*)$")
 
 def _line_starts(text: str) -> tuple[int, ...]:
     starts = [0]
-    for i, ch in enumerate(text):
+    byte_offset = 0
+    for ch in text:
+        byte_offset += len(ch.encode("utf-8"))
         if ch == "\n":
-            starts.append(i + 1)
+            starts.append(byte_offset)
     return tuple(starts)
 
 
@@ -60,7 +62,7 @@ def index_source(text: str, path: str = "inline.plain", file_ordinal: int = 1) -
     offset = 0
     for raw_line in text.splitlines(keepends=True):
         line_start = offset
-        line_end = offset + len(raw_line)
+        line_end = offset + len(raw_line.encode("utf-8"))
         lines.append((raw_line, line_start, line_end))
         offset = line_end
 
@@ -99,7 +101,7 @@ def index_source(text: str, path: str = "inline.plain", file_ordinal: int = 1) -
             key = (current.id, parent)
             item_ordinals[key] = item_ordinals.get(key, 0) + 1
             ordinal = item_ordinals[key]
-            text_start = line_start + len(bullet.group("indent"))
+            text_start = line_start + len(bullet.group("indent").encode("utf-8"))
             span_end = line_end
             raw_parts = [bullet.group("text").strip()]
 
