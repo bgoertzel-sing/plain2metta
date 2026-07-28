@@ -1,0 +1,6 @@
+***requirements***
+- [id:TASK-ADD] A user must be able to add a task.
+- [id:TASK-ARCHIVE] A user must be able to archive a completed task.
+
+***acceptance tests***
+- [covers:TASK-ADD] Given a valid task, when the user adds it, then it appears in the task list.
