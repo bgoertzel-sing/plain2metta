@@ -11,9 +11,17 @@ from specatom_hs.schema import CheckStatus
 ROOT = Path(__file__).resolve().parents[1]
 BASE = ROOT / "examples" / "playground" / "task_list.plain"
 EDITED = ROOT / "examples" / "playground" / "task_list_edited.plain"
+QUERY_RUNNER = ROOT / "scripts" / "playground-query.sh"
 
 
 class PlaygroundEpisodeTests(unittest.TestCase):
+    def test_query_runner_pins_backend_and_joins_archive_coverage(self):
+        text = QUERY_RUNNER.read_text(encoding="utf-8")
+        self.assertIn('expected_version="0.2.10"', text)
+        self.assertIn("(CoverageClaim $test TASK-ARCHIVE)", text)
+        self.assertIn("(Covers $test $requirement)", text)
+        self.assertIn("(RequirementLabel $requirement TASK-ARCHIVE)", text)
+
     def test_episode_is_bounded_and_edit_resolves_archive_coverage(self):
         base = compile_path(BASE)
         edited = compile_path(EDITED)
