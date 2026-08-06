@@ -1,0 +1,34 @@
+***definitions***
+- :User: is a registered person who can send and receive messages.
+  :User: has the following attributes:
+  - DisplayName - a chosen public name. This is required.
+  - Status - online, away, or offline.
+- :Message: is a unit of text sent from one :User: to a :Channel: or another :User:.
+  :Message: has the following attributes:
+  - Body - the text content. This is required.
+  - Timestamp - when the :Message: was sent.
+  - Edited - whether the :Message: has been modified after sending.
+- :Channel: is a named group conversation that multiple :User: participants can join.
+  :Channel: has the following attributes:
+  - Name - a unique channel identifier. This is required.
+  - Topic - an optional description of the channel purpose.
+- :Notification: is an alert delivered to a :User: when a relevant event occurs.
+- :MessageStore: is provided by [external:PostgreSQL] and persists all :Message: records.
+- :PushService: is provided by [external:FCM] and delivers :Notification: items to mobile devices via Firebase Cloud Messaging.
+
+***functional specifications***
+- [id:CHAT-1] :User: shall be able to send a :Message: to a :Channel:.
+- [id:CHAT-2] :User: shall be able to edit a sent :Message: within 15 minutes of sending.
+- [id:CHAT-3] :User: shall be able to delete a :Message: they sent.
+- [id:CHAT-4] When a :Message: is sent to a :Channel:, all other :User: participants with Status online shall receive a :Notification:.
+- [id:CHAT-5] :User: shall be able to create, join, and leave a :Channel:.
+- [id:CHAT-6] All :Message: records shall be persisted to :MessageStore:.
+
+***acceptance tests***
+- [covers:CHAT-1] Given a :User: in a :Channel:, when the :User: sends a :Message: with Body "hello", then all participants see the :Message:.
+- [covers:CHAT-2] Given a :Message: sent 10 minutes ago, when the sender edits the Body, then the :Message: shows Edited as true.
+- [covers:CHAT-2] Given a :Message: sent 20 minutes ago, when the sender tries to edit, then the system rejects the edit.
+- [covers:CHAT-3] Given a :Message: sent by :User:, when :User: deletes it, then it no longer appears in the :Channel:.
+- [covers:CHAT-4] Given two online users in a :Channel:, when one sends a :Message:, then the other receives a :Notification: via :PushService:.
+- [covers:CHAT-5] Given a :User:, when they create a :Channel: named "general", then the :Channel: exists and the :User: is a participant.
+- [covers:CHAT-6] Given a :Message: is sent, when querying :MessageStore:, then the :Message: record is present with correct Timestamp and Body.

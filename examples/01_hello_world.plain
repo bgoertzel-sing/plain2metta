@@ -1,0 +1,8 @@
+***definitions***
+- :Greeting: is a short welcome message displayed to a :User:.
+
+***functional specifications***
+- [id:GREET-1] The system shall display a :Greeting: when a :User: opens the application.
+
+***acceptance tests***
+- [covers:GREET-1] Given a :User: opens the application, when the home screen loads, then a :Greeting: is displayed.

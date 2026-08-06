@@ -1,0 +1,25 @@
+***definitions***
+- :Bookmark: is a saved reference to a web page that a :User: wants to revisit.
+  :Bookmark: has the following attributes:
+  - URL - the web address. This is required.
+  - Title - a human-readable name, auto-populated from the page if not provided.
+  - Tags - zero or more keyword labels for organizing bookmarks.
+  - CreatedAt - timestamp when the :Bookmark: was saved.
+- :Folder: is a named container that holds zero or more :Bookmark: items.
+  :Folder: has the following attributes:
+  - Name - a unique display name. This is required.
+- :SearchResult: is a ranked list of :Bookmark: items matching a query.
+
+***functional specifications***
+- [id:BM-1] :User: shall be able to create a :Bookmark: by providing a URL.
+- [id:BM-2] :User: shall be able to delete a :Bookmark:.
+- [id:BM-3] :User: shall be able to assign a :Bookmark: to one or more :Folder: containers.
+- [id:BM-4] :User: shall be able to search bookmarks by Title or Tags, producing a :SearchResult:.
+- [id:BM-5] :User: shall be able to create and rename a :Folder:.
+
+***acceptance tests***
+- [covers:BM-1] Given a valid URL, when :User: creates a :Bookmark:, then it appears in the bookmark list with a CreatedAt timestamp.
+- [covers:BM-2] Given an existing :Bookmark:, when :User: deletes it, then it no longer appears in any :Folder: or search.
+- [covers:BM-3] Given an existing :Bookmark: and :Folder:, when :User: assigns the :Bookmark: to the :Folder:, then the :Bookmark: appears inside that :Folder:.
+- [covers:BM-4] Given several bookmarks with different Tags, when :User: searches by a tag, then the :SearchResult: contains only matching bookmarks.
+- [covers:BM-5] Given :User: creates a :Folder: named "Research", when :User: renames it to "Papers", then the folder name updates and all contained :Bookmark: items remain.

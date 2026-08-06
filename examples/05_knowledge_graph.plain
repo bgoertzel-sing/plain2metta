@@ -1,0 +1,40 @@
+***definitions***
+- :Node: is an entity in the knowledge graph representing a concept, object, or event.
+  :Node: has the following attributes:
+  - Label - a human-readable name. This is required.
+  - NodeType - one of concept, instance, event, or property.
+  - Confidence - a truth value between 0.0 and 1.0 indicating certainty.
+- :Edge: is a directed relationship between two :Node: entities.
+  :Edge: has the following attributes:
+  - RelationType - the semantic label of the relationship (e.g., "is-a", "has-part", "causes").
+  - Weight - a numeric strength between 0.0 and 1.0.
+  - Source - the origin :Node:. This is required.
+  - Target - the destination :Node:. This is required.
+- :Query: is a structured request to retrieve :Node: or :Edge: items matching given constraints.
+- :Subgraph: is a subset of the knowledge graph returned in response to a :Query:.
+- :InferenceRule: defines a pattern-matching rule that derives new :Edge: items from existing ones.
+  :InferenceRule: has the following attributes:
+  - Premises - one or more :Edge: patterns to match.
+  - Conclusion - the :Edge: to assert when premises are satisfied.
+  - RuleConfidence - a truth value applied to derived edges.
+- :ImportBatch: is a set of :Node: and :Edge: records loaded from an external source.
+- :GraphStore: is provided by [external:AtomSpace] and indexes all :Node: and :Edge: records.
+- :ReasoningEngine: is provided by [external:PLN] and executes :InferenceRule: items over the graph.
+
+***functional specifications***
+- [id:KG-1] :User: shall be able to create a :Node: with a Label and NodeType.
+- [id:KG-2] :User: shall be able to create an :Edge: between two existing :Node: entities with a RelationType and Weight.
+- [id:KG-3] :User: shall be able to submit a :Query: and receive a :Subgraph: containing matching :Node: and :Edge: items.
+- [id:KG-4] :User: shall be able to register an :InferenceRule: that the :ReasoningEngine: executes to derive new :Edge: items.
+- [id:KG-5] The system shall reject any :Edge: where Source or Target references a nonexistent :Node:.
+- [id:KG-6] :User: shall be able to load an :ImportBatch: of :Node: and :Edge: records from a JSON file into :GraphStore:.
+- [id:KG-7] When an :InferenceRule: fires, derived :Edge: items shall have their Weight multiplied by the RuleConfidence.
+
+***acceptance tests***
+- [covers:KG-1] Given a Label "Cat" and NodeType "concept", when :User: creates a :Node:, then the :Node: exists in :GraphStore: with Confidence 1.0.
+- [covers:KG-2] Given :Node: "Cat" and :Node: "Animal", when :User: creates an :Edge: with RelationType "is-a" and Weight 0.95, then the :Edge: connects them.
+- [covers:KG-3] Given a graph with nodes Cat, Dog, Animal and is-a edges, when :User: queries for all :Node: items with RelationType "is-a" targeting "Animal", then the :Subgraph: contains Cat and Dog.
+- [covers:KG-4] Given an :InferenceRule: "if X is-a Y and Y is-a Z then X is-a Z", when Cat is-a Animal and Animal is-a LivingThing exist, then :ReasoningEngine: derives Cat is-a LivingThing.
+- [covers:KG-5] Given :Node: "Cat" exists but :Node: "Unicorn" does not, when :User: creates an :Edge: from Cat to Unicorn, then the system rejects the :Edge:.
+- [covers:KG-6] Given a JSON file with 100 nodes and 200 edges, when :User: loads it as an :ImportBatch:, then all records appear in :GraphStore:.
+- [covers:KG-7] Given an :InferenceRule: with RuleConfidence 0.8 and a premise :Edge: with Weight 0.9, when the rule fires, then the derived :Edge: has Weight 0.72.

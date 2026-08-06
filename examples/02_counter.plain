@@ -1,0 +1,15 @@
+***definitions***
+- :Counter: tracks a numeric value that a :User: can increment, decrement, or reset.
+  :Counter: has the following attributes:
+  - Value - the current integer count. Starts at zero.
+  - Label - an optional display name for the :Counter:.
+
+***functional specifications***
+- [id:CTR-1] :User: shall be able to increment a :Counter: by one.
+- [id:CTR-2] :User: shall be able to decrement a :Counter: by one, but the value shall not go below zero.
+- [id:CTR-3] :User: shall be able to reset a :Counter: to zero.
+
+***acceptance tests***
+- [covers:CTR-1] Given a :Counter: with Value 5, when :User: increments it, then Value becomes 6.
+- [covers:CTR-2] Given a :Counter: with Value 0, when :User: decrements it, then Value remains 0.
+- [covers:CTR-3] Given a :Counter: with Value 42, when :User: resets it, then Value becomes 0.
