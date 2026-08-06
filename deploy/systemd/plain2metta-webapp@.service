@@ -1,0 +1,30 @@
+[Unit]
+Description=Plain2Metta web application (%i)
+Documentation=https://github.com/bgoertzel-sing/plain2metta
+After=network-online.target tailscaled.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=openclaw
+Group=openclaw
+WorkingDirectory=/home/openclaw/research-agent/projects/specatom-hs/repos/plain2metta-webapp
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/openclaw/research-agent/projects/specatom-hs/repos/plain2metta-webapp/.venv/bin/python /home/openclaw/research-agent/projects/specatom-hs/repos/plain2metta-webapp/webapp/app.py --host %i --port 8080
+Restart=on-failure
+RestartSec=5
+
+# The app needs only its checkout and normal outbound networking.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target
