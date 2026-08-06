@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plain2MeTTa — Spec Compiler</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --text-dim: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --red: #f85149; --orange: #d29922;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-sans); background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  /* Header */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  header h1 { font-size: 20px; font-weight: 600; }
+  header h1 span { color: var(--accent); }
+  .header-links a {
+    color: var(--accent); text-decoration: none; font-size: 14px; margin-left: 20px;
+  }
+  .header-links a:hover { text-decoration: underline; }
+
+  /* Layout */
+  .container { display: flex; height: calc(100vh - 57px); }
+  .input-panel, .output-panel { flex: 1; display: flex; flex-direction: column; }
+  .input-panel { border-right: 1px solid var(--border); }
+
+  /* Panel headers */
+  .panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    background: var(--surface); font-size: 13px; color: var(--text-dim);
+  }
+  .panel-header .title { font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+
+  /* Controls */
+  .controls { display: flex; gap: 8px; align-items: center; }
+  button, select {
+    font-family: var(--font-sans); font-size: 13px;
+    background: var(--surface); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; padding: 6px 14px; cursor: pointer; transition: all 0.15s;
+  }
+  button:hover, select:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 600; }
+  button.primary:hover { background: #79c0ff; }
+  button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* Editor */
+  textarea {
+    flex: 1; resize: none; font-family: var(--font-mono); font-size: 14px;
+    line-height: 1.6; padding: 16px; background: var(--bg); color: var(--text);
+    border: none; outline: none; tab-size: 2;
+  }
+  textarea::placeholder { color: var(--text-dim); }
+
+  /* Output tabs */
+  .tab-bar {
+    display: flex; border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  .tab-bar button {
+    border: none; border-radius: 0; border-bottom: 2px solid transparent;
+    padding: 10px 16px; font-size: 13px; background: transparent; color: var(--text-dim);
+  }
+  .tab-bar button.active { color: var(--text); border-bottom-color: var(--accent); }
+  .tab-bar button:hover { color: var(--text); }
+
+  /* Output content */
+  .output-content { flex: 1; overflow: auto; }
+  .output-content pre {
+    padding: 16px; font-family: var(--font-mono); font-size: 13px;
+    line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+    color: var(--text);
+  }
+
+  /* Summary badges */
+  .summary-bar {
+    display: flex; gap: 16px; padding: 10px 16px;
+    border-bottom: 1px solid var(--border); background: var(--surface); font-size: 13px;
+  }
+  .badge { display: flex; align-items: center; gap: 4px; }
+  .badge .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot.green { background: var(--green); }
+  .dot.red { background: var(--red); }
+  .dot.orange { background: var(--orange); }
+  .dot.blue { background: var(--accent); }
+
+  /* Spinner */
+  .spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Error */
+  .error-box {
+    margin: 16px; padding: 12px 16px; background: #2d1214; border: 1px solid var(--red);
+    border-radius: 8px; color: var(--red); font-size: 14px; white-space: pre-wrap;
+  }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .container { flex-direction: column; height: auto; }
+    .input-panel { border-right: none; border-bottom: 1px solid var(--border); min-height: 40vh; }
+    .output-panel { min-height: 50vh; }
+  }
+
+  /* Diagnostics formatting */
+  .diagnostics h1 { font-size: 18px; margin: 16px 0 8px; color: var(--accent); }
+  .diagnostics h2 { font-size: 15px; margin: 14px 0 6px; color: var(--text); }
+  .diagnostics table {
+    border-collapse: collapse; margin: 8px 0; width: 100%; font-size: 13px;
+  }
+  .diagnostics th, .diagnostics td {
+    border: 1px solid var(--border); padding: 6px 10px; text-align: left;
+  }
+  .diagnostics th { background: var(--surface); color: var(--text-dim); }
+  .diagnostics ul { padding-left: 20px; margin: 4px 0; }
+  .diagnostics li { margin: 2px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ <span>Plain2MeTTa</span> — Spec Compiler</h1>
+  <div class="header-links">
+    <a href="/docs">Documentation</a>
+    <a href="https://github.com/bgoertzel-sing/plain2metta" target="_blank">GitHub</a>
+  </div>
+</header>
+
+<div class="container">
+  <!-- Input Panel -->
+  <div class="input-panel">
+    <div class="panel-header">
+      <span class="title">Plain Spec Input</span>
+      <div class="controls">
+        <select id="example-select">
+          <option value="">Load example…</option>
+        </select>
+        <button class="primary" id="compile-btn" onclick="compile()">▶ Compile</button>
+      </div>
+    </div>
+    <textarea id="editor" placeholder="Paste your Plain spec here…
+
+Example:
+***definitions***
+- :Task: describes work a :User: wants to track.
+
+***functional specifications***
+- :User: should be able to add :Task:.
+
+***acceptance tests***
+- Given a valid :Task:, when :User: adds it, then it appears in the task list."></textarea>
+  </div>
+
+  <!-- Output Panel -->
+  <div class="output-panel">
+    <div class="tab-bar">
+      <button class="active" onclick="switchTab('diagnostics', this)">Diagnostics</button>
+      <button onclick="switchTab('metta', this)">MeTTa Atoms</button>
+      <button onclick="switchTab('json', this)">JSON</button>
+    </div>
+    <div id="summary-bar" class="summary-bar" style="display: none;"></div>
+    <div class="output-content" id="output">
+      <pre style="color: var(--text-dim); padding: 40px 16px; text-align: center;">
+Paste a Plain spec on the left, then click ▶ Compile
+or press Ctrl+Enter / ⌘+Enter.</pre>
+    </div>
+  </div>
+</div>
+
+<script>
+  const editor = document.getElementById('editor');
+  const output = document.getElementById('output');
+  const summaryBar = document.getElementById('summary-bar');
+  const exampleSelect = document.getElementById('example-select');
+  let currentResult = null;
+  let activeTab = 'diagnostics';
+
+  // Keyboard shortcut
+  editor.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); compile(); }
+    // Tab key inserts spaces
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const start = editor.selectionStart;
+      editor.value = editor.value.substring(0, start) + '  ' + editor.value.substring(editor.selectionEnd);
+      editor.selectionStart = editor.selectionEnd = start + 2;
+    }
+  });
+
+  // Load examples
+  fetch('/api/examples').then(r => r.json()).then(examples => {
+    for (const [name, text] of Object.entries(examples)) {
+      const opt = document.createElement('option');
+      opt.value = name;
+      opt.textContent = name.replace(/_/g, ' ');
+      exampleSelect.appendChild(opt);
+    }
+    exampleSelect.addEventListener('change', () => {
+      if (exampleSelect.value && examples[exampleSelect.value]) {
+        editor.value = examples[exampleSelect.value];
+        exampleSelect.value = '';
+      }
+    });
+  });
+
+  function switchTab(tab, btn) {
+    activeTab = tab;
+    document.querySelectorAll('.tab-bar button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderOutput();
+  }
+
+  function markdownToHtml(md) {
+    // Simple markdown → HTML for the diagnostics report
+    let html = md
+      .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+      .replace(/^- (.+)$/gm, '<li>$1</li>')
+      .replace(/`([^`]+)`/g, '<code style="background:#21262d;padding:2px 5px;border-radius:3px;font-size:12px;">$1</code>');
+
+    // Tables
+    html = html.replace(/(\|.+\|(\n|$))+/g, (table) => {
+      const rows = table.trim().split('\n').filter(r => !r.match(/^\|\s*-/));
+      if (rows.length < 1) return table;
+      const header = rows[0].split('|').filter(c => c.trim()).map(c => `<th>${c.trim()}</th>`).join('');
+      const body = rows.slice(1).map(r =>
+        '<tr>' + r.split('|').filter(c => c.trim()).map(c => `<td>${c.trim()}</td>`).join('') + '</tr>'
+      ).join('');
+      return `<table><thead><tr>${header}</tr></thead><tbody>${body}</tbody></table>`;
+    });
+
+    // Wrap loose <li> in <ul>
+    html = html.replace(/((?:<li>.+<\/li>\n?)+)/g, '<ul>$1</ul>');
+    return html;
+  }
+
+  function renderOutput() {
+    if (!currentResult) return;
+    if (currentResult.error) {
+      output.innerHTML = `<div class="error-box">${escapeHtml(currentResult.error)}</div>`;
+      summaryBar.style.display = 'none';
+      return;
+    }
+
+    const s = currentResult.summary;
+    summaryBar.style.display = 'flex';
+    summaryBar.innerHTML = `
+      <div class="badge"><span class="dot blue"></span> ${s.objects} objects</div>
+      <div class="badge"><span class="dot green"></span> ${s.pass} pass</div>
+      <div class="badge"><span class="dot red"></span> ${s.fail} fail</div>
+      <div class="badge"><span class="dot orange"></span> ${s.unknown} unknown</div>
+      <div class="badge"><span class="dot ${s.refusals ? 'red' : 'green'}"></span> ${s.refusals} refusals</div>
+    `;
+
+    if (activeTab === 'diagnostics') {
+      output.innerHTML = `<div class="diagnostics" style="padding:16px;">${markdownToHtml(currentResult.diagnostics)}</div>`;
+    } else if (activeTab === 'metta') {
+      output.innerHTML = `<pre>${escapeHtml(currentResult.metta)}</pre>`;
+    } else {
+      // Pretty-print JSON
+      try {
+        const parsed = JSON.parse(currentResult.json);
+        output.innerHTML = `<pre>${escapeHtml(JSON.stringify(parsed, null, 2))}</pre>`;
+      } catch {
+        output.innerHTML = `<pre>${escapeHtml(currentResult.json)}</pre>`;
+      }
+    }
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  async function compile() {
+    const text = editor.value;
+    if (!text.trim()) { alert('Paste a Plain spec first.'); return; }
+
+    const btn = document.getElementById('compile-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Compiling…';
+    output.innerHTML = '<pre style="color:var(--text-dim);padding:40px 16px;text-align:center;">Compiling…</pre>';
+    summaryBar.style.display = 'none';
+
+    try {
+      const resp = await fetch('/api/compile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      currentResult = await resp.json();
+      renderOutput();
+    } catch (err) {
+      currentResult = { error: 'Network error: ' + err.message };
+      renderOutput();
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = '▶ Compile';
+    }
+  }
+</script>
+</body>
+</html>

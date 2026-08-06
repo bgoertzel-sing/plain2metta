@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plain2MeTTa — Documentation</title>
+<style>
+  :root {
+    --bg: #0d1117; --surface: #161b22; --border: #30363d;
+    --text: #e6edf3; --text-dim: #8b949e; --accent: #58a6ff;
+    --green: #3fb950; --red: #f85149; --orange: #d29922;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: var(--font-sans); background: var(--bg); color: var(--text); }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 24px; border-bottom: 1px solid var(--border); background: var(--surface);
+  }
+  header h1 { font-size: 20px; font-weight: 600; }
+  header h1 span { color: var(--accent); }
+  .header-links a {
+    color: var(--accent); text-decoration: none; font-size: 14px; margin-left: 20px;
+  }
+  .header-links a:hover { text-decoration: underline; }
+
+  /* Page layout */
+  .page { display: flex; max-width: 1200px; margin: 0 auto; }
+
+  /* Sidebar */
+  nav {
+    width: 220px; min-width: 220px; padding: 24px 16px; border-right: 1px solid var(--border);
+    position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  }
+  nav h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-dim); margin: 16px 0 8px; }
+  nav a {
+    display: block; padding: 5px 8px; font-size: 14px; color: var(--text-dim);
+    text-decoration: none; border-radius: 4px; margin: 1px 0;
+  }
+  nav a:hover { color: var(--text); background: var(--surface); }
+
+  /* Main content */
+  main { flex: 1; padding: 32px 40px; max-width: 800px; line-height: 1.7; }
+  main h1 { font-size: 28px; margin: 0 0 8px; }
+  main h2 { font-size: 22px; margin: 40px 0 12px; padding-top: 16px; border-top: 1px solid var(--border); }
+  main h3 { font-size: 17px; margin: 28px 0 8px; }
+  main p { margin: 10px 0; color: var(--text); }
+  main ul, main ol { margin: 8px 0 8px 24px; }
+  main li { margin: 4px 0; }
+  main a { color: var(--accent); text-decoration: none; }
+  main a:hover { text-decoration: underline; }
+  main strong { color: var(--text); }
+  main em { color: var(--text-dim); }
+
+  code {
+    font-family: var(--font-mono); font-size: 13px;
+    background: #21262d; padding: 2px 6px; border-radius: 4px;
+  }
+  pre {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+    padding: 16px; margin: 12px 0; overflow-x: auto; font-size: 13px; line-height: 1.6;
+  }
+  pre code { background: none; padding: 0; }
+
+  /* Callouts */
+  .callout {
+    border-left: 3px solid var(--accent); background: var(--surface);
+    padding: 12px 16px; margin: 16px 0; border-radius: 0 6px 6px 0;
+  }
+  .callout.warn { border-left-color: var(--orange); }
+  .callout strong { display: block; margin-bottom: 4px; }
+
+  /* Table */
+  table { border-collapse: collapse; margin: 12px 0; width: 100%; font-size: 14px; }
+  th, td { border: 1px solid var(--border); padding: 8px 12px; text-align: left; }
+  th { background: var(--surface); color: var(--text-dim); font-size: 13px; }
+
+  @media (max-width: 768px) {
+    nav { display: none; }
+    main { padding: 24px 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚡ <span>Plain2MeTTa</span> — Documentation</h1>
+  <div class="header-links">
+    <a href="/">Try It</a>
+    <a href="https://github.com/bgoertzel-sing/plain2metta" target="_blank">GitHub</a>
+  </div>
+</header>
+
+<div class="page">
+<nav>
+  <h3>Getting Started</h3>
+  <a href="#overview">Overview</a>
+  <a href="#quickstart">Quick Start</a>
+  <a href="#webapp">Web App</a>
+  <h3>Writing Specs</h3>
+  <a href="#plain-format">Plain Format</a>
+  <a href="#sections">Sections</a>
+  <a href="#concepts">Concepts &amp; Markers</a>
+  <a href="#requirements">Requirements &amp; Coverage</a>
+  <a href="#examples">Examples</a>
+  <h3>Outputs</h3>
+  <a href="#metta-atoms">MeTTa Atoms</a>
+  <a href="#json-output">JSON Output</a>
+  <a href="#diagnostics">Diagnostics Report</a>
+  <h3>Validation</h3>
+  <a href="#validation-overview">How Validation Works</a>
+  <a href="#security-privacy">Security &amp; Privacy</a>
+  <a href="#information-flow">Information Flow</a>
+  <a href="#ml-methodology">ML Methodology</a>
+  <h3>Reference</h3>
+  <a href="#cli">CLI Reference</a>
+  <a href="#api">Python API</a>
+  <a href="#web-api">Web API</a>
+  <a href="#limitations">Limitations</a>
+</nav>
+
+<main>
+<h1 id="overview">Plain2MeTTa</h1>
+<p>
+  <strong>Plain2MeTTa</strong> is a source-preserving specification compiler. You write specs in
+  <strong>Plain format</strong> — structured English with lightweight markers — and the compiler
+  produces <strong>MeTTa atoms</strong>, a <strong>JSON intermediate representation</strong>, and a
+  <strong>diagnostics report</strong> with validation obligations, coverage analysis, and open questions.
+</p>
+
+<div class="callout">
+  <strong>What this is</strong>
+  A spec analysis and validation scaffold. It extracts concepts, requirements, acceptance tests,
+  security/privacy obligations, information-flow patterns, and ML methodology checks from
+  structured English specs. It does <em>not</em> generate executable code.
+</div>
+
+<h2 id="quickstart">Quick Start</h2>
+<h3>Install &amp; Run (CLI)</h3>
+<pre><code>git clone https://github.com/bgoertzel-sing/plain2metta
+cd plain2metta
+
+# Compile a spec → .json + .metta + .diag files
+PYTHONPATH=src python3 -m specatom_hs.cli examples/auth_service.plain
+
+# One output format to stdout
+PYTHONPATH=src python3 -m specatom_hs.cli --metta examples/minimal.plain
+PYTHONPATH=src python3 -m specatom_hs.cli --diagnostics examples/task_manager.plain
+PYTHONPATH=src python3 -m specatom_hs.cli --json examples/auth_service.plain
+
+# Run all tests
+PYTHONPATH=src python3 -m unittest discover -s tests -v</code></pre>
+
+<h3>Python API (3 lines)</h3>
+<pre><code>from specatom_hs.passes import compile_source
+from specatom_hs.backends.petta import emit_reified_atoms
+
+doc = compile_source("***definitions***\n- :Task: is work.\n", "minimal.plain")
+atoms, refusals = emit_reified_atoms(doc)</code></pre>
+
+<h2 id="webapp">Web App</h2>
+<p>The web app lets you paste a spec and see all outputs instantly in your browser.</p>
+<pre><code># Install Flask (one-time)
+pip install flask
+
+# Start the web app
+cd webapp
+python app.py
+
+# Open http://localhost:8080</code></pre>
+<p>
+  The web UI has three output tabs — <strong>Diagnostics</strong>, <strong>MeTTa Atoms</strong>,
+  and <strong>JSON</strong> — plus a summary bar showing object/check counts at a glance.
+  Use the example dropdown to load bundled specs.
+</p>
+
+<h2 id="plain-format">Plain Format</h2>
+<p>
+  Plain specs are structured English documents using <code>***section***</code> headers and
+  <code>-</code> bullet items. Concepts are marked with colons (<code>:Concept:</code>),
+  requirements get explicit IDs (<code>[id:REQ-1]</code>), and tests declare coverage
+  (<code>[covers:REQ-1]</code>).
+</p>
+
+<h3 id="sections">Sections</h3>
+<p>Sections are delimited by <code>***name***</code> markers. Recognized section types:</p>
+<table>
+  <thead><tr><th>Section</th><th>Purpose</th></tr></thead>
+  <tbody>
+    <tr><td><code>***definitions***</code></td><td>Define domain concepts, entities, and glossary terms</td></tr>
+    <tr><td><code>***functional specifications***</code></td><td>Describe what the system should do (requirements)</td></tr>
+    <tr><td><code>***acceptance tests***</code></td><td>Given/When/Then test cases linked to requirements</td></tr>
+    <tr><td><code>***implementation requirements***</code></td><td>Technical constraints and platform requirements</td></tr>
+  </tbody>
+</table>
+
+<h3 id="concepts">Concepts &amp; Markers</h3>
+<p>The compiler recognizes several concept markers:</p>
+<table>
+  <thead><tr><th>Syntax</th><th>Meaning</th><th>Example</th></tr></thead>
+  <tbody>
+    <tr><td><code>:Name:</code></td><td>Concept definition (first use) or reference</td><td><code>:User: can log in</code></td></tr>
+    <tr><td><code>[def:Name]</code></td><td>Explicit concept definition</td><td><code>[def:Session] is a record…</code></td></tr>
+    <tr><td><code>[ref:Name]</code></td><td>Explicit concept reference</td><td><code>validates [ref:AuthToken]</code></td></tr>
+    <tr><td><code>[concept:Name]</code></td><td>Concept (definition in definitions section, reference elsewhere)</td><td><code>[concept:Task]</code></td></tr>
+    <tr><td><code>[external:name]</code></td><td>External dependency (not defined in this spec)</td><td><code>[external:argon2id]</code></td></tr>
+  </tbody>
+</table>
+
+<div class="callout warn">
+  <strong>Unresolved concepts</strong>
+  If you reference a concept that's never defined or marked external, the compiler creates an
+  <em>unresolved concept question</em> — a blocking validation obligation that asks you to define
+  it or mark it external.
+</div>
+
+<h3 id="requirements">Requirements &amp; Test Coverage</h3>
+<p>Requirements can be explicitly labelled for coverage tracking:</p>
+<pre><code>***functional specifications***
+- [id:AUTH-1] The service shall authenticate a :User: with email and password.
+- [id:AUTH-2] The service shall reject invalid login attempts.
+
+***acceptance tests***
+- [covers:AUTH-1] Given a known :User: with a correct password, when login is called, then an :AuthToken: is returned.
+- [covers:AUTH-2] Given an invalid password, when login is called, then no :Session: is created.</code></pre>
+
+<p>The compiler checks:</p>
+<ul>
+  <li>Every requirement has at least one acceptance test (or an open question is raised)</li>
+  <li>Every acceptance test covers at least one requirement</li>
+  <li>Coverage labels resolve to exactly one requirement (duplicates and missing labels raise questions)</li>
+  <li>Orphan tests without coverage targets get flagged</li>
+</ul>
+
+<h2 id="examples">Full Example</h2>
+<pre><code>***definitions***
+- :User: is a person allowed to authenticate with the product.
+- :Session: is a server-side record proving that a :User: has recently authenticated.
+- :AuthToken: is a signed bearer credential bound to one :Session:.
+- :PasswordHasher: is provided by [external:argon2id].
+
+***functional specifications***
+- [id:AUTH-1] The service shall authenticate a :User: with email and password,
+  then create a :Session: and issue an :AuthToken:.
+- [id:AUTH-2] The service shall reject login attempts when :PasswordHasher:
+  verification fails.
+
+***acceptance tests***
+- [covers:AUTH-1] Given a known :User: with a correct password, when the login
+  endpoint is called, then the response contains an :AuthToken:.
+- [covers:AUTH-2] Given an invalid password, when the login endpoint is called,
+  then no :Session: is created.</code></pre>
+
+<h2 id="metta-atoms">MeTTa Atoms Output</h2>
+<p>
+  The PeTTa backend emits reified atoms grouped by category: source files, spans, sections,
+  items, objects (concepts, requirements, tests, questions), validation obligations,
+  checks, and provenance links. Each atom preserves exact source spans for traceability.
+</p>
+<pre><code>;; Example atoms (simplified)
+(plain-file file-abc123 "auth.plain" sha256:...)
+(source-span span-001 file-abc123 0 42 1 1)
+(spec-object concept-User ConceptObject TemplateParsed)
+(ConceptName concept-User "User")
+(ConceptStatus "User" "defined")
+(spec-object req-AUTH1 RequirementObject TemplateParsed)
+(RequirementLabel req-AUTH1 "AUTH-1")
+(Covers test-1 req-AUTH1)</code></pre>
+
+<h2 id="json-output">JSON Output</h2>
+<p>
+  The JSON output is a complete structured representation of the compiled document:
+  files, sections, items, source spans, objects, validation obligations, checks, and
+  derived facts. Useful for programmatic downstream processing.
+</p>
+
+<h2 id="diagnostics">Diagnostics Report</h2>
+<p>
+  The diagnostics report is a Markdown document summarizing validation results:
+</p>
+<ul>
+  <li><strong>Summary counts</strong> — total objects, obligations, pass/fail/unknown checks, refusals, questions</li>
+  <li><strong>Per-property breakdown</strong> — each validation property with its pass/fail/unknown counts</li>
+  <li><strong>FAIL checks</strong> — structural validation failures</li>
+  <li><strong>UNKNOWN checks</strong> — items needing human review or additional evidence</li>
+  <li><strong>Questions</strong> — blocking review questions the spec raises</li>
+  <li><strong>Backend refusals</strong> — items the PeTTa backend cannot safely process</li>
+</ul>
+
+<h2 id="validation-overview">How Validation Works</h2>
+<p>
+  The compiler runs an ordered series of passes that create <strong>validation obligations</strong>
+  (things that need to be verified) and <strong>check records</strong> (the verification outcome).
+  Checks are one of:
+</p>
+<table>
+  <thead><tr><th>Status</th><th>Meaning</th></tr></thead>
+  <tbody>
+    <tr><td><strong style="color:var(--green)">Pass</strong></td><td>Evidence found — obligation satisfied</td></tr>
+    <tr><td><strong style="color:var(--red)">Fail</strong></td><td>Structural violation detected</td></tr>
+    <tr><td><strong style="color:var(--orange)">Unknown</strong></td><td>Insufficient evidence — human review needed</td></tr>
+  </tbody>
+</table>
+<p>
+  When a check is Unknown, the compiler typically creates a <strong>Question Object</strong>
+  describing what needs to be resolved. Questions block specific validation obligations
+  and serve as a structured review checklist.
+</p>
+
+<h3 id="security-privacy">Security &amp; Privacy Validation</h3>
+<p>
+  If your spec mentions secrets, tokens, passwords, PII, authentication, access control,
+  webhooks, or destructive actions, the compiler creates conservative security/privacy
+  obligations. These check for evidence of:
+</p>
+<ul>
+  <li>Secret storage and handling (no hardcoding, vault, env vars)</li>
+  <li>Log redaction for secrets</li>
+  <li>Credential rotation and expiry</li>
+  <li>PII consent, minimization, retention, encryption</li>
+  <li>Data classification and purpose limitation</li>
+  <li>Access boundaries (RBAC, least privilege)</li>
+  <li>Session management (MFA, timeouts, token refresh)</li>
+  <li>API abuse protection (rate limiting, brute-force)</li>
+  <li>Webhook request authenticity</li>
+  <li>Safe error disclosure</li>
+  <li>Destructive action safety (confirm, backup, rollback)</li>
+</ul>
+
+<h3 id="information-flow">Information Flow Validation</h3>
+<p>
+  When specs mention data flows, pipelines, inputs/outputs, or dependencies, the compiler
+  extracts component-level <code>DataFlowEdge</code> and <code>TemporalOrderEdge</code> atoms
+  and runs graph analysis including cycle detection, bottleneck detection, fan-in/fan-out
+  analysis, connected components, and critical-path analysis.
+</p>
+
+<h3 id="ml-methodology">ML &amp; Time-Series Methodology</h3>
+<p>
+  For specs involving ML, prediction, or time-series work, the compiler checks for:
+  metric declaration, horizon/frequency, reproducibility evidence, train-only preprocessing,
+  temporal split ordering, baseline comparison, and uncertainty reporting.
+</p>
+
+<h2 id="cli">CLI Reference</h2>
+<pre><code>PYTHONPATH=src python3 -m specatom_hs.cli [OPTIONS] FILE.plain
+
+Options:
+  --json          Write JSON to stdout
+  --metta         Write MeTTa atoms to stdout
+  --diagnostics   Write diagnostics report to stdout
+  --all           Write .json, .metta, .diag files beside the input
+
+If no format flag is given, --all is the default.</code></pre>
+
+<h2 id="api">Python API Reference</h2>
+<pre><code>from specatom_hs.passes import compile_source, compile_path
+from specatom_hs.backends.petta import emit_reified_atoms, emit_reified_atoms_grouped
+from specatom_hs.backends.petta import refuse_executable_skeleton
+from specatom_hs.backends.diagnostics import format_diagnostics_report, diagnostics_summary
+
+# Compile from string
+doc = compile_source(text, "filename.plain")
+
+# Compile from file
+doc = compile_path("path/to/spec.plain")
+
+# Get MeTTa atoms
+atoms, refusals = emit_reified_atoms(doc)
+atoms_grouped, refusals = emit_reified_atoms_grouped(doc)  # with section headers
+
+# Get diagnostics
+report = format_diagnostics_report(doc)     # Markdown string
+summary = diagnostics_summary(doc)          # dict with counts
+
+# Check executable-skeleton refusals
+skeleton_refusals = refuse_executable_skeleton(doc.objects)</code></pre>
+
+<h2 id="web-api">Web API Reference</h2>
+<table>
+  <thead><tr><th>Endpoint</th><th>Method</th><th>Description</th></tr></thead>
+  <tbody>
+    <tr>
+      <td><code>POST /api/compile</code></td>
+      <td>POST</td>
+      <td>Compile a Plain spec. Send <code>{"text": "..."}</code> as JSON. Returns <code>json</code>, <code>metta</code>, <code>diagnostics</code>, and <code>summary</code>.</td>
+    </tr>
+    <tr>
+      <td><code>GET /api/examples</code></td>
+      <td>GET</td>
+      <td>Returns bundled example specs as <code>{"name": "text", ...}</code>.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Example: curl</h3>
+<pre><code>curl -X POST http://localhost:8080/api/compile \
+  -H "Content-Type: application/json" \
+  -d '{"text": "***definitions***\n- :Task: is work a :User: wants to track.\n"}'</code></pre>
+
+<h2 id="limitations">Known Limitations</h2>
+<div class="callout warn">
+  <strong>Not yet supported</strong>
+</div>
+<ul>
+  <li><strong>Full Plain grammar</strong> — the parser handles the most common structural patterns but not the complete Plain language spec</li>
+  <li><strong>Deep English semantics</strong> — analysis is keyword/pattern-level, not NLP-based</li>
+  <li><strong>Executable skeleton generation</strong> — the compiler refuses to generate runnable code from raw text specs; all executable-generation requests produce explicit refusal records</li>
+  <li><strong>Remote/published repository workflows</strong> — designed for local/offline use</li>
+</ul>
+<p>
+  These are <em>intentional</em> design boundaries. The compiler is conservative by default:
+  it surfaces what it cannot verify as Unknown checks and Question Objects, rather than
+  making unsupported claims about spec semantics.
+</p>
+
+<hr style="border-color: var(--border); margin: 40px 0;">
+<p style="color: var(--text-dim); font-size: 13px;">
+  Plain2MeTTa &mdash; part of the <a href="https://github.com/bgoertzel-sing/plain2metta">SpecAtom-HS</a> project.
+  Source-preserving spec compilation for MeTTa/PeTTa/Hyperon.
+</p>
+</main>
+</div>
+</body>
+</html>
