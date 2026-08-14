@@ -7,7 +7,7 @@ import json
 from typing import Any, Protocol
 
 from .project_repository import ProjectStatus, project_status
-from .projects import ArtifactKind, ArtifactState, Project
+from .projects import ArtifactKind, ArtifactState, Project, content_sha256
 from .phase3_review import (
     phase3_review_log_from_dict,
     phase3_review_log_to_dict,
@@ -84,11 +84,22 @@ class ProjectQueryService:
             validate_phase3_review_log(log, elaborated.ref, tests.ref)
         except (json.JSONDecodeError, ValueError) as exc:
             raise ValueError(f"invalid current Phase 3 review log: {exc}") from exc
+        metadata = phase3_review_log_to_dict(log)
+        metadata["reviewed_outputs"] = {
+            "elaborated_spec_hash": (
+                content_sha256(log.reviewed_elaborated_spec)
+                if log.reviewed_elaborated_spec is not None else None
+            ),
+            "test_spec_hash": (
+                content_sha256(log.reviewed_test_spec)
+                if log.reviewed_test_spec is not None else None
+            ),
+        }
         return {
             "project_id": project.project_id,
             "review_log_artifact_id": artifact.artifact_id,
             "review_log_content_hash": artifact.content_hash,
-            "review_log": phase3_review_log_to_dict(log),
+            "review_log": metadata,
         }
 
     def trace(self, project_id: str, spec_id: str | None = None) -> dict[str, Any]:

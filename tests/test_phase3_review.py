@@ -2,7 +2,10 @@ import copy
 import json
 import unittest
 
-from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog
+from specatom_hs.phase3_review import (
+    Phase3Decision, Phase3ReviewLog, phase3_review_log_from_dict,
+    phase3_review_log_to_dict,
+)
 from specatom_hs.projects import (
     ApprovalDecision, ArtifactKind, ArtifactState, add_artifact, create_project,
     project_from_dict, project_to_dict, replace_source, submit_phase3_review,
@@ -38,6 +41,49 @@ class Phase3ReviewWorkflowTests(unittest.TestCase):
         self.assertEqual((elaborated.ref, log.ref), reviewed.upstream)
         self.assertEqual((tests.ref, log.ref), reviewed_tests.upstream)
         self.assertEqual(updated, project_from_dict(project_to_dict(updated)))
+
+    def test_exact_approvals_create_reviewer_edited_snapshots(self):
+        project = self.project()
+        base = self.log(project)
+        submission = Phase3ReviewLog(
+            base.elaborated_spec, base.test_spec, base.decisions,
+            "elaborated\nreviewer correction", "tests\nreviewer correction",
+        )
+        updated = submit_phase3_review(project, submission)
+        self.assertEqual(
+            "elaborated\nreviewer correction",
+            updated.current(ArtifactKind.REVIEWED_ELABORATED_SPEC).content,
+        )
+        self.assertEqual(
+            "tests\nreviewer correction",
+            updated.current(ArtifactKind.REVIEWED_TEST_SPEC).content,
+        )
+        self.assertEqual(updated, project_from_dict(project_to_dict(updated)))
+
+    def test_partial_blank_or_unapproved_edits_fail_closed(self):
+        project = self.project()
+        base = self.log(project)
+        for spec, tests in (("edited", None), (" ", "tests"), ("spec", "")):
+            with self.subTest(spec=spec, tests=tests):
+                with self.assertRaisesRegex(ValueError, "reviewed edits"):
+                    submit_phase3_review(project, Phase3ReviewLog(
+                        base.elaborated_spec, base.test_spec, base.decisions, spec, tests,
+                    ))
+        changes = self.log(project, ApprovalDecision.CHANGES_REQUESTED)
+        updated = submit_phase3_review(project, Phase3ReviewLog(
+            changes.elaborated_spec, changes.test_spec, changes.decisions,
+            "edited spec", "edited tests",
+        ))
+        self.assertIsNone(updated.current(ArtifactKind.REVIEWED_ELABORATED_SPEC))
+        self.assertIsNone(updated.current(ArtifactKind.REVIEWED_TEST_SPEC))
+
+    def test_v1_unchanged_review_log_remains_readable(self):
+        project = self.project()
+        expected = self.log(project)
+        payload = phase3_review_log_to_dict(expected)
+        payload["schema"] = "plain2metta-phase3-review-log/v1"
+        del payload["reviewed_outputs"]
+        self.assertEqual(expected, phase3_review_log_from_dict(payload))
 
     def test_request_changes_persists_log_without_approved_snapshots(self):
         project = self.project()

@@ -212,8 +212,13 @@ test-spec addition view, and can be strictly serialized. Validation recomputes
 the report from current project state, so stale or edited review material fails
 closed. It has no approval or mutation capability.
 
-`submit_phase3_review` is the exact-version Phase 3 decision transaction. Its
-strict review log records reviewer identity, whole-second UTC timestamp,
+`submit_phase3_review` is the exact-version Phase 3 decision transaction. The
+v2 review log may carry a paired set of non-blank reviewer-edited elaborated
+and test documents. Exact full-artifact approval materializes those bytes as
+the immutable reviewed snapshots; omitting edits preserves the Phase 2 bytes.
+Partial edits and edits without full approval never create snapshots. The
+read-only decision query exposes only edit hashes, not reviewed document bodies.
+Its strict review log records reviewer identity, whole-second UTC timestamp,
 approve/request-changes/reject disposition, and optional section/item target
 and comment against the exact elaborated/test hashes. Approval of both complete
 artifacts creates byte-identical reviewed elaborated/test snapshots bound to

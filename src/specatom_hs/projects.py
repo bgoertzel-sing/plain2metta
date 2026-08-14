@@ -258,12 +258,17 @@ def submit_phase3_review(project: Project, decisions: object) -> Project:
     if not (_is_approved(project, elaborated) and _is_approved(project, tests)):
         return project
     review_log = project.current(ArtifactKind.REVIEW_LOG)
+    reviewed_elaborated_content = decisions.reviewed_elaborated_spec
+    reviewed_test_content = decisions.reviewed_test_spec
+    if reviewed_elaborated_content is None:
+        reviewed_elaborated_content = elaborated.content
+        reviewed_test_content = tests.content
     project = _add_derived_artifact(
-        project, ArtifactKind.REVIEWED_ELABORATED_SPEC, elaborated.content,
+        project, ArtifactKind.REVIEWED_ELABORATED_SPEC, reviewed_elaborated_content,
         (elaborated.ref, review_log.ref),
     )
     return _add_derived_artifact(
-        project, ArtifactKind.REVIEWED_TEST_SPEC, tests.content,
+        project, ArtifactKind.REVIEWED_TEST_SPEC, reviewed_test_content,
         (tests.ref, review_log.ref),
     )
 
@@ -681,8 +686,14 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             review_log is None or elaborated is None or tests is None
             or reviewed_elaborated.upstream != (elaborated.ref, review_log.ref)
             or reviewed_tests.upstream != (tests.ref, review_log.ref)
-            or reviewed_elaborated.content != elaborated.content
-            or reviewed_tests.content != tests.content
+            or reviewed_elaborated.content != (
+                phase3_log.reviewed_elaborated_spec
+                if phase3_log.reviewed_elaborated_spec is not None else elaborated.content
+            )
+            or reviewed_tests.content != (
+                phase3_log.reviewed_test_spec
+                if phase3_log.reviewed_test_spec is not None else tests.content
+            )
             or not _is_approved(project, elaborated) or not _is_approved(project, tests)
         ):
             raise ValueError("malformed project state: reviewed snapshots do not match exact approved inputs")

@@ -25,6 +25,8 @@ class Phase3ReviewLog:
     elaborated_spec: ArtifactRef
     test_spec: ArtifactRef
     decisions: tuple[Phase3Decision, ...]
+    reviewed_elaborated_spec: str | None = None
+    reviewed_test_spec: str | None = None
 
 
 def _valid_timestamp(value: object) -> bool:
@@ -46,6 +48,11 @@ def validate_phase3_review_log(
         raise ValueError("review log must bind the exact current elaborated and test specs")
     if not log.decisions:
         raise ValueError("review log requires at least one decision")
+    if (log.reviewed_elaborated_spec is None) != (log.reviewed_test_spec is None):
+        raise ValueError("reviewed edits must provide both elaborated and test specs")
+    for content in (log.reviewed_elaborated_spec, log.reviewed_test_spec):
+        if content is not None and (not isinstance(content, str) or not content.strip()):
+            raise ValueError("reviewed edits must be absent or non-blank text")
     allowed = {elaborated, tests}
     seen: set[tuple[ArtifactRef, str | None]] = set()
     for entry in log.decisions:
@@ -71,8 +78,12 @@ def phase3_review_log_to_dict(log: Phase3ReviewLog) -> dict[str, Any]:
     def ref(value: ArtifactRef) -> dict[str, str]:
         return {"artifact_id": value.artifact_id, "content_hash": value.content_hash}
     return {
-        "schema": "plain2metta-phase3-review-log/v1",
+        "schema": "plain2metta-phase3-review-log/v2",
         "inputs": {"elaborated_spec": ref(log.elaborated_spec), "test_spec": ref(log.test_spec)},
+        "reviewed_outputs": {
+            "elaborated_spec": log.reviewed_elaborated_spec,
+            "test_spec": log.reviewed_test_spec,
+        },
         "decisions": [
             {
                 "artifact": ref(item.artifact), "decision": item.decision.value,
@@ -98,8 +109,18 @@ def phase3_review_log_from_dict(payload: Mapping[str, Any]) -> Phase3ReviewLog:
         if any(not isinstance(item[key], str) or not item[key] for key in item):
             raise ValueError(f"{label} fields must be non-blank text")
         return ArtifactRef(item["artifact_id"], item["content_hash"])
-    value = exact(payload, {"schema", "inputs", "decisions"}, "review log")
-    if value["schema"] != "plain2metta-phase3-review-log/v1":
+    if not isinstance(payload, Mapping):
+        raise ValueError("review log has unknown or missing fields")
+    schema = payload.get("schema")
+    if schema == "plain2metta-phase3-review-log/v1":
+        value = exact(payload, {"schema", "inputs", "decisions"}, "review log")
+        outputs: Mapping[str, Any] = {"elaborated_spec": None, "test_spec": None}
+    elif schema == "plain2metta-phase3-review-log/v2":
+        value = exact(payload, {"schema", "inputs", "reviewed_outputs", "decisions"}, "review log")
+        outputs = exact(
+            value["reviewed_outputs"], {"elaborated_spec", "test_spec"}, "reviewed outputs",
+        )
+    else:
         raise ValueError("unsupported Phase 3 review-log schema")
     inputs = exact(value["inputs"], {"elaborated_spec", "test_spec"}, "review inputs")
     raw = value["decisions"]
@@ -113,4 +134,8 @@ def phase3_review_log_from_dict(payload: Mapping[str, Any]) -> Phase3ReviewLog:
         except (TypeError, ValueError) as exc:
             raise ValueError("review decision is not declared") from exc
         decisions.append(Phase3Decision(ref(item["artifact"], "decision artifact"), decision, item["reviewer"], item["timestamp"], item["target"], item["comment"]))
-    return Phase3ReviewLog(ref(inputs["elaborated_spec"], "elaborated_spec"), ref(inputs["test_spec"], "test_spec"), tuple(decisions))
+    return Phase3ReviewLog(
+        ref(inputs["elaborated_spec"], "elaborated_spec"),
+        ref(inputs["test_spec"], "test_spec"),
+        tuple(decisions), outputs["elaborated_spec"], outputs["test_spec"],
+    )

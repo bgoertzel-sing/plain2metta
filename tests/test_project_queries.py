@@ -81,8 +81,12 @@ class ProjectQueryServiceTests(unittest.TestCase):
         artifact = project.current(ArtifactKind.REVIEW_LOG)
         self.assertEqual(artifact.artifact_id, result["review_log_artifact_id"])
         self.assertEqual(artifact.content_hash, result["review_log_content_hash"])
-        self.assertEqual("plain2metta-phase3-review-log/v1", result["review_log"]["schema"])
+        self.assertEqual("plain2metta-phase3-review-log/v2", result["review_log"]["schema"])
         self.assertEqual(2, len(result["review_log"]["decisions"]))
+        self.assertEqual(
+            {"elaborated_spec_hash": None, "test_spec_hash": None},
+            result["review_log"]["reviewed_outputs"],
+        )
         self.assertNotIn("content", result)
         self.assertFalse(hasattr(self.queries, "submit_phase3_review"))
 

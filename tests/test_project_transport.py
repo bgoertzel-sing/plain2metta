@@ -80,7 +80,7 @@ class ReadOnlyProjectApplicationTests(unittest.TestCase):
         )
         self.assertTrue(all("content" not in item for item in review["inputs"].values()))
         decisions = self.request("/api/review-decisions/reviewed")["body"]
-        self.assertEqual("plain2metta-phase3-review-log/v1", decisions["review_log"]["schema"])
+        self.assertEqual("plain2metta-phase3-review-log/v2", decisions["review_log"]["schema"])
         self.assertEqual(2, len(decisions["review_log"]["decisions"]))
         self.assertNotIn("content", decisions)
 
