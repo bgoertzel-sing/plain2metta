@@ -153,6 +153,15 @@ the exact current upstream artifact ID and content hash; stale or wrong-stage
 references fail without a write. It has no generic artifact write, LLM
 elaboration, compilation, provider, or execution method.
 
+`specatom_hs.elaboration_protocol` defines the pure Phase 2 adapter messages.
+Requests bind source text to an exact original-spec identity; responses bind to
+the canonical request and require backend/model, interaction ID, token counts,
+and timestamp provenance. `admit_elaboration` records deterministic validation
+summaries and admits output only when every original `[id:...]`, `[covers:...]`,
+and `:Concept:` marker remains in the elaborated spec and neither output has a
+validation failure or blocking question. This module does not invoke or retry a
+provider and does not persist returned content.
+
 `ReadOnlyProjectApplication` is a server-independent WSGI adapter for that
 service. It exposes only `GET /api/projects`, `GET /api/projects/:id`,
 `GET /api/versions/:id`, and `GET /api/trace/:id` (with an optional single
