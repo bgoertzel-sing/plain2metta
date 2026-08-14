@@ -19,6 +19,7 @@ class ArtifactKind(str, Enum):
     TEST_SPEC = "test-spec"
     LOGICAL_IR = "logical-ir"
     LOGICAL_REVIEW = "logical-review"
+    COMPILER_OUTPUT = "compiler-output"
 
 
 class ArtifactState(str, Enum):
@@ -127,6 +128,8 @@ def add_artifact(
         raise ValueError("use replace_source to version the original spec")
     if kind in (ArtifactKind.LOGICAL_IR, ArtifactKind.LOGICAL_REVIEW):
         raise ValueError("use add_logical_ir or add_logical_ir_document to enforce the review gate")
+    if kind is ArtifactKind.COMPILER_OUTPUT:
+        raise ValueError("use the phase-specific add_compiler_output transition API")
     return _add_derived_artifact(project, kind, content, upstream)
 
 
@@ -240,6 +243,16 @@ def admit_compilation(project: Project) -> ArtifactVersion:
     if report.blocks_compilation:
         raise ValueError("compilation blocked by unresolved critical logical-review findings")
     return logical
+
+
+def add_compiler_output(project: Project, bundle: object) -> Project:
+    """Persist generated text from the exact admitted IR without executing it."""
+    from .compiler_output import canonical_compiler_output
+
+    logical = admit_compilation(project)
+    return _add_derived_artifact(
+        project, ArtifactKind.COMPILER_OUTPUT, canonical_compiler_output(bundle), (logical.ref,)
+    )
 
 
 def decide(
@@ -442,6 +455,24 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             validate_review_for_document(report, document)
         except (json.JSONDecodeError, ValueError) as exc:
             raise ValueError(f"malformed project state: logical review does not match logical IR: {exc}") from exc
+    compiler_output = project.current(ArtifactKind.COMPILER_OUTPUT)
+    if compiler_output is not None:
+        from .compiler_output import canonical_compiler_output, compiler_output_from_dict
+        import json
+        if logical is None or compiler_output.upstream != (logical.ref,):
+            raise ValueError("malformed project state: compiler output has invalid admitted logical-IR input")
+        try:
+            bundle = compiler_output_from_dict(json.loads(compiler_output.content))
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"malformed project state: invalid compiler output: {exc}") from exc
+        if compiler_output.content != canonical_compiler_output(bundle):
+            raise ValueError("malformed project state: compiler output is not canonical")
+        try:
+            admitted = admit_compilation(project)
+        except ValueError as exc:
+            raise ValueError(f"malformed project state: compiler output lacks compile admission: {exc}") from exc
+        if admitted.ref != logical.ref:
+            raise ValueError("malformed project state: compiler output logical IR is not admitted")
     for annotation in annotations:
         target = project.artifact(annotation.artifact.artifact_id)
         if target.content_hash != annotation.artifact.content_hash:

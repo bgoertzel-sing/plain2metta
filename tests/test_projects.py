@@ -7,6 +7,7 @@ from specatom_hs.projects import (
     ArtifactState,
     Project,
     add_artifact,
+    add_compiler_output,
     add_logical_ir,
     add_logical_ir_document,
     admit_compilation,
@@ -21,6 +22,7 @@ from specatom_hs.projects import (
 from specatom_hs.logical_ir import (
     Contract, FindingDisposition, LogicalIRDocument, OperationalHole, RequirementObligation, TypeDeclaration,
 )
+from specatom_hs.compiler_output import CompilerOutputBundle, GeneratedFile
 
 
 class ProjectModelTests(unittest.TestCase):
@@ -196,6 +198,85 @@ class ProjectModelTests(unittest.TestCase):
         self.assertEqual(ArtifactState.INVALIDATED, project.artifact(first_review.artifact_id).state)
         self.assertEqual(logical, admit_compilation(project))
         self.assertEqual(project, project_from_dict(project_to_dict(project)))
+
+    def admitted_project(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
+        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        document = LogicalIRDocument(
+            "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),),
+            (Contract("contract.work", "work", ("Value",), "Value", (), (), (), ("REQ-1",), True),),
+            (RequirementObligation("REQ-1", ("TEST-1",), ("REQ-1",)),), (),
+            (OperationalHole("hole.work", "contract.work", "Value", "grounding required", ("REQ-1",)),),
+        )
+        project = add_logical_ir_document(project, document)
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        return decide(project, logical.ref, ApprovalDecision.APPROVED, "ben")
+
+    def test_compiler_output_is_inert_persisted_and_bound_to_admitted_ir(self):
+        project = self.admitted_project()
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        bundle = CompilerOutputBundle((
+            GeneratedFile("demo.metta", "; generated, not executed\n", ("REQ-1",)),
+            GeneratedFile("tests/test_demo.py", "raise RuntimeError('must not run')\n", ("REQ-1",), ("TEST-1",)),
+        ), "model:test")
+        project = add_compiler_output(project, bundle)
+        output = project.current(ArtifactKind.COMPILER_OUTPUT)
+        self.assertEqual((logical.ref,), output.upstream)
+        self.assertIn('"executed":false', output.content)
+        self.assertEqual(project, project_from_dict(project_to_dict(project)))
+
+    def test_compiler_output_requires_admission_and_cannot_use_generic_api(self):
+        project = self.populated()
+        bundle = CompilerOutputBundle((GeneratedFile("demo.metta", "", ("REQ-1",)),), "model:test")
+        with self.assertRaises(ValueError):
+            add_compiler_output(project, bundle)
+        source = project.current(ArtifactKind.ORIGINAL_SPEC)
+        with self.assertRaisesRegex(ValueError, "add_compiler_output"):
+            add_artifact(project, ArtifactKind.COMPILER_OUTPUT, "{}", (source.ref,))
+
+    def test_compiler_output_rejects_unsafe_or_untraceable_files(self):
+        project = self.admitted_project()
+        for generated in (
+            GeneratedFile("../escape.py", "", ("REQ-1",)),
+            GeneratedFile("demo.py", "", ()),
+        ):
+            with self.subTest(path=generated.path), self.assertRaises(ValueError):
+                add_compiler_output(project, CompilerOutputBundle((generated,), "model:test"))
+
+    def test_deserialization_rejects_executed_or_forged_compiler_output(self):
+        import json
+        from specatom_hs.projects import _artifact_id, content_sha256
+        project = add_compiler_output(
+            self.admitted_project(),
+            CompilerOutputBundle((GeneratedFile("demo.metta", "", ("REQ-1",)),), "model:test"),
+        )
+        for mutation in ("executed", "unknown"):
+            payload = project_to_dict(project)
+            output = next(item for item in payload["artifacts"] if item["kind"] == "compiler-output")
+            body = json.loads(output["content"])
+            if mutation == "executed":
+                body["executed"] = True
+            else:
+                body["command"] = "python demo.py"
+            output["content"] = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            output["content_hash"] = content_sha256(output["content"])
+            output["artifact_id"] = _artifact_id("demo", ArtifactKind.COMPILER_OUTPUT, 1, output["content_hash"])
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "invalid compiler output"):
+                project_from_dict(payload)
+
+    def test_revoking_logical_ir_approval_invalidates_compiler_output(self):
+        project = add_compiler_output(
+            self.admitted_project(),
+            CompilerOutputBundle((GeneratedFile("demo.metta", "", ("REQ-1",)),), "model:test"),
+        )
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        output = project.current(ArtifactKind.COMPILER_OUTPUT)
+        changed = decide(project, logical.ref, ApprovalDecision.CHANGES_REQUESTED, "ben", "revise IR")
+        self.assertIsNone(changed.current(ArtifactKind.COMPILER_OUTPUT))
+        self.assertEqual(ArtifactState.INVALIDATED, changed.artifact(output.artifact_id).state)
 
     def test_compile_admission_rejects_deferred_and_stale_review(self):
         project = self.populated()

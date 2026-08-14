@@ -113,6 +113,14 @@ logical-IR artifact only when it is explicitly approved, its exact hash-bound
 review is present, and no critical finding is open or deferred. Deserialization
 regenerates the baseline report and rejects dropped or rewritten findings.
 
+`add_compiler_output(project, bundle)` is the inert Phase 5 persistence seam.
+It accepts a strict `CompilerOutputBundle` only after `admit_compilation`
+succeeds, binds the artifact to that exact logical-IR hash, requires per-file
+spec traceability, and records `executed: false`. It stores generated text but
+does not publish files, import Python, evaluate MeTTa, spawn processes, or run
+tests. Unsafe paths, unknown fields, forged execution state, and stale compile
+admission fail closed.
+
 For local persistence, `FilesystemProjectRepository` exposes only create, get,
 save, and list-status operations. Project IDs are storage-safe lowercase slugs;
 writes publish fully flushed JSON documents atomically, and malformed files,
