@@ -261,6 +261,8 @@ def review_logical_ir(document: LogicalIRDocument) -> LogicalReviewReport:
 
 
 def decide_finding(report: LogicalReviewReport, finding_id: str, disposition: FindingDisposition, reviewer: str, rationale: str) -> LogicalReviewReport:
+    if not isinstance(disposition, FindingDisposition):
+        raise ValueError("invalid logical review disposition")
     if disposition is FindingDisposition.OPEN:
         raise ValueError("review decisions must repair, waive, or defer a finding")
     _text(reviewer, "reviewer")
@@ -276,6 +278,34 @@ def decide_finding(report: LogicalReviewReport, finding_id: str, disposition: Fi
     if not found:
         raise ValueError("unknown logical review finding")
     return replace(report, findings=tuple(findings))
+
+
+def validate_review_for_document(report: LogicalReviewReport, document: LogicalIRDocument) -> None:
+    """Require a review to be exactly the deterministic report plus decisions.
+
+    This prevents a serialized project from dropping, adding, or rewriting a
+    finding while retaining a superficially valid logical-IR hash.
+    """
+    expected = review_logical_ir(document)
+    if report.logical_ir_hash != expected.logical_ir_hash:
+        raise ValueError("logical review hash does not match logical IR")
+    if len(report.findings) != len(expected.findings):
+        raise ValueError("logical review findings do not match logical IR")
+    expected_by_id = {finding.finding_id: finding for finding in expected.findings}
+    for finding in report.findings:
+        baseline = expected_by_id.get(finding.finding_id)
+        if baseline is None or (
+            finding.category,
+            finding.severity,
+            finding.message,
+            finding.source_clause_ids,
+        ) != (
+            baseline.category,
+            baseline.severity,
+            baseline.message,
+            baseline.source_clause_ids,
+        ):
+            raise ValueError("logical review findings do not match logical IR")
 
 
 def logical_review_to_dict(report: LogicalReviewReport) -> dict[str, Any]:

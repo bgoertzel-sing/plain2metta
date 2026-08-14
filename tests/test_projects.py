@@ -5,18 +5,21 @@ from specatom_hs.projects import (
     ApprovalDecision,
     ArtifactKind,
     ArtifactState,
+    Project,
     add_artifact,
     add_logical_ir,
     add_logical_ir_document,
+    admit_compilation,
     annotate,
     create_project,
     decide,
+    decide_logical_finding,
     project_from_dict,
     project_to_dict,
     replace_source,
 )
 from specatom_hs.logical_ir import (
-    Contract, LogicalIRDocument, OperationalHole, RequirementObligation, TypeDeclaration,
+    Contract, FindingDisposition, LogicalIRDocument, OperationalHole, RequirementObligation, TypeDeclaration,
 )
 
 
@@ -162,6 +165,90 @@ class ProjectModelTests(unittest.TestCase):
         review["artifact_id"] = _artifact_id("demo", ArtifactKind.LOGICAL_REVIEW, review["version"], review["content_hash"])
         with self.assertRaisesRegex(ValueError, "logical review hash mismatch"):
             project_from_dict(payload)
+
+    def test_persisted_finding_transition_and_exact_compile_admission(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
+        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        document = LogicalIRDocument(
+            "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),), (),
+            (RequirementObligation("REQ-1", (), ("REQ-1",)),), (), (),
+        )
+        project = add_logical_ir_document(project, document)
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        first_review = project.current(ArtifactKind.LOGICAL_REVIEW)
+        with self.assertRaisesRegex(ValueError, "explicit approval"):
+            admit_compilation(project)
+        project = decide(project, logical.ref, ApprovalDecision.APPROVED, "ben")
+        with self.assertRaisesRegex(ValueError, "unresolved critical"):
+            admit_compilation(project)
+        import json
+        from specatom_hs.logical_ir import logical_review_from_dict
+        report = logical_review_from_dict(json.loads(first_review.content))
+        project = decide_logical_finding(
+            project, report.findings[0].finding_id, FindingDisposition.WAIVED,
+            "ben", "accepted uncovered requirement for this verification slice",
+        )
+        current_review = project.current(ArtifactKind.LOGICAL_REVIEW)
+        self.assertEqual(2, current_review.version)
+        self.assertEqual(ArtifactState.INVALIDATED, project.artifact(first_review.artifact_id).state)
+        self.assertEqual(logical, admit_compilation(project))
+        self.assertEqual(project, project_from_dict(project_to_dict(project)))
+
+    def test_compile_admission_rejects_deferred_and_stale_review(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
+        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        document = LogicalIRDocument(
+            "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),), (),
+            (RequirementObligation("REQ-1", (), ("REQ-1",)),), (), (),
+        )
+        project = add_logical_ir_document(project, document)
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        review = project.current(ArtifactKind.LOGICAL_REVIEW)
+        project = decide(project, logical.ref, ApprovalDecision.APPROVED, "ben")
+        import json
+        from specatom_hs.logical_ir import logical_review_from_dict
+        finding = logical_review_from_dict(json.loads(review.content)).findings[0]
+        project = decide_logical_finding(project, finding.finding_id, FindingDisposition.DEFERRED, "ben", "later")
+        with self.assertRaisesRegex(ValueError, "unresolved critical"):
+            admit_compilation(project)
+        with self.assertRaisesRegex(ValueError, "exact current"):
+            decide_logical_finding(
+                Project(project.project_id, project.name, tuple(a for a in project.artifacts if a.kind is not ArtifactKind.LOGICAL_REVIEW), project.approvals, project.annotations),
+                "missing", FindingDisposition.WAIVED, "ben", "reason",
+            )
+
+    def test_deserialization_rejects_dropped_or_rewritten_logical_finding(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
+        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        document = LogicalIRDocument(
+            "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),), (),
+            (RequirementObligation("REQ-1", (), ("REQ-1",)),), (), (),
+        )
+        import json
+        from specatom_hs.projects import _artifact_id, content_sha256
+        for mutation in ("drop", "rewrite"):
+            payload = project_to_dict(add_logical_ir_document(project, document))
+            review = next(item for item in payload["artifacts"] if item["kind"] == "logical-review")
+            body = json.loads(review["content"])
+            if mutation == "drop":
+                body["findings"] = []
+                body["blocks_compilation"] = False
+            else:
+                body["findings"][0]["message"] = "forged finding"
+            review["content"] = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            review["content_hash"] = content_sha256(review["content"])
+            review["artifact_id"] = _artifact_id("demo", ArtifactKind.LOGICAL_REVIEW, 1, review["content_hash"])
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "does not match logical IR"):
+                project_from_dict(payload)
 
     def test_revoking_input_approval_invalidates_logical_ir(self):
         project = self.populated()

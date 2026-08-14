@@ -72,7 +72,7 @@ skeleton_refusals = refuse_executable_skeleton(doc.objects)
 ```python
 from specatom_hs.projects import (
     ApprovalDecision, ArtifactKind, add_artifact, add_logical_ir,
-    annotate, create_project, decide,
+    admit_compilation, annotate, create_project, decide, decide_logical_finding,
 )
 
 project = create_project("task-list", "Task list", source_text)
@@ -106,6 +106,12 @@ artifact. `review_logical_ir` reports source-linked critical missing-definition,
 uncovered-requirement, and unmarked-operational-gap findings. Critical open or
 deferred findings set the derived `blocks_compilation` flag; repair and waiver
 decisions require reviewer identity and rationale.
+
+`decide_logical_finding` persists each attributed disposition as a new
+immutable logical-review version. `admit_compilation` returns the exact current
+logical-IR artifact only when it is explicitly approved, its exact hash-bound
+review is present, and no critical finding is open or deferred. Deserialization
+regenerates the baseline report and rejects dropped or rewritten findings.
 
 For local persistence, `FilesystemProjectRepository` exposes only create, get,
 save, and list-status operations. Project IDs are storage-safe lowercase slugs;

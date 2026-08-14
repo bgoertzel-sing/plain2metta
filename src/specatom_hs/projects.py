@@ -184,6 +184,64 @@ def add_logical_ir_document(project: Project, document: object) -> Project:
     return _add_derived_artifact(project, ArtifactKind.LOGICAL_REVIEW, content, (logical.ref,))
 
 
+def decide_logical_finding(
+    project: Project,
+    finding_id: str,
+    disposition: object,
+    reviewer: str,
+    rationale: str,
+) -> Project:
+    """Persist one attributed finding transition as a new review version."""
+    from .logical_ir import (
+        decide_finding,
+        logical_ir_from_dict,
+        logical_review_from_dict,
+        logical_review_to_dict,
+        validate_review_for_document,
+    )
+    import json
+
+    logical = project.current(ArtifactKind.LOGICAL_IR)
+    review = project.current(ArtifactKind.LOGICAL_REVIEW)
+    if logical is None or review is None or review.upstream != (logical.ref,):
+        raise ValueError("logical finding decisions require the exact current logical IR and review")
+    try:
+        document = logical_ir_from_dict(json.loads(logical.content))
+        report = logical_review_from_dict(json.loads(review.content))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"invalid current logical review state: {exc}") from exc
+    validate_review_for_document(report, document)
+    updated = decide_finding(report, finding_id, disposition, reviewer, rationale)
+    content = json.dumps(logical_review_to_dict(updated), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return _add_derived_artifact(project, ArtifactKind.LOGICAL_REVIEW, content, (logical.ref,))
+
+
+def admit_compilation(project: Project) -> ArtifactVersion:
+    """Return the exact logical IR admitted for compilation, or fail closed."""
+    from .logical_ir import (
+        logical_ir_from_dict,
+        logical_review_from_dict,
+        validate_review_for_document,
+    )
+    import json
+
+    logical = project.current(ArtifactKind.LOGICAL_IR)
+    review = project.current(ArtifactKind.LOGICAL_REVIEW)
+    if logical is None or review is None or review.upstream != (logical.ref,):
+        raise ValueError("compilation requires the exact current logical IR and logical review")
+    if not _is_approved(project, logical):
+        raise ValueError("compilation requires explicit approval of the exact current logical IR")
+    try:
+        document = logical_ir_from_dict(json.loads(logical.content))
+        report = logical_review_from_dict(json.loads(review.content))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"invalid current logical review state: {exc}") from exc
+    validate_review_for_document(report, document)
+    if report.blocks_compilation:
+        raise ValueError("compilation blocked by unresolved critical logical-review findings")
+    return logical
+
+
 def decide(
     project: Project,
     artifact_ref: ArtifactRef,
@@ -369,7 +427,7 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             raise ValueError("malformed project state: logical IR lacks exact input approvals")
     logical_review = project.current(ArtifactKind.LOGICAL_REVIEW)
     if logical_review is not None:
-        from .logical_ir import logical_review_from_dict
+        from .logical_ir import logical_ir_from_dict, logical_review_from_dict, validate_review_for_document
         import json
         if logical is None or logical_review.upstream != (logical.ref,):
             raise ValueError("malformed project state: logical review has invalid logical-IR input")
@@ -379,6 +437,11 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             raise ValueError(f"malformed project state: invalid logical review: {exc}") from exc
         if report.logical_ir_hash != logical.content_hash:
             raise ValueError("malformed project state: logical review hash mismatch")
+        try:
+            document = logical_ir_from_dict(json.loads(logical.content))
+            validate_review_for_document(report, document)
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"malformed project state: logical review does not match logical IR: {exc}") from exc
     for annotation in annotations:
         target = project.artifact(annotation.artifact.artifact_id)
         if target.content_hash != annotation.artifact.content_hash:
