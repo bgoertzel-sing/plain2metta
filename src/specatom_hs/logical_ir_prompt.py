@@ -156,6 +156,13 @@ def parse_logical_ir_completion(request: LogicalIRRequest, completion: ProviderC
     request_hash = logical_ir_request_hash(request)
     if not isinstance(completion, ProviderCompletion) or not isinstance(completion.text, str) or not isinstance(completion.provenance, ProviderProvenance):
         raise ValueError("completion must contain text and provider provenance")
+    for field in ("backend", "model", "interaction_id", "timestamp"):
+        if not isinstance(getattr(completion.provenance, field), str) or not getattr(completion.provenance, field).strip():
+            raise ValueError(f"provenance {field} must be non-blank text")
+    for field in ("input_tokens", "output_tokens"):
+        count = getattr(completion.provenance, field)
+        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+            raise ValueError(f"provenance {field} must be a non-negative integer")
     try:
         payload = json.loads(completion.text, object_pairs_hook=_reject_duplicate_keys)
     except (TypeError, json.JSONDecodeError, ValueError) as exc:

@@ -21,6 +21,7 @@ class ArtifactKind(str, Enum):
     REVIEW_LOG = "review-log"
     REVIEWED_ELABORATED_SPEC = "reviewed-elaborated-spec"
     REVIEWED_TEST_SPEC = "reviewed-test-spec"
+    LOGICAL_IR_LOG = "logical-ir-log"
     LOGICAL_IR = "logical-ir"
     LOGICAL_REVIEW = "logical-review"
     COMPILER_OUTPUT = "compiler-output"
@@ -137,7 +138,7 @@ def add_artifact(
         raise ValueError("use add_admitted_elaboration to enforce validation admission")
     if kind in (ArtifactKind.REVIEW_LOG, ArtifactKind.REVIEWED_ELABORATED_SPEC, ArtifactKind.REVIEWED_TEST_SPEC):
         raise ValueError("use submit_phase3_review to enforce exact-version review admission")
-    if kind in (ArtifactKind.LOGICAL_IR, ArtifactKind.LOGICAL_REVIEW):
+    if kind in (ArtifactKind.LOGICAL_IR_LOG, ArtifactKind.LOGICAL_IR, ArtifactKind.LOGICAL_REVIEW):
         raise ValueError("use add_logical_ir or add_logical_ir_document to enforce the review gate")
     if kind is ArtifactKind.COMPILER_OUTPUT:
         raise ValueError("use the phase-specific add_compiler_output transition API")
@@ -286,6 +287,50 @@ def add_logical_ir_document(project: Project, document: object) -> Project:
         raise ValueError("logical review hash does not bind to the persisted logical IR")
     content = json.dumps(logical_review_to_dict(report), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return _add_derived_artifact(project, ArtifactKind.LOGICAL_REVIEW, content, (logical.ref,))
+
+
+def add_logical_ir_response(project: Project, request: object, response: object) -> Project:
+    """Atomically construct the Phase 4 interaction log, logical IR, and review."""
+    from .logical_ir import logical_ir_hash
+    from .logical_ir_prompt import (
+        LogicalIRRequest, LogicalIRResponse, logical_ir_request_hash,
+        logical_ir_request_to_dict,
+    )
+    import json
+
+    reviewed_spec = project.current(ArtifactKind.REVIEWED_ELABORATED_SPEC)
+    reviewed_tests = project.current(ArtifactKind.REVIEWED_TEST_SPEC)
+    if not isinstance(request, LogicalIRRequest) or not isinstance(response, LogicalIRResponse):
+        raise ValueError("logical IR admission requires exact request and response messages")
+    if (
+        reviewed_spec is None or reviewed_tests is None
+        or request.reviewed_spec != reviewed_spec.ref
+        or request.reviewed_tests != reviewed_tests.ref
+        or request.reviewed_spec_text != reviewed_spec.content
+        or request.reviewed_tests_text != reviewed_tests.content
+        or response.request_hash != logical_ir_request_hash(request)
+    ):
+        raise ValueError("logical IR response does not bind to exact current reviewed snapshots")
+    provenance = response.provenance
+    log = {
+        "schema": "plain2metta-logical-ir-log/v1",
+        "request": logical_ir_request_to_dict(request),
+        "request_hash": response.request_hash,
+        "logical_ir_hash": logical_ir_hash(response.logical_ir),
+        "provenance": {
+            "backend": provenance.backend, "model": provenance.model,
+            "interaction_id": provenance.interaction_id,
+            "input_tokens": provenance.input_tokens,
+            "output_tokens": provenance.output_tokens,
+            "timestamp": provenance.timestamp,
+        },
+    }
+    content = json.dumps(log, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    project = _add_derived_artifact(
+        project, ArtifactKind.LOGICAL_IR_LOG, content,
+        (reviewed_spec.ref, reviewed_tests.ref),
+    )
+    return add_logical_ir_document(project, response.logical_ir)
 
 
 def decide_logical_finding(
@@ -700,6 +745,42 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
         ):
             raise ValueError("malformed project state: reviewed snapshots do not match exact approved inputs")
     logical = project.current(ArtifactKind.LOGICAL_IR)
+    logical_log = project.current(ArtifactKind.LOGICAL_IR_LOG)
+    if logical_log is not None:
+        from .logical_ir_prompt import LogicalIRRequest, logical_ir_request_hash, logical_ir_request_to_dict
+        import json
+        reviewed_elaborated = project.current(ArtifactKind.REVIEWED_ELABORATED_SPEC)
+        reviewed_tests = project.current(ArtifactKind.REVIEWED_TEST_SPEC)
+        try:
+            value = json.loads(logical_log.content)
+            if not isinstance(value, dict) or set(value) != {"schema", "request", "request_hash", "logical_ir_hash", "provenance"}:
+                raise ValueError("invalid logical-IR interaction fields")
+            if value["schema"] != "plain2metta-logical-ir-log/v1":
+                raise ValueError("unsupported logical-IR interaction schema")
+            raw = value["request"]
+            if not isinstance(raw, dict) or set(raw) != {"schema", "reviewed_spec", "reviewed_spec_text", "reviewed_tests", "reviewed_tests_text", "guidance"}:
+                raise ValueError("invalid logical-IR request")
+            spec_ref = ArtifactRef(raw["reviewed_spec"]["artifact_id"], raw["reviewed_spec"]["content_hash"])
+            test_ref = ArtifactRef(raw["reviewed_tests"]["artifact_id"], raw["reviewed_tests"]["content_hash"])
+            request = LogicalIRRequest(spec_ref, raw["reviewed_spec_text"], test_ref, raw["reviewed_tests_text"], raw["guidance"])
+            if logical_ir_request_to_dict(request) != raw or logical_ir_request_hash(request) != value["request_hash"]:
+                raise ValueError("logical-IR request binding mismatch")
+            provenance = value["provenance"]
+            if not isinstance(provenance, dict) or set(provenance) != {"backend", "model", "interaction_id", "input_tokens", "output_tokens", "timestamp"}:
+                raise ValueError("invalid logical-IR provenance")
+            if any(not isinstance(provenance[x], str) or not provenance[x].strip() for x in ("backend", "model", "interaction_id", "timestamp")):
+                raise ValueError("invalid logical-IR provenance text")
+            if any(not isinstance(provenance[x], int) or isinstance(provenance[x], bool) or provenance[x] < 0 for x in ("input_tokens", "output_tokens")):
+                raise ValueError("invalid logical-IR token counts")
+        except (KeyError, TypeError, json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"malformed project state: invalid logical-IR interaction log: {exc}") from exc
+        if (
+            logical is None or reviewed_elaborated is None or reviewed_tests is None
+            or logical_log.upstream != (reviewed_elaborated.ref, reviewed_tests.ref)
+            or request.reviewed_spec != reviewed_elaborated.ref
+            or request.reviewed_tests != reviewed_tests.ref
+        ):
+            raise ValueError("malformed project state: logical-IR log has invalid reviewed inputs")
     if logical is not None:
         reviewed_elaborated = project.current(ArtifactKind.REVIEWED_ELABORATED_SPEC)
         reviewed_tests = project.current(ArtifactKind.REVIEWED_TEST_SPEC)
@@ -708,6 +789,8 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             or logical.upstream != (reviewed_elaborated.ref, reviewed_tests.ref)
         ):
             raise ValueError("malformed project state: logical IR has invalid reviewed inputs")
+        if logical_log is not None and value["logical_ir_hash"] != logical.content_hash:
+            raise ValueError("malformed project state: logical-IR log does not match logical IR")
     logical_review = project.current(ArtifactKind.LOGICAL_REVIEW)
     if logical_review is not None:
         from .logical_ir import logical_ir_from_dict, logical_review_from_dict, validate_review_for_document
