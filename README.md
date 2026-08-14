@@ -170,6 +170,12 @@ both derived artifacts with one atomic repository save. Deserialization
 re-runs validation and rejects rewritten diagnostics or interaction evidence.
 It does not invoke a provider.
 
+`ElaborationRequestService.build_request` is the corresponding read-only
+outbound seam. It loads the exact current original-spec version and constructs
+a content-hash-checked request with optional guidance and section scope. It
+does not save state, select or invoke a provider, retry, or execute returned
+content.
+
 `ReadOnlyProjectApplication` is a server-independent WSGI adapter for that
 service. It exposes only `GET /api/projects`, `GET /api/projects/:id`,
 `GET /api/versions/:id`, and `GET /api/trace/:id` (with an optional single

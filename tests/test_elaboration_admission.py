@@ -3,7 +3,9 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from specatom_hs.elaboration_admission import ElaborationAdmissionService, validation_summary
+from specatom_hs.elaboration_admission import (
+    ElaborationAdmissionService, ElaborationRequestService, validation_summary,
+)
 from specatom_hs.elaboration_protocol import (
     ElaborationRequest, ElaborationResponse, ProviderProvenance, elaboration_request_hash,
 )
@@ -96,6 +98,40 @@ class ElaborationAdmissionServiceTests(unittest.TestCase):
         self.assertEqual((0, 0, 1, 1), (
             summary.pass_count, summary.fail_count, summary.unknown_count, summary.blocking_questions,
         ))
+
+    def test_request_builder_exports_exact_current_source_and_guidance(self):
+        request = ElaborationRequestService(self.repository).build_request(
+            "demo", "Use only named dependencies.", "requirements",
+        )
+        source = self.repository.get("demo").current(ArtifactKind.ORIGINAL_SPEC)
+        self.assertEqual(source.ref, request.source)
+        self.assertEqual(source.content, request.source_text)
+        self.assertEqual("Use only named dependencies.", request.guidance)
+        self.assertEqual("requirements", request.section)
+        self.assertEqual(request, ElaborationRequest(
+            source.ref, source.content, "Use only named dependencies.", "requirements",
+        ))
+
+    def test_request_builder_tracks_source_replacement_and_rejects_bad_options(self):
+        from specatom_hs.projects import replace_source
+        old = ElaborationRequestService(self.repository).build_request("demo")
+        changed = replace_source(self.repository.get("demo"), "***requirements***\n- changed\n")
+        self.repository.save(changed)
+        current = ElaborationRequestService(self.repository).build_request("demo")
+        self.assertNotEqual(old.source, current.source)
+        self.assertEqual(changed.current(ArtifactKind.ORIGINAL_SPEC).ref, current.source)
+        with self.assertRaises(ValueError):
+            ElaborationRequestService(self.repository).build_request("demo", section="")
+        with self.assertRaises(ValueError):
+            ElaborationRequestService(self.repository).build_request("demo", guidance=None)
+
+    def test_request_builder_has_no_mutation_or_provider_capability(self):
+        service = ElaborationRequestService(self.repository)
+        before = self.repository.get("demo")
+        service.build_request("demo")
+        self.assertEqual(before, self.repository.get("demo"))
+        for name in ("invoke", "call", "retry", "save", "persist", "execute"):
+            self.assertFalse(hasattr(service, name))
 
 
 if __name__ == "__main__":

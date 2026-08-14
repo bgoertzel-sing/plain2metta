@@ -1,4 +1,4 @@
-"""Adapter-independent validation and persistence for Phase 2 responses."""
+"""Adapter-independent request and admission services for Phase 2."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ from .elaboration_protocol import (
     ElaborationResponse,
     ValidationSummary,
     admit_elaboration,
+    validate_elaboration_request,
 )
 from .projects import ArtifactKind, Project, add_admitted_elaboration
 from .schema import CheckStatus, Role, SpecDocument
@@ -16,6 +17,26 @@ from .passes import compile_source
 
 
 Validator = Callable[[str, str, str], tuple[ValidationSummary, ValidationSummary]]
+
+
+class ElaborationRequestService:
+    """Construct requests from the exact current source without invoking a provider."""
+
+    def __init__(self, repository):
+        self._repository = repository
+
+    def build_request(
+        self, project_id: str, guidance: str = "", section: str | None = None,
+    ) -> ElaborationRequest:
+        project = self._repository.get(project_id)
+        source = project.current(ArtifactKind.ORIGINAL_SPEC)
+        if source is None:
+            raise ValueError("elaboration requires a current original spec")
+        request = ElaborationRequest(source.ref, source.content, guidance, section)
+        # Construction validates guidance/section and independently checks that the
+        # exported bytes match the content-addressed source identity.
+        validate_elaboration_request(request)
+        return request
 
 
 def validation_summary(document: SpecDocument) -> ValidationSummary:
