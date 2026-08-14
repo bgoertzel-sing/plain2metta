@@ -176,6 +176,13 @@ a content-hash-checked request with optional guidance and section scope. It
 does not save state, select or invoke a provider, retry, or execute returned
 content.
 
+`ElaborationCoordinator` is the deliberately small provider invocation seam.
+It receives an explicitly selected `ElaborationBackend` adapter and immutable
+backend/model/temperature/token configuration, makes exactly one call, checks
+returned provenance against that configuration, and routes the exact response
+through `ElaborationAdmissionService`. It has no retry, fallback, provider
+selection, credential, or partial-persistence policy.
+
 `ReadOnlyProjectApplication` is a server-independent WSGI adapter for that
 service. It exposes only `GET /api/projects`, `GET /api/projects/:id`,
 `GET /api/versions/:id`, and `GET /api/trace/:id` (with an optional single
