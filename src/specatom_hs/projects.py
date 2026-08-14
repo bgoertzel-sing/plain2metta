@@ -24,6 +24,7 @@ class ArtifactKind(str, Enum):
     LOGICAL_IR_LOG = "logical-ir-log"
     LOGICAL_IR = "logical-ir"
     LOGICAL_REVIEW = "logical-review"
+    COMPILATION_LOG = "compilation-log"
     COMPILER_OUTPUT = "compiler-output"
     SANDBOX_HANDOFF = "sandbox-handoff"
     TEST_RESULT = "test-result"
@@ -140,7 +141,7 @@ def add_artifact(
         raise ValueError("use submit_phase3_review to enforce exact-version review admission")
     if kind in (ArtifactKind.LOGICAL_IR_LOG, ArtifactKind.LOGICAL_IR, ArtifactKind.LOGICAL_REVIEW):
         raise ValueError("use add_logical_ir or add_logical_ir_document to enforce the review gate")
-    if kind is ArtifactKind.COMPILER_OUTPUT:
+    if kind in (ArtifactKind.COMPILATION_LOG, ArtifactKind.COMPILER_OUTPUT):
         raise ValueError("use the phase-specific add_compiler_output transition API")
     if kind is ArtifactKind.SANDBOX_HANDOFF:
         raise ValueError("use the phase-specific add_sandbox_handoff transition API")
@@ -399,6 +400,42 @@ def add_compiler_output(project: Project, bundle: object) -> Project:
     return _add_derived_artifact(
         project, ArtifactKind.COMPILER_OUTPUT, canonical_compiler_output(bundle), (logical.ref,)
     )
+
+
+def add_compilation_response(project: Project, request: object, response: object) -> Project:
+    """Atomically construct the Phase 5 interaction log and inert output."""
+    from .compilation_prompt import (
+        CompilationRequest, CompilationResponse, build_compilation_request,
+        compilation_request_hash, compilation_request_to_dict,
+    )
+    from .compiler_output import canonical_compiler_output
+    import json
+
+    if not isinstance(request, CompilationRequest) or not isinstance(response, CompilationResponse):
+        raise ValueError("compilation admission requires exact request and response messages")
+    expected = build_compilation_request(project, request.guidance)
+    if expected != request or response.request_hash != compilation_request_hash(request):
+        raise ValueError("compilation response does not bind to exact current approved inputs")
+    provenance = response.provenance
+    output_content = canonical_compiler_output(response.compiler_output)
+    log_content = json.dumps({
+        "schema": "plain2metta-compilation-log/v1",
+        "request": compilation_request_to_dict(request),
+        "request_hash": response.request_hash,
+        "compiler_output_hash": content_sha256(output_content),
+        "provenance": {
+            "backend": provenance.backend, "model": provenance.model,
+            "interaction_id": provenance.interaction_id,
+            "input_tokens": provenance.input_tokens,
+            "output_tokens": provenance.output_tokens,
+            "timestamp": provenance.timestamp,
+        },
+    }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    project = _add_derived_artifact(
+        project, ArtifactKind.COMPILATION_LOG, log_content,
+        (request.reviewed_spec, request.reviewed_tests, request.logical_ir),
+    )
+    return add_compiler_output(project, response.compiler_output)
 
 
 def add_sandbox_handoff(project: Project, handoff: object) -> Project:
@@ -808,7 +845,53 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             validate_review_for_document(report, document)
         except (json.JSONDecodeError, ValueError) as exc:
             raise ValueError(f"malformed project state: logical review does not match logical IR: {exc}") from exc
+    compilation_log = project.current(ArtifactKind.COMPILATION_LOG)
     compiler_output = project.current(ArtifactKind.COMPILER_OUTPUT)
+    if compilation_log is not None and compiler_output is None:
+        raise ValueError("malformed project state: compilation log lacks compiler output")
+    if compilation_log is not None:
+        from .compilation_prompt import (
+            CompilationRequest, compilation_request_hash, compilation_request_to_dict,
+        )
+        import json
+        reviewed_spec = project.current(ArtifactKind.REVIEWED_ELABORATED_SPEC)
+        reviewed_tests = project.current(ArtifactKind.REVIEWED_TEST_SPEC)
+        try:
+            value = json.loads(compilation_log.content)
+            if not isinstance(value, dict) or set(value) != {"schema", "request", "request_hash", "compiler_output_hash", "provenance"}:
+                raise ValueError("invalid compilation interaction fields")
+            if value["schema"] != "plain2metta-compilation-log/v1":
+                raise ValueError("unsupported compilation interaction schema")
+            raw = value["request"]
+            required = {"schema", "reviewed_spec", "reviewed_spec_text", "reviewed_tests", "reviewed_tests_text", "logical_ir", "logical_ir_text", "guidance"}
+            if not isinstance(raw, dict) or set(raw) != required:
+                raise ValueError("invalid compilation request")
+            spec_ref = ArtifactRef(raw["reviewed_spec"]["artifact_id"], raw["reviewed_spec"]["content_hash"])
+            test_ref = ArtifactRef(raw["reviewed_tests"]["artifact_id"], raw["reviewed_tests"]["content_hash"])
+            logical_ref = ArtifactRef(raw["logical_ir"]["artifact_id"], raw["logical_ir"]["content_hash"])
+            request = CompilationRequest(
+                spec_ref, raw["reviewed_spec_text"], test_ref, raw["reviewed_tests_text"],
+                logical_ref, raw["logical_ir_text"], raw["guidance"],
+            )
+            if compilation_request_to_dict(request) != raw or compilation_request_hash(request) != value["request_hash"]:
+                raise ValueError("compilation request binding mismatch")
+            provenance = value["provenance"]
+            if not isinstance(provenance, dict) or set(provenance) != {"backend", "model", "interaction_id", "input_tokens", "output_tokens", "timestamp"}:
+                raise ValueError("invalid compilation provenance")
+            if any(not isinstance(provenance[x], str) or not provenance[x].strip() for x in ("backend", "model", "interaction_id", "timestamp")):
+                raise ValueError("invalid compilation provenance text")
+            if any(not isinstance(provenance[x], int) or isinstance(provenance[x], bool) or provenance[x] < 0 for x in ("input_tokens", "output_tokens")):
+                raise ValueError("invalid compilation token counts")
+        except (KeyError, TypeError, json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"malformed project state: invalid compilation interaction log: {exc}") from exc
+        if (
+            logical is None or reviewed_spec is None or reviewed_tests is None
+            or compilation_log.upstream != (reviewed_spec.ref, reviewed_tests.ref, logical.ref)
+            or request.reviewed_spec != reviewed_spec.ref
+            or request.reviewed_tests != reviewed_tests.ref
+            or request.logical_ir != logical.ref
+        ):
+            raise ValueError("malformed project state: compilation log has invalid approved inputs")
     if compiler_output is not None:
         from .compiler_output import canonical_compiler_output, compiler_output_from_dict
         import json
@@ -820,6 +903,13 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             raise ValueError(f"malformed project state: invalid compiler output: {exc}") from exc
         if compiler_output.content != canonical_compiler_output(bundle):
             raise ValueError("malformed project state: compiler output is not canonical")
+        if compilation_log is not None and value["compiler_output_hash"] != compiler_output.content_hash:
+            raise ValueError("malformed project state: compilation log does not match compiler output")
+        if compilation_log is not None and (
+            bundle.compiler != f'{provenance["backend"]}:{provenance["model"]}'
+            or bundle.guidance != (request.guidance or None)
+        ):
+            raise ValueError("malformed project state: compiler output attribution does not match compilation log")
         try:
             admitted = admit_compilation(project)
         except ValueError as exc:

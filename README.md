@@ -131,6 +131,12 @@ produces exactly one system/user message pair and a strict JSON response schema;
 whose compiler attribution and guidance match the exact provider interaction.
 The seam does not publish generated files, invoke a provider, or execute code.
 
+`CompilationCoordinator` is the explicitly configured Phase 5 invocation seam.
+It makes one adapter call, rechecks the exact approved inputs after that call,
+and atomically saves a canonical provenance log with the inert compiler output.
+It has no retry, fallback, provider selection, credential, publication, import,
+evaluation, or execution policy.
+
 `sandbox_request_to_dict(handoff)` exposes the narrow Phase 6 adapter message
 without invoking an adapter. `add_test_result(project, result)` accepts strict
 per-test pass/fail/error/skip records only when their request digest binds to
