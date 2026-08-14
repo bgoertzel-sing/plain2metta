@@ -12,6 +12,12 @@ This repository currently contains two layers:
 - `plain_to_metta`: the earlier stdlib MVP compiler used by the project notebook examples.
 - `specatom_hs`: the minimal scaffold recommended by the SpecAtom-HS source summary, with small modules for schema, source indexing, pass registry, validation records, and conservative PeTTa backend gates.
 
+The first Plain2MeTTa v2 seam is `specatom_hs.projects`: immutable project and
+artifact versions, SHA-256 content provenance, approvals bound to exact
+artifact versions, transitive invalidation after an upstream change, and a
+strict versioned dictionary representation. It does not yet perform
+elaboration, logical-IR generation, or executable compilation.
+
 ## What is intentionally supported
 
 - stable source IDs, SHA-256 file digests, sections, bullet items, and exact byte/line spans, including marker spans on continuation lines;
@@ -58,6 +64,25 @@ doc = compile_source("***definitions***\n- :Task: is work.\n", "minimal.plain")
 atoms, refusals = emit_reified_atoms(doc)
 skeleton_refusals = refuse_executable_skeleton(doc.objects)
 ```
+
+## Plain2MeTTa v2 project-state API
+
+```python
+from specatom_hs.projects import ArtifactKind, add_artifact, create_project
+
+project = create_project("task-list", "Task list", source_text)
+source = project.current(ArtifactKind.ORIGINAL_SPEC)
+project = add_artifact(
+    project,
+    ArtifactKind.ELABORATED_SPEC,
+    elaborated_text,
+    upstream=[source.ref],
+)
+```
+
+Use `project_to_dict` and `project_from_dict` for the versioned JSON-ready
+boundary. Deserialization recomputes content hashes and rejects malformed or
+forged provenance and approval bindings.
 
 ## CLI usage
 
