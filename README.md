@@ -145,15 +145,23 @@ metadata, omits artifact bodies from history, and permits exact `spec_id`
 filtering of the current traceability report. It has no rollback, mutation,
 provider, network, or execution capability.
 
+`ReadOnlyProjectApplication` is a server-independent WSGI adapter for that
+service. It exposes only `GET /api/projects`, `GET /api/projects/:id`,
+`GET /api/versions/:id`, and `GET /api/trace/:id` (with an optional single
+`spec_id` query). It does not bind a socket or add mutation, execution, LLM, or
+provider capabilities; an external deployment may mount it deliberately.
+
 ```python
 from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.project_queries import ProjectQueryService
+from specatom_hs.project_transport import ReadOnlyProjectApplication
 
 projects = FilesystemProjectRepository("./plain2metta-projects")
 project = projects.create("task-list", "Task list", source_text)
 status = projects.list_statuses()[0]
 queries = ProjectQueryService(projects)
 history = queries.version_history("task-list")
+application = ReadOnlyProjectApplication(queries)
 ```
 
 ## CLI usage
