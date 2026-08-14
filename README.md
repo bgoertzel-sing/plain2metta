@@ -84,6 +84,19 @@ Use `project_to_dict` and `project_from_dict` for the versioned JSON-ready
 boundary. Deserialization recomputes content hashes and rejects malformed or
 forged provenance and approval bindings.
 
+For local persistence, `FilesystemProjectRepository` exposes only create, get,
+save, and list-status operations. Project IDs are storage-safe lowercase slugs;
+writes publish fully flushed JSON documents atomically, and malformed files,
+unexpected entries, symlinks, or forged state fail closed.
+
+```python
+from specatom_hs.project_repository import FilesystemProjectRepository
+
+projects = FilesystemProjectRepository("./plain2metta-projects")
+project = projects.create("task-list", "Task list", source_text)
+status = projects.list_statuses()[0]
+```
+
 ## CLI usage
 
 Install the frozen v0.1 alpha into an isolated environment:
