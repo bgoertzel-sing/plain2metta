@@ -217,11 +217,26 @@ class ProjectQueryServiceTests(unittest.TestCase):
         full = self.queries.trace("demo")
         self.assertEqual("demo", full["project_id"])
         self.assertGreaterEqual(len(full["entries"]), 1)
+        self.assertEqual(
+            (
+                "original-spec", "elaborated-spec", "test-spec",
+                "reviewed-elaborated-spec", "reviewed-test-spec", "logical-ir",
+                "compiler-output", "sandbox-handoff", "test-result",
+            ),
+            tuple(link["phase"] for link in full["provenance"]),
+        )
+        self.assertNotIn("content", full)
+        self.assertNotIn("stdout", full)
+        self.assertNotIn("stderr", full)
         spec_id = full["entries"][0]["spec_id"]
         filtered = self.queries.trace("demo", spec_id)
         self.assertEqual((spec_id,), tuple(item["spec_id"] for item in filtered["entries"]))
         with self.assertRaises(KeyError):
             self.queries.trace("demo", "REQ-unknown")
+
+        self.repository.save(replace_source(project, "changed source"))
+        with self.assertRaisesRegex(ValueError, "no current traceability"):
+            self.queries.trace("demo")
 
     def test_missing_trace_and_malformed_query_fail_closed(self):
         self.repository.create("demo", "Demo", "source")

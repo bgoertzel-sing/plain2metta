@@ -14,7 +14,13 @@ from .phase3_review import (
     validate_phase3_review_log,
 )
 from .review_diff import build_phase3_review_diff, phase3_review_diff_to_dict
-from .traceability import TraceabilityEntry, traceability_report_from_dict
+from .traceability import (
+    ProvenanceLink,
+    TraceabilityEntry,
+    build_traceability_report,
+    canonical_traceability_report,
+    traceability_report_from_dict,
+)
 from .logical_ir import (
     logical_ir_from_dict,
     logical_review_from_dict,
@@ -243,8 +249,42 @@ class ProjectQueryService:
         artifact = project.current(ArtifactKind.TRACEABILITY_REPORT)
         if artifact is None or artifact.state is not ArtifactState.CURRENT:
             raise ValueError("project has no current traceability report")
+        required = tuple(project.current(kind) for kind in (
+            ArtifactKind.ORIGINAL_SPEC,
+            ArtifactKind.ELABORATED_SPEC,
+            ArtifactKind.TEST_SPEC,
+            ArtifactKind.REVIEWED_ELABORATED_SPEC,
+            ArtifactKind.REVIEWED_TEST_SPEC,
+            ArtifactKind.LOGICAL_IR,
+            ArtifactKind.COMPILER_OUTPUT,
+            ArtifactKind.SANDBOX_HANDOFF,
+            ArtifactKind.TEST_RESULT,
+        ))
+        if any(item is None or item.state is not ArtifactState.CURRENT for item in required):
+            raise ValueError("current traceability provenance chain is incomplete")
+        original, elaborated, tests, reviewed_elaborated, reviewed_tests, logical, output, handoff, result = required
+        expected_links = (
+            (elaborated, (original.ref,)),
+            (tests, (elaborated.ref,)),
+            (logical, (reviewed_elaborated.ref, reviewed_tests.ref)),
+            (output, (logical.ref,)),
+            (handoff, (output.ref,)),
+            (result, (handoff.ref,)),
+            (artifact, (output.ref, result.ref)),
+        )
+        if any(item.upstream != upstream for item, upstream in expected_links):
+            raise ValueError("current traceability report is not bound to the exact current chain")
         try:
             report = traceability_report_from_dict(json.loads(artifact.content))
+            bundle = compiler_output_from_dict(json.loads(output.content))
+            test_result = test_result_from_dict(json.loads(result.content))
+            provenance = tuple(
+                ProvenanceLink(item.kind.value, item.artifact_id, item.content_hash)
+                for item in required
+            )
+            expected = build_traceability_report(provenance, bundle, test_result)
+            if report != expected or artifact.content != canonical_traceability_report(expected):
+                raise ValueError("traceability report does not match exact current inputs")
         except (json.JSONDecodeError, ValueError) as exc:
             raise ValueError(f"invalid current traceability report: {exc}") from exc
         entries = report.entries
