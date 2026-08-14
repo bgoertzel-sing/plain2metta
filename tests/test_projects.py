@@ -6,6 +6,8 @@ from specatom_hs.projects import (
     ArtifactKind,
     ArtifactState,
     add_artifact,
+    add_logical_ir,
+    annotate,
     create_project,
     decide,
     project_from_dict,
@@ -75,7 +77,69 @@ class ProjectModelTests(unittest.TestCase):
         project = self.populated()
         elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
         project = decide(project, elaborated.ref, ApprovalDecision.CHANGES_REQUESTED, "reviewer", "clarify")
+        project = annotate(project, elaborated.ref, "reviewer", "Clarify this section.", "section:requirements")
         self.assertEqual(project, project_from_dict(project_to_dict(project)))
+
+    def test_annotations_bind_exact_current_artifact_and_survive_invalidation_as_history(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        project = annotate(project, elaborated.ref, "ben", "Define the boundary.", "item:PRED-1")
+        self.assertEqual("item:PRED-1", project.annotations[0].target)
+        changed = replace_source(project, "changed")
+        self.assertEqual(project.annotations, changed.annotations)
+        with self.assertRaisesRegex(ValueError, "exact current"):
+            annotate(changed, elaborated.ref, "ben", "stale")
+
+    def test_annotations_reject_malformed_review_fields(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        for reviewer, comment, target in (("", "note", None), ("ben", " ", None), ("ben", "note", " ")):
+            with self.subTest(reviewer=reviewer, comment=comment, target=target):
+                with self.assertRaises(ValueError):
+                    annotate(project, elaborated.ref, reviewer, comment, target)
+
+    def test_logical_ir_requires_both_exact_current_approvals(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        with self.assertRaisesRegex(ValueError, "explicit approval"):
+            add_logical_ir(project, "logical")
+        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
+        with self.assertRaisesRegex(ValueError, "explicit approval"):
+            add_logical_ir(project, "logical")
+        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        project = add_logical_ir(project, "logical")
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        self.assertEqual((elaborated.ref, tests.ref), logical.upstream)
+
+    def test_generic_artifact_api_cannot_bypass_logical_ir_review_gate(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        with self.assertRaisesRegex(ValueError, "add_logical_ir"):
+            add_artifact(project, ArtifactKind.LOGICAL_IR, "logical", [elaborated.ref])
+
+    def test_revoking_input_approval_invalidates_logical_ir(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
+        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        project = add_logical_ir(project, "logical")
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        changed = decide(project, elaborated.ref, ApprovalDecision.CHANGES_REQUESTED, "ben", "revise")
+        self.assertIsNone(changed.current(ArtifactKind.LOGICAL_IR))
+        self.assertEqual(ArtifactState.INVALIDATED, changed.artifact(logical.artifact_id).state)
+
+    def test_deserialization_rejects_logical_ir_without_approvals(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
+        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        payload = project_to_dict(add_logical_ir(project, "logical"))
+        payload["approvals"] = []
+        with self.assertRaisesRegex(ValueError, "lacks exact input approvals"):
+            project_from_dict(payload)
 
     def test_deserialization_rejects_mutated_content(self):
         payload = project_to_dict(create_project("demo", "Demo", "source"))
@@ -100,6 +164,19 @@ class ProjectModelTests(unittest.TestCase):
         payload["approvals"][0]["artifact"]["content_hash"] = "sha256:forged"
         with self.assertRaisesRegex(ValueError, "approval hash mismatch"):
             project_from_dict(payload)
+
+    def test_deserialization_rejects_forged_or_malformed_annotation(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        project = annotate(project, elaborated.ref, "ben", "review", "item:PRED-1")
+        forged = project_to_dict(project)
+        forged["annotations"][0]["artifact"]["content_hash"] = "sha256:forged"
+        with self.assertRaisesRegex(ValueError, "annotation hash mismatch"):
+            project_from_dict(forged)
+        malformed = project_to_dict(project)
+        malformed["annotations"][0]["comment"] = " "
+        with self.assertRaisesRegex(ValueError, "comment is blank"):
+            project_from_dict(malformed)
 
 
 if __name__ == "__main__":

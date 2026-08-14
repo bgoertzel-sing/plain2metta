@@ -68,7 +68,10 @@ skeleton_refusals = refuse_executable_skeleton(doc.objects)
 ## Plain2MeTTa v2 project-state API
 
 ```python
-from specatom_hs.projects import ArtifactKind, add_artifact, create_project
+from specatom_hs.projects import (
+    ApprovalDecision, ArtifactKind, add_artifact, add_logical_ir,
+    annotate, create_project, decide,
+)
 
 project = create_project("task-list", "Task list", source_text)
 source = project.current(ArtifactKind.ORIGINAL_SPEC)
@@ -78,7 +81,16 @@ project = add_artifact(
     elaborated_text,
     upstream=[source.ref],
 )
+# Review comments are bound to exact artifact bytes and may target an item/section.
+elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+project = annotate(project, elaborated.ref, "reviewer", "Looks precise.", "item:REQ-1")
 ```
+
+`add_logical_ir(project, content)` is the only logical-IR creation seam. It
+fails closed until both the exact current elaborated spec and exact current
+test spec have explicit `APPROVED` decisions with reviewer identities. A
+later source/artifact edit or approval revocation transitively invalidates the
+logical IR. Generic `add_artifact` calls cannot bypass this gate.
 
 Use `project_to_dict` and `project_from_dict` for the versioned JSON-ready
 boundary. Deserialization recomputes content hashes and rejects malformed or

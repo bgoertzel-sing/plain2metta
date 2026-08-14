@@ -10,6 +10,7 @@ from specatom_hs.projects import (
     ApprovalDecision,
     ArtifactKind,
     add_artifact,
+    annotate,
     decide,
     project_to_dict,
     replace_source,
@@ -38,6 +39,7 @@ class FilesystemProjectRepositoryTests(unittest.TestCase):
         project = add_artifact(project, ArtifactKind.ELABORATED_SPEC, "details", [source.ref])
         elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
         project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "reviewer")
+        project = annotate(project, elaborated.ref, "reviewer", "Reviewed section.", "section:requirements")
         self.repository.save(project)
         self.assertEqual(project, self.repository.get("demo"))
         self.assertEqual(1, self.repository.list_statuses()[0].approved_artifact_count)

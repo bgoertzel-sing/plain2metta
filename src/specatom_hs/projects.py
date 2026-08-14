@@ -69,11 +69,20 @@ class ApprovalState:
 
 
 @dataclass(frozen=True)
+class ReviewAnnotation:
+    artifact: ArtifactRef
+    reviewer: str
+    comment: str
+    target: str | None = None
+
+
+@dataclass(frozen=True)
 class Project:
     project_id: str
     name: str
     artifacts: tuple[ArtifactVersion, ...]
     approvals: tuple[ApprovalState, ...] = ()
+    annotations: tuple[ReviewAnnotation, ...] = ()
 
     def artifact(self, artifact_id: str) -> ArtifactVersion:
         matches = [artifact for artifact in self.artifacts if artifact.artifact_id == artifact_id]
@@ -115,6 +124,17 @@ def add_artifact(
 ) -> Project:
     if kind is ArtifactKind.ORIGINAL_SPEC:
         raise ValueError("use replace_source to version the original spec")
+    if kind is ArtifactKind.LOGICAL_IR:
+        raise ValueError("use add_logical_ir to enforce the review gate")
+    return _add_derived_artifact(project, kind, content, upstream)
+
+
+def _add_derived_artifact(
+    project: Project,
+    kind: ArtifactKind,
+    content: str,
+    upstream: Iterable[ArtifactRef],
+) -> Project:
     refs = tuple(upstream)
     if not refs:
         raise ValueError("derived artifacts require explicit upstream provenance")
@@ -131,6 +151,24 @@ def add_artifact(
     return replace(project, artifacts=project.artifacts + (artifact,))
 
 
+def _is_approved(project: Project, artifact: ArtifactVersion) -> bool:
+    return any(
+        approval.artifact == artifact.ref and approval.decision is ApprovalDecision.APPROVED
+        for approval in project.approvals
+    )
+
+
+def add_logical_ir(project: Project, content: str) -> Project:
+    """Add a logical IR only from the exact current approved spec and tests."""
+    elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+    tests = project.current(ArtifactKind.TEST_SPEC)
+    if elaborated is None or tests is None:
+        raise ValueError("logical IR requires current elaborated-spec and test-spec artifacts")
+    if not _is_approved(project, elaborated) or not _is_approved(project, tests):
+        raise ValueError("logical IR requires explicit approval of exact current elaborated spec and test spec")
+    return _add_derived_artifact(project, ArtifactKind.LOGICAL_IR, content, (elaborated.ref, tests.ref))
+
+
 def decide(
     project: Project,
     artifact_ref: ArtifactRef,
@@ -145,8 +183,33 @@ def decide(
         raise ValueError("invalidation is derived from upstream change, not a review decision")
     if decision is ApprovalDecision.APPROVED and (not isinstance(reviewer, str) or not reviewer.strip()):
         raise ValueError("approved artifacts require a reviewer identity")
+    previous = next((a for a in project.approvals if a.artifact == artifact.ref), None)
     retained = tuple(a for a in project.approvals if a.artifact.artifact_id != artifact.artifact_id)
-    return replace(project, approvals=retained + (ApprovalState(artifact.ref, decision, reviewer, rationale),))
+    project = replace(project, approvals=retained + (ApprovalState(artifact.ref, decision, reviewer, rationale),))
+    if previous is not None and previous.decision is ApprovalDecision.APPROVED and decision is not ApprovalDecision.APPROVED:
+        project = _invalidate_dependents(project, artifact.artifact_id)
+    return project
+
+
+def annotate(
+    project: Project,
+    artifact_ref: ArtifactRef,
+    reviewer: str,
+    comment: str,
+    target: str | None = None,
+) -> Project:
+    """Append a section/item/general comment bound to exact current artifact bytes."""
+    artifact = project.artifact(artifact_ref.artifact_id)
+    if artifact.content_hash != artifact_ref.content_hash or artifact.state is not ArtifactState.CURRENT:
+        raise ValueError("annotation must bind to the exact current artifact content")
+    if not isinstance(reviewer, str) or not reviewer.strip():
+        raise ValueError("annotation requires a reviewer identity")
+    if not isinstance(comment, str) or not comment.strip():
+        raise ValueError("annotation comment must be non-blank text")
+    if target is not None and (not isinstance(target, str) or not target.strip()):
+        raise ValueError("annotation target must be absent or non-blank text")
+    annotation = ReviewAnnotation(artifact.ref, reviewer, comment, target)
+    return replace(project, annotations=project.annotations + (annotation,))
 
 
 def _invalidate_from(project: Project, invalid_ids: set[str]) -> Project:
@@ -170,6 +233,15 @@ def _invalidate_from(project: Project, invalid_ids: set[str]) -> Project:
             for a in project.approvals
         ),
     )
+
+
+def _invalidate_dependents(project: Project, artifact_id: str) -> Project:
+    direct = {
+        artifact.artifact_id
+        for artifact in project.artifacts
+        if any(ref.artifact_id == artifact_id for ref in artifact.upstream)
+    }
+    return _invalidate_from(project, direct) if direct else project
 
 
 def replace_source(project: Project, source: str) -> Project:
@@ -214,6 +286,10 @@ def project_to_dict(project: Project) -> dict[str, Any]:
             {"artifact": ref(a.artifact), "decision": a.decision.value, "reviewer": a.reviewer, "rationale": a.rationale}
             for a in project.approvals
         ],
+        "annotations": [
+            {"artifact": ref(a.artifact), "reviewer": a.reviewer, "comment": a.comment, "target": a.target}
+            for a in project.annotations
+        ],
     }
 
 
@@ -238,7 +314,14 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             )
             for item in payload["approvals"]
         )
-        project = Project(payload["project_id"], payload["name"], artifacts, approvals)
+        annotations = tuple(
+            ReviewAnnotation(
+                ArtifactRef(item["artifact"]["artifact_id"], item["artifact"]["content_hash"]),
+                item["reviewer"], item["comment"], item.get("target"),
+            )
+            for item in payload.get("annotations", [])
+        )
+        project = Project(payload["project_id"], payload["name"], artifacts, approvals, annotations)
     except (KeyError, TypeError, ValueError) as exc:
         raise ValueError(f"malformed project state: {exc}") from exc
     if len({a.artifact_id for a in artifacts}) != len(artifacts):
@@ -261,4 +344,24 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             raise ValueError("malformed project state: approved artifact lacks reviewer")
         if target.state is ArtifactState.INVALIDATED and approval.decision is not ApprovalDecision.INVALIDATED:
             raise ValueError("malformed project state: stale artifact has active approval")
+    logical = project.current(ArtifactKind.LOGICAL_IR)
+    if logical is not None:
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        if elaborated is None or tests is None or logical.upstream != (elaborated.ref, tests.ref):
+            raise ValueError("malformed project state: logical IR has invalid reviewed inputs")
+        if not _is_approved(project, elaborated) or not _is_approved(project, tests):
+            raise ValueError("malformed project state: logical IR lacks exact input approvals")
+    for annotation in annotations:
+        target = project.artifact(annotation.artifact.artifact_id)
+        if target.content_hash != annotation.artifact.content_hash:
+            raise ValueError("malformed project state: annotation hash mismatch")
+        if not isinstance(annotation.reviewer, str) or not annotation.reviewer.strip():
+            raise ValueError("malformed project state: annotation lacks reviewer")
+        if not isinstance(annotation.comment, str) or not annotation.comment.strip():
+            raise ValueError("malformed project state: annotation comment is blank")
+        if annotation.target is not None and (
+            not isinstance(annotation.target, str) or not annotation.target.strip()
+        ):
+            raise ValueError("malformed project state: annotation target is invalid")
     return project
