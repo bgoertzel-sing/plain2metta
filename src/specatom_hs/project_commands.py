@@ -12,6 +12,7 @@ from .projects import (
     add_artifact,
     annotate,
     decide,
+    submit_phase3_review,
 )
 
 
@@ -110,6 +111,13 @@ class ProjectCommandService:
             reviewer,
             rationale,
         )
+        self._repository.save(updated)
+        return updated
+
+    def submit_phase3_review(self, project_id: str, review_log: object) -> Project:
+        """Atomically persist a strict exact-version Phase 3 review transaction."""
+        project = self._repository.get(project_id)
+        updated = submit_phase3_review(project, review_log)
         self._repository.save(updated)
         return updated
 

@@ -18,6 +18,9 @@ class ArtifactKind(str, Enum):
     ELABORATION_LOG = "elaboration-log"
     ELABORATED_SPEC = "elaborated-spec"
     TEST_SPEC = "test-spec"
+    REVIEW_LOG = "review-log"
+    REVIEWED_ELABORATED_SPEC = "reviewed-elaborated-spec"
+    REVIEWED_TEST_SPEC = "reviewed-test-spec"
     LOGICAL_IR = "logical-ir"
     LOGICAL_REVIEW = "logical-review"
     COMPILER_OUTPUT = "compiler-output"
@@ -132,6 +135,8 @@ def add_artifact(
         raise ValueError("use replace_source to version the original spec")
     if kind is ArtifactKind.ELABORATION_LOG:
         raise ValueError("use add_admitted_elaboration to enforce validation admission")
+    if kind in (ArtifactKind.REVIEW_LOG, ArtifactKind.REVIEWED_ELABORATED_SPEC, ArtifactKind.REVIEWED_TEST_SPEC):
+        raise ValueError("use submit_phase3_review to enforce exact-version review admission")
     if kind in (ArtifactKind.LOGICAL_IR, ArtifactKind.LOGICAL_REVIEW):
         raise ValueError("use add_logical_ir or add_logical_ir_document to enforce the review gate")
     if kind is ArtifactKind.COMPILER_OUTPUT:
@@ -226,6 +231,41 @@ def add_logical_ir(project: Project, content: str) -> Project:
     if not _is_approved(project, elaborated) or not _is_approved(project, tests):
         raise ValueError("logical IR requires explicit approval of exact current elaborated spec and test spec")
     return _add_derived_artifact(project, ArtifactKind.LOGICAL_IR, content, (elaborated.ref, tests.ref))
+
+
+def submit_phase3_review(project: Project, decisions: object) -> Project:
+    """Persist exact-version Phase 3 decisions and approved reviewed snapshots."""
+    from .phase3_review import canonical_phase3_review_log, validate_phase3_review_log
+
+    elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+    tests = project.current(ArtifactKind.TEST_SPEC)
+    if elaborated is None or tests is None:
+        raise ValueError("Phase 3 review requires current elaborated and test specs")
+    validate_phase3_review_log(decisions, elaborated.ref, tests.ref)
+    project = _add_derived_artifact(
+        project, ArtifactKind.REVIEW_LOG, canonical_phase3_review_log(decisions),
+        (elaborated.ref, tests.ref),
+    )
+    for entry in decisions.decisions:
+        if entry.target is None:
+            project = decide(
+                project, entry.artifact, entry.decision, entry.reviewer, entry.comment,
+            )
+        if entry.comment:
+            project = annotate(
+                project, entry.artifact, entry.reviewer, entry.comment, entry.target,
+            )
+    if not (_is_approved(project, elaborated) and _is_approved(project, tests)):
+        return project
+    review_log = project.current(ArtifactKind.REVIEW_LOG)
+    project = _add_derived_artifact(
+        project, ArtifactKind.REVIEWED_ELABORATED_SPEC, elaborated.content,
+        (elaborated.ref, review_log.ref),
+    )
+    return _add_derived_artifact(
+        project, ArtifactKind.REVIEWED_TEST_SPEC, tests.content,
+        (tests.ref, review_log.ref),
+    )
 
 
 def add_logical_ir_document(project: Project, document: object) -> Project:
@@ -617,6 +657,35 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             or test_validation != admission.test_validation
         ):
             raise ValueError("malformed project state: elaboration validation evidence is forged")
+    review_log = project.current(ArtifactKind.REVIEW_LOG)
+    reviewed_elaborated = project.current(ArtifactKind.REVIEWED_ELABORATED_SPEC)
+    reviewed_tests = project.current(ArtifactKind.REVIEWED_TEST_SPEC)
+    if review_log is not None:
+        from .phase3_review import phase3_review_log_from_dict, validate_phase3_review_log
+        import json
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        if elaborated is None or tests is None or review_log.upstream != (elaborated.ref, tests.ref):
+            raise ValueError("malformed project state: Phase 3 review log has invalid inputs")
+        try:
+            phase3_log = phase3_review_log_from_dict(json.loads(review_log.content))
+            validate_phase3_review_log(phase3_log, elaborated.ref, tests.ref)
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"malformed project state: invalid Phase 3 review log: {exc}") from exc
+    if (reviewed_elaborated is None) != (reviewed_tests is None):
+        raise ValueError("malformed project state: reviewed spec snapshots must be an exact pair")
+    if reviewed_elaborated is not None:
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        if (
+            review_log is None or elaborated is None or tests is None
+            or reviewed_elaborated.upstream != (elaborated.ref, review_log.ref)
+            or reviewed_tests.upstream != (tests.ref, review_log.ref)
+            or reviewed_elaborated.content != elaborated.content
+            or reviewed_tests.content != tests.content
+            or not _is_approved(project, elaborated) or not _is_approved(project, tests)
+        ):
+            raise ValueError("malformed project state: reviewed snapshots do not match exact approved inputs")
     logical = project.current(ArtifactKind.LOGICAL_IR)
     if logical is not None:
         elaborated = project.current(ArtifactKind.ELABORATED_SPEC)

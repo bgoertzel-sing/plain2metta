@@ -206,6 +206,14 @@ test-spec addition view, and can be strictly serialized. Validation recomputes
 the report from current project state, so stale or edited review material fails
 closed. It has no approval or mutation capability.
 
+`submit_phase3_review` is the exact-version Phase 3 decision transaction. Its
+strict review log records reviewer identity, whole-second UTC timestamp,
+approve/request-changes/reject disposition, and optional section/item target
+and comment against the exact elaborated/test hashes. Approval of both complete
+artifacts creates byte-identical reviewed elaborated/test snapshots bound to
+that log. Any upstream replacement invalidates the log, snapshots, and
+approvals transitively.
+
 `ReadOnlyProjectApplication` is a server-independent WSGI adapter for that
 service. It exposes only `GET /api/projects`, `GET /api/projects/:id`,
 `GET /api/versions/:id`, and `GET /api/trace/:id` (with an optional single

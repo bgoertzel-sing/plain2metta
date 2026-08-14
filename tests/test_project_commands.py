@@ -5,6 +5,7 @@ from pathlib import Path
 from specatom_hs.project_commands import ProjectCommandService
 from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.projects import ApprovalDecision, ArtifactKind
+from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog
 
 
 class ProjectCommandServiceTests(unittest.TestCase):
@@ -55,6 +56,22 @@ class ProjectCommandServiceTests(unittest.TestCase):
         self.assertEqual(project, self.repository.get("demo"))
         self.assertEqual((source.ref,), elaborated.upstream)
         self.assertEqual((elaborated.ref,), project.current(ArtifactKind.TEST_SPEC).upstream)
+
+    def test_exact_phase3_review_transaction_is_persisted(self):
+        project = self.commands.create_project("demo", "Demo", "source")
+        source = project.current(ArtifactKind.ORIGINAL_SPEC)
+        project = self.commands.submit_elaborated_spec("demo", source.artifact_id, source.content_hash, "elaborated")
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        project = self.commands.submit_test_spec("demo", elaborated.artifact_id, elaborated.content_hash, "tests")
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        log = Phase3ReviewLog(elaborated.ref, tests.ref, (
+            Phase3Decision(elaborated.ref, ApprovalDecision.APPROVED, "alice", "2026-08-14T12:25:00Z"),
+            Phase3Decision(tests.ref, ApprovalDecision.APPROVED, "bob", "2026-08-14T12:26:00Z"),
+        ))
+        updated = self.commands.submit_phase3_review("demo", log)
+        self.assertEqual(updated, self.repository.get("demo"))
+        self.assertIsNotNone(updated.current(ArtifactKind.REVIEWED_ELABORATED_SPEC))
+        self.assertIsNotNone(updated.current(ArtifactKind.REVIEWED_TEST_SPEC))
 
     def test_spec_submission_rejects_stale_hash_wrong_kind_and_missing_stage_without_write(self):
         project = self.commands.create_project("demo", "Demo", "source")
