@@ -156,11 +156,18 @@ service. It exposes only `GET /api/projects`, `GET /api/projects/:id`,
 `spec_id` query). It does not bind a socket or add mutation, execution, LLM, or
 provider capabilities; an external deployment may mount it deliberately.
 
+`ProjectCommandApplication` is the separate POST-only WSGI adapter for the
+command service. It accepts exact `application/json` bodies with an explicit
+canonical `Content-Length` of at most 1 MiB, rejects duplicate/unknown fields,
+and exposes only project creation plus exact artifact-bound annotation and
+decision routes. It starts no listener and has no generic artifact mutation,
+compile, provider, or execution route.
+
 ```python
 from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.project_queries import ProjectQueryService
 from specatom_hs.project_commands import ProjectCommandService
-from specatom_hs.project_transport import ReadOnlyProjectApplication
+from specatom_hs.project_transport import ProjectCommandApplication, ReadOnlyProjectApplication
 
 projects = FilesystemProjectRepository("./plain2metta-projects")
 project = projects.create("task-list", "Task list", source_text)
@@ -169,6 +176,7 @@ queries = ProjectQueryService(projects)
 commands = ProjectCommandService(projects)
 history = queries.version_history("task-list")
 application = ReadOnlyProjectApplication(queries)
+command_application = ProjectCommandApplication(commands)
 ```
 
 ## CLI usage
