@@ -8,6 +8,7 @@ from .source_indexer import index_source, index_path
 from .validators import validate_document
 from .backends.petta import emit_reified_atoms, refuse_executable_skeleton
 from .projects import create_project, project_from_dict, project_to_dict
+from .project_queries import ProjectQueryService
 
 __all__ = [
     "index_source",
@@ -18,4 +19,5 @@ __all__ = [
     "create_project",
     "project_from_dict",
     "project_to_dict",
+    "ProjectQueryService",
 ]

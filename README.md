@@ -139,12 +139,21 @@ save, and list-status operations. Project IDs are storage-safe lowercase slugs;
 writes publish fully flushed JSON documents atomically, and malformed files,
 unexpected entries, symlinks, or forged state fail closed.
 
+`ProjectQueryService` is the narrow read-only boundary corresponding to project
+list/status, version history, and trace inspection. It returns JSON-serializable
+metadata, omits artifact bodies from history, and permits exact `spec_id`
+filtering of the current traceability report. It has no rollback, mutation,
+provider, network, or execution capability.
+
 ```python
 from specatom_hs.project_repository import FilesystemProjectRepository
+from specatom_hs.project_queries import ProjectQueryService
 
 projects = FilesystemProjectRepository("./plain2metta-projects")
 project = projects.create("task-list", "Task list", source_text)
 status = projects.list_statuses()[0]
+queries = ProjectQueryService(projects)
+history = queries.version_history("task-list")
 ```
 
 ## CLI usage
