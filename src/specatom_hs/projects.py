@@ -22,6 +22,7 @@ class ArtifactKind(str, Enum):
     COMPILER_OUTPUT = "compiler-output"
     SANDBOX_HANDOFF = "sandbox-handoff"
     TEST_RESULT = "test-result"
+    TRACEABILITY_REPORT = "traceability-report"
 
 
 class ArtifactState(str, Enum):
@@ -136,6 +137,8 @@ def add_artifact(
         raise ValueError("use the phase-specific add_sandbox_handoff transition API")
     if kind is ArtifactKind.TEST_RESULT:
         raise ValueError("use the phase-specific add_test_result transition API")
+    if kind is ArtifactKind.TRACEABILITY_REPORT:
+        raise ValueError("use the phase-specific add_traceability_report transition API")
     return _add_derived_artifact(project, kind, content, upstream)
 
 
@@ -300,6 +303,49 @@ def add_test_result(project: Project, result: object) -> Project:
     if result.request_hash != sandbox_request_hash(handoff):
         raise ValueError("test result does not bind to the exact sandbox request")
     return _add_derived_artifact(project, ArtifactKind.TEST_RESULT, canonical_test_result(result), (handoff_artifact.ref,))
+
+
+def add_traceability_report(project: Project) -> Project:
+    """Persist the exact Phase 7 provenance/code/test/result join."""
+    import json
+    from .compiler_output import compiler_output_from_dict
+    from .sandbox_protocol import test_result_from_dict
+    from .traceability import ProvenanceLink, build_traceability_report, canonical_traceability_report
+
+    required = tuple(
+        project.current(kind) for kind in (
+            ArtifactKind.ORIGINAL_SPEC, ArtifactKind.ELABORATED_SPEC, ArtifactKind.TEST_SPEC,
+            ArtifactKind.LOGICAL_IR, ArtifactKind.COMPILER_OUTPUT, ArtifactKind.SANDBOX_HANDOFF,
+            ArtifactKind.TEST_RESULT,
+        )
+    )
+    if any(artifact is None for artifact in required):
+        raise ValueError("traceability report requires the exact complete current provenance chain")
+    original, elaborated, tests, logical, output, handoff, result_artifact = required
+    expected_links = (
+        (elaborated, (original.ref,)),
+        (tests, (elaborated.ref,)),
+        (logical, (elaborated.ref, tests.ref)),
+        (output, (logical.ref,)),
+        (handoff, (output.ref,)),
+        (result_artifact, (handoff.ref,)),
+    )
+    if any(artifact.upstream != upstream for artifact, upstream in expected_links):
+        raise ValueError("traceability report has invalid provenance chain")
+    try:
+        bundle = compiler_output_from_dict(json.loads(output.content))
+        result = test_result_from_dict(json.loads(result_artifact.content))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"invalid traceability inputs: {exc}") from exc
+    provenance = tuple(
+        ProvenanceLink(artifact.kind.value, artifact.artifact_id, artifact.content_hash)
+        for artifact in required
+    )
+    report = build_traceability_report(provenance, bundle, result)
+    return _add_derived_artifact(
+        project, ArtifactKind.TRACEABILITY_REPORT, canonical_traceability_report(report),
+        (output.ref, result_artifact.ref),
+    )
 
 
 def decide(
@@ -554,6 +600,39 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             raise ValueError("malformed project state: test result is not canonical")
         if result.request_hash != sandbox_request_hash(handoff):
             raise ValueError("malformed project state: test result request hash mismatch")
+    traceability = project.current(ArtifactKind.TRACEABILITY_REPORT)
+    if traceability is not None:
+        from .compiler_output import compiler_output_from_dict
+        from .sandbox_protocol import test_result_from_dict
+        from .traceability import (
+            ProvenanceLink, build_traceability_report, canonical_traceability_report,
+            traceability_report_from_dict,
+        )
+        import json
+        if (
+            compiler_output is None or test_result is None
+            or traceability.upstream != (compiler_output.ref, test_result.ref)
+        ):
+            raise ValueError("malformed project state: traceability report has invalid inputs")
+        required = tuple(
+            project.current(kind) for kind in (
+                ArtifactKind.ORIGINAL_SPEC, ArtifactKind.ELABORATED_SPEC, ArtifactKind.TEST_SPEC,
+                ArtifactKind.LOGICAL_IR, ArtifactKind.COMPILER_OUTPUT, ArtifactKind.SANDBOX_HANDOFF,
+                ArtifactKind.TEST_RESULT,
+            )
+        )
+        if any(artifact is None for artifact in required):
+            raise ValueError("malformed project state: traceability provenance chain is incomplete")
+        try:
+            report = traceability_report_from_dict(json.loads(traceability.content))
+            bundle = compiler_output_from_dict(json.loads(compiler_output.content))
+            result = test_result_from_dict(json.loads(test_result.content))
+            provenance = tuple(ProvenanceLink(a.kind.value, a.artifact_id, a.content_hash) for a in required)
+            expected = build_traceability_report(provenance, bundle, result)
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"malformed project state: invalid traceability report: {exc}") from exc
+        if report != expected or traceability.content != canonical_traceability_report(expected):
+            raise ValueError("malformed project state: traceability report does not match exact inputs")
     for annotation in annotations:
         target = project.artifact(annotation.artifact.artifact_id)
         if target.content_hash != annotation.artifact.content_hash:

@@ -128,6 +128,12 @@ the exact current sandbox handoff. Results include captured output, duration,
 covered spec IDs, and a derived summary. The core package still contains no
 host executor, generated-file publisher, or adapter invocation.
 
+`add_traceability_report(project)` is the pure Phase 7 reporting transition.
+It joins the exact original/elaborated/test/logical/output/handoff/result chain
+to compiler-declared code locations and sandbox-returned test coverage. Each
+spec ID is classified as passing, failing, skipped, or untested, with failure
+details. Unknown test/spec IDs and forged or incomplete provenance fail closed.
+
 For local persistence, `FilesystemProjectRepository` exposes only create, get,
 save, and list-status operations. Project IDs are storage-safe lowercase slugs;
 writes publish fully flushed JSON documents atomically, and malformed files,

@@ -10,6 +10,7 @@ from specatom_hs.projects import (
     add_compiler_output,
     add_sandbox_handoff,
     add_test_result,
+    add_traceability_report,
     add_logical_ir,
     add_logical_ir_document,
     admit_compilation,
@@ -429,6 +430,55 @@ class ProjectModelTests(unittest.TestCase):
         project = add_sandbox_handoff(project, replacement)
         self.assertIsNone(project.current(ArtifactKind.TEST_RESULT))
         self.assertEqual(ArtifactState.INVALIDATED, project.artifact(old.artifact_id).state)
+
+    def traceability_project(self):
+        project = self.approved_output_project()
+        project = add_sandbox_handoff(project, self.handoff())
+        result = SandboxTestResult(
+            sandbox_request_hash(self.handoff()), "isolated-adapter:v1",
+            (TestCaseResult("TEST-1", "passed", 12, "ok\n", "", ("REQ-1",)),),
+        )
+        return add_test_result(project, result)
+
+    def test_traceability_report_joins_exact_full_provenance_chain(self):
+        project = add_traceability_report(self.traceability_project())
+        report = project.current(ArtifactKind.TRACEABILITY_REPORT)
+        output = project.current(ArtifactKind.COMPILER_OUTPUT)
+        result = project.current(ArtifactKind.TEST_RESULT)
+        self.assertEqual((output.ref, result.ref), report.upstream)
+        self.assertIn('"status":"passing"', report.content)
+        self.assertIn('"code_locations":["demo.metta","tests/test_demo.py"]', report.content)
+        self.assertEqual(project, project_from_dict(project_to_dict(project)))
+
+    def test_traceability_report_requires_planned_known_test_and_spec_ids(self):
+        project = add_sandbox_handoff(self.approved_output_project(), self.handoff())
+        for test in (
+            TestCaseResult("UNPLANNED", "passed", 1, covered_spec_ids=("REQ-1",)),
+            TestCaseResult("TEST-1", "passed", 1, covered_spec_ids=("REQ-UNKNOWN",)),
+        ):
+            with self.subTest(test=test):
+                candidate = add_test_result(
+                    project, SandboxTestResult(sandbox_request_hash(self.handoff()), "adapter", (test,)),
+                )
+                with self.assertRaisesRegex(ValueError, "absent from compiler output"):
+                    add_traceability_report(candidate)
+
+    def test_traceability_report_forgery_and_generic_bypass_fail_closed(self):
+        import json
+        from specatom_hs.projects import _artifact_id, content_sha256
+        project = add_traceability_report(self.traceability_project())
+        result = project.current(ArtifactKind.TEST_RESULT)
+        with self.assertRaisesRegex(ValueError, "add_traceability_report"):
+            add_artifact(project, ArtifactKind.TRACEABILITY_REPORT, "{}", (result.ref,))
+        payload = project_to_dict(project)
+        artifact = next(item for item in payload["artifacts"] if item["kind"] == "traceability-report")
+        body = json.loads(artifact["content"])
+        body["entries"][0]["status"] = "untested"
+        artifact["content"] = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        artifact["content_hash"] = content_sha256(artifact["content"])
+        artifact["artifact_id"] = _artifact_id("demo", ArtifactKind.TRACEABILITY_REPORT, 1, artifact["content_hash"])
+        with self.assertRaisesRegex(ValueError, "traceability report"):
+            project_from_dict(payload)
 
     def test_compile_admission_rejects_deferred_and_stale_review(self):
         project = self.populated()
