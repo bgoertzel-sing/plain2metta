@@ -25,6 +25,13 @@ from .compiler_output import (
     canonical_compiler_output,
     compiler_output_from_dict,
 )
+from .sandbox_handoff import sandbox_handoff_from_dict
+from .sandbox_protocol import (
+    canonical_test_result,
+    sandbox_request_hash,
+    test_result_from_dict,
+    test_result_to_dict,
+)
 
 
 class ProjectReader(Protocol):
@@ -182,6 +189,51 @@ class ProjectQueryService:
                 "spec_ids": item.spec_ids,
                 "test_ids": item.test_ids,
             } for item in bundle.files),
+        }
+
+    def test_result(self, project_id: str) -> dict[str, Any]:
+        """Return validated test metadata without captured stdout/stderr bodies."""
+        project = self._projects.get(project_id)
+        result_artifact = project.current(ArtifactKind.TEST_RESULT)
+        handoff_artifact = project.current(ArtifactKind.SANDBOX_HANDOFF)
+        if result_artifact is None or handoff_artifact is None:
+            raise ValueError("project has no current test result")
+        if (
+            result_artifact.state is not ArtifactState.CURRENT
+            or handoff_artifact.state is not ArtifactState.CURRENT
+            or result_artifact.upstream != (handoff_artifact.ref,)
+        ):
+            raise ValueError("current test result is not bound to the exact current sandbox handoff")
+        try:
+            handoff = sandbox_handoff_from_dict(json.loads(handoff_artifact.content))
+            result = test_result_from_dict(json.loads(result_artifact.content))
+            if result_artifact.content != canonical_test_result(result):
+                raise ValueError("test result is not canonical")
+            if result.request_hash != sandbox_request_hash(handoff):
+                raise ValueError("test result does not bind the exact sandbox request")
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"invalid current test result: {exc}") from exc
+        serialized = test_result_to_dict(result)
+        return {
+            "project_id": project.project_id,
+            "sandbox_handoff_artifact_id": handoff_artifact.artifact_id,
+            "sandbox_handoff_content_hash": handoff_artifact.content_hash,
+            "test_result_artifact_id": result_artifact.artifact_id,
+            "test_result_content_hash": result_artifact.content_hash,
+            "request_hash": result.request_hash,
+            "adapter": result.adapter,
+            "summary": serialized["summary"],
+            "tests": tuple({
+                "test_id": test.test_id,
+                "status": test.status,
+                "duration_ms": test.duration_ms,
+                "stdout_hash": content_sha256(test.stdout),
+                "stdout_byte_size": len(test.stdout.encode("utf-8")),
+                "stderr_hash": content_sha256(test.stderr),
+                "stderr_byte_size": len(test.stderr.encode("utf-8")),
+                "covered_spec_ids": test.covered_spec_ids,
+                "assertion": test.assertion,
+            } for test in result.tests),
         }
 
     def trace(self, project_id: str, spec_id: str | None = None) -> dict[str, Any]:

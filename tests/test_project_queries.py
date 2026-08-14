@@ -7,7 +7,7 @@ from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog
 from specatom_hs.projects import (
     ApprovalDecision, ArtifactKind, add_artifact, add_compilation_response,
-    add_logical_ir_document,
+    add_logical_ir_document, add_sandbox_handoff, add_test_result,
     replace_source, submit_phase3_review,
 )
 from specatom_hs.logical_ir import Contract, LogicalIRDocument, RequirementObligation, TypeDeclaration
@@ -16,6 +16,8 @@ from specatom_hs.compilation_prompt import (
     CompilationResponse, build_compilation_request, compilation_request_hash,
 )
 from specatom_hs.elaboration_protocol import ProviderProvenance
+from specatom_hs.sandbox_handoff import SandboxHandoff, SandboxLimits
+from specatom_hs.sandbox_protocol import SandboxTestResult, TestCaseResult, sandbox_request_hash
 
 import tests.test_projects as project_fixtures
 
@@ -172,6 +174,40 @@ class ProjectQueryServiceTests(unittest.TestCase):
         self.repository.create("uncompiled", "Uncompiled", "source")
         with self.assertRaisesRegex(ValueError, "no current compiler output"):
             self.queries.compiler_output("uncompiled")
+
+    def test_test_result_is_exact_validated_metadata_without_output_bodies(self):
+        project = project_fixtures.ProjectModelTests().approved_output_project()
+        handoff = SandboxHandoff(
+            "sha256:" + "a" * 64, ("python", "-m", "pytest"),
+            ("demo.metta", "tests/test_demo.py"), SandboxLimits(10, 256, 30),
+        )
+        project = add_sandbox_handoff(project, handoff)
+        result = SandboxTestResult(
+            sandbox_request_hash(handoff), "isolated:v1",
+            (TestCaseResult("TEST-1", "failed", 7, "captured out", "captured err", ("REQ-1",), "x == y"),),
+        )
+        project = add_test_result(project, result)
+        self.repository.create(project.project_id, project.name, "placeholder")
+        self.repository.save(project)
+
+        metadata = self.queries.test_result(project.project_id)
+        artifact = project.current(ArtifactKind.TEST_RESULT)
+        self.assertEqual(artifact.artifact_id, metadata["test_result_artifact_id"])
+        self.assertEqual("isolated:v1", metadata["adapter"])
+        self.assertEqual(1, metadata["summary"]["failed"])
+        self.assertEqual(len("captured out"), metadata["tests"][0]["stdout_byte_size"])
+        self.assertNotIn("stdout", metadata["tests"][0])
+        self.assertNotIn("stderr", metadata["tests"][0])
+        self.assertFalse(hasattr(self.queries, "execute"))
+
+        self.repository.save(replace_source(project, "changed"))
+        with self.assertRaisesRegex(ValueError, "no current test result"):
+            self.queries.test_result(project.project_id)
+
+    def test_missing_test_result_fails_closed(self):
+        self.repository.create("untested", "Untested", "source")
+        with self.assertRaisesRegex(ValueError, "no current test result"):
+            self.queries.test_result("untested")
 
     def test_trace_supports_full_and_exact_spec_queries(self):
         project = project_fixtures.ProjectModelTests().traceability_project()

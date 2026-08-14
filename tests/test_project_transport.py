@@ -492,6 +492,21 @@ class ProjectCommandApplicationTests(unittest.TestCase):
         self.assertEqual(result.artifact_id, response["body"]["test_result_artifact_id"])
         self.assertEqual(result.content_hash, response["body"]["test_result_content_hash"])
 
+        command_app, self.app = self.app, ReadOnlyProjectApplication(ProjectQueryService(self.repository))
+        read = self.request("/api/test-result/review-demo", method="GET", raw_body=b"")
+        ambiguous = self.request(
+            "/api/test-result/review-demo", method="GET", raw_body=b"", query="include_output=true",
+        )
+        alternate = self.request("/api/test-result/%72eview-demo", method="GET", raw_body=b"")
+        self.app = command_app
+        self.assertEqual("200 OK", read["status"])
+        self.assertEqual(result.artifact_id, read["body"]["test_result_artifact_id"])
+        self.assertEqual({"passed": 1, "failed": 0, "error": 0, "skipped": 0, "total": 1}, read["body"]["summary"])
+        self.assertNotIn("stdout", read["body"]["tests"][0])
+        self.assertNotIn("stderr", read["body"]["tests"][0])
+        self.assertEqual("400 Bad Request", ambiguous["status"])
+        self.assertEqual("400 Bad Request", alternate["status"])
+
     def test_test_route_rejects_malformed_alternate_and_unconfigured_requests(self):
         self.app, adapter, before = self.sandbox_app()
         for path, payload in (

@@ -71,6 +71,9 @@ class ReadOnlyProjectApplication:
         if resource == "compiler-output":
             self._query(query_string, ())
             return self._queries.compiler_output(project_id)
+        if resource == "test-result":
+            self._query(query_string, ())
+            return self._queries.test_result(project_id)
         if resource == "trace":
             query = self._query(query_string, ("spec_id",))
             return self._queries.trace(project_id, query.get("spec_id"))
