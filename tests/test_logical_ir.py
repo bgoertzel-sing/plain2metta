@@ -90,6 +90,47 @@ class LogicalIRTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "reviewer and rationale"):
             logical_review_from_dict(payload)
 
+    def test_deterministic_review_finds_opposite_invariants_with_combined_provenance(self):
+        base = self.document()
+        contracts = base.contracts + (
+            Contract("contract.publish", "publish", ("Result",), "Result", (), (),
+                     ("source remains not unchanged",), ("REQ-2",), False),
+        )
+        report = review_logical_ir(LogicalIRDocument(base.module_id, base.types, contracts,
+                                                      base.obligations, base.dependencies, base.operational_holes))
+        finding = next(x for x in report.findings if x.category is FindingCategory.CONTRADICTORY_INVARIANT)
+        self.assertEqual(("REQ-1", "REQ-2"), finding.source_clause_ids)
+        self.assertTrue(report.blocks_compilation)
+
+    def test_deterministic_review_finds_order_cycle_and_unknown_order_endpoint(self):
+        base = self.document()
+        contracts = base.contracts + (
+            Contract("contract.publish", "publish", ("Result",), "Result", (), (), (), ("REQ-2",), False),
+        )
+        dependencies = (
+            DependencyDeclaration("dependency.a", "transform", "publish", "precedes", ("REQ-1",)),
+            DependencyDeclaration("dependency.b", "publish", "transform", "precedes", ("REQ-2",)),
+            DependencyDeclaration("dependency.c", "missing", "publish", "precedes", ("REQ-3",)),
+        )
+        report = review_logical_ir(LogicalIRDocument(base.module_id, base.types, contracts,
+                                                      base.obligations, dependencies, base.operational_holes))
+        findings = [x for x in report.findings if x.category is FindingCategory.INVALID_ORDERING_DATA_FLOW]
+        self.assertEqual(2, len(findings))
+        self.assertEqual({"REQ-1", "REQ-2", "REQ-3"}, {c for x in findings for c in x.source_clause_ids})
+
+    def test_deterministic_review_finds_positive_leakage_but_not_prohibition(self):
+        base = self.document()
+        risky = Contract("contract.risky", "risky", ("Input",), "Result", (), (),
+                         ("test labels are read for selection",), ("REQ-2",), False)
+        safe = Contract("contract.safe", "safe", ("Input",), "Result", (), (),
+                        ("test labels are never read for selection",), ("REQ-3",), False)
+        report = review_logical_ir(LogicalIRDocument(base.module_id, base.types,
+                                                      base.contracts + (risky, safe), base.obligations,
+                                                      base.dependencies, base.operational_holes))
+        leakage = [x for x in report.findings if x.category is FindingCategory.POSSIBLE_LEAKAGE]
+        self.assertEqual(1, len(leakage))
+        self.assertEqual(("REQ-2",), leakage[0].source_clause_ids)
+
 
 if __name__ == "__main__":
     unittest.main()

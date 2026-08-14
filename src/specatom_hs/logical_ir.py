@@ -257,6 +257,98 @@ def review_logical_ir(document: LogicalIRDocument) -> LogicalReviewReport:
     for obligation in document.obligations:
         if not obligation.planned_test_ids:
             add(FindingCategory.UNCOVERED_REQUIREMENT, obligation.requirement_id, f"requirement {obligation.requirement_id} has no planned test", obligation.source_clause_ids)
+
+    # These checks are deliberately syntactic and deterministic.  They report
+    # review findings rather than pretending to prove arbitrary English.
+    def condition_key(value: str) -> tuple[str, bool]:
+        words = re.findall(r"[a-z0-9]+", value.casefold())
+        negative = any(word in {"no", "not", "never"} for word in words)
+        return " ".join(word for word in words if word not in {"no", "not", "never"}), negative
+
+    seen_invariants: dict[str, tuple[bool, Contract, str]] = {}
+    for contract in document.contracts:
+        for invariant in contract.invariants:
+            key, negative = condition_key(invariant)
+            previous = seen_invariants.get(key)
+            if previous is not None and previous[0] != negative:
+                other = previous[1]
+                sources = tuple(dict.fromkeys(other.source_clause_ids + contract.source_clause_ids))
+                add(
+                    FindingCategory.CONTRADICTORY_INVARIANT,
+                    f"{other.contract_id}:{contract.contract_id}:{key}",
+                    f"contracts {other.contract_id} and {contract.contract_id} assert opposite invariant polarities for {key!r}",
+                    sources,
+                )
+            else:
+                seen_invariants[key] = (negative, contract, invariant)
+
+    order_relations = {"before", "precedes", "depends-before"}
+    contract_names = {contract.name for contract in document.contracts}
+    graph: dict[str, set[str]] = {name: set() for name in contract_names}
+    order_sources: dict[tuple[str, str], tuple[str, ...]] = {}
+    for dependency in document.dependencies:
+        if dependency.relation not in order_relations:
+            continue
+        if dependency.before not in contract_names or dependency.after not in contract_names:
+            add(
+                FindingCategory.INVALID_ORDERING_DATA_FLOW,
+                dependency.dependency_id,
+                f"ordering dependency {dependency.dependency_id} must connect declared contracts",
+                dependency.source_clause_ids,
+            )
+            continue
+        graph[dependency.before].add(dependency.after)
+        order_sources[(dependency.before, dependency.after)] = dependency.source_clause_ids
+
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    path: list[str] = []
+    reported_cycles: set[frozenset[str]] = set()
+
+    def visit(node: str) -> None:
+        visiting.add(node)
+        path.append(node)
+        for target in sorted(graph[node]):
+            if target in visiting:
+                start = path.index(target)
+                cycle = path[start:] + [target]
+                identity = frozenset(cycle)
+                if identity not in reported_cycles:
+                    reported_cycles.add(identity)
+                    edges = list(zip(cycle, cycle[1:]))
+                    sources = tuple(dict.fromkeys(clause for edge in edges for clause in order_sources[edge]))
+                    add(
+                        FindingCategory.INVALID_ORDERING_DATA_FLOW,
+                        "cycle:" + "->".join(cycle),
+                        "ordering/data-flow cycle is impossible: " + " -> ".join(cycle),
+                        sources,
+                    )
+            elif target not in visited:
+                visit(target)
+        path.pop()
+        visiting.remove(node)
+        visited.add(node)
+
+    for name in sorted(graph):
+        if name not in visited:
+            visit(name)
+
+    leakage_patterns = (
+        re.compile(r"\b(?:use|uses|read|reads|consume|consumes)\b.*\b(?:future|test)\b.*\b(?:data|input|inputs|label|labels|target|targets)\b"),
+        re.compile(r"\b(?:future|test)\b.*\b(?:data|input|inputs|label|labels|target|targets)\b.*\b(?:use|uses|read|reads|selection|training)\b"),
+        re.compile(r"\b(?:normalize|scale|preprocess)\w*\b.*\bbefore\b.*\b(?:split|partition)\w*\b"),
+    )
+    for contract in document.contracts:
+        for condition in contract.preconditions + contract.postconditions + contract.invariants:
+            normalized = " ".join(re.findall(r"[a-z0-9]+", condition.casefold()))
+            _, negative = condition_key(condition)
+            if not negative and any(pattern.search(normalized) for pattern in leakage_patterns):
+                add(
+                    FindingCategory.POSSIBLE_LEAKAGE,
+                    f"{contract.contract_id}:{normalized}",
+                    f"contract {contract.contract_id} may leak evaluation or future information: {condition}",
+                    contract.source_clause_ids,
+                )
     return LogicalReviewReport(logical_ir_hash(document), tuple(findings))
 
 
