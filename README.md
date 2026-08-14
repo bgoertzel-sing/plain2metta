@@ -121,6 +121,13 @@ does not publish files, import Python, evaluate MeTTa, spawn processes, or run
 tests. Unsafe paths, unknown fields, forged execution state, and stale compile
 admission fail closed.
 
+`sandbox_request_to_dict(handoff)` exposes the narrow Phase 6 adapter message
+without invoking an adapter. `add_test_result(project, result)` accepts strict
+per-test pass/fail/error/skip records only when their request digest binds to
+the exact current sandbox handoff. Results include captured output, duration,
+covered spec IDs, and a derived summary. The core package still contains no
+host executor, generated-file publisher, or adapter invocation.
+
 For local persistence, `FilesystemProjectRepository` exposes only create, get,
 save, and list-status operations. Project IDs are storage-safe lowercase slugs;
 writes publish fully flushed JSON documents atomically, and malformed files,

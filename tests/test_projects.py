@@ -9,6 +9,7 @@ from specatom_hs.projects import (
     add_artifact,
     add_compiler_output,
     add_sandbox_handoff,
+    add_test_result,
     add_logical_ir,
     add_logical_ir_document,
     admit_compilation,
@@ -25,6 +26,9 @@ from specatom_hs.logical_ir import (
 )
 from specatom_hs.compiler_output import CompilerOutputBundle, GeneratedFile
 from specatom_hs.sandbox_handoff import SandboxHandoff, SandboxLimits
+from specatom_hs.sandbox_protocol import (
+    SandboxTestResult, TestCaseResult, sandbox_request_hash, sandbox_request_to_dict,
+)
 
 
 class ProjectModelTests(unittest.TestCase):
@@ -354,6 +358,77 @@ class ProjectModelTests(unittest.TestCase):
         changed = decide(project, output.ref, ApprovalDecision.CHANGES_REQUESTED, "ben", "revise output")
         self.assertIsNone(changed.current(ArtifactKind.SANDBOX_HANDOFF))
         self.assertEqual(ArtifactState.INVALIDATED, changed.artifact(handoff.artifact_id).state)
+
+    def test_protocol_is_inert_and_result_is_bound_to_exact_handoff(self):
+        project = add_sandbox_handoff(self.approved_output_project(), self.handoff())
+        request = sandbox_request_to_dict(self.handoff())
+        self.assertEqual("sandbox-test-request", request["kind"])
+        self.assertFalse(request["handoff"]["executed"])
+        result = SandboxTestResult(
+            sandbox_request_hash(self.handoff()), "isolated-adapter:v1",
+            (
+                TestCaseResult("TEST-1", "passed", 12, "ok\n", "", ("REQ-1",)),
+                TestCaseResult("TEST-2", "skipped", 0, "", "", ("REQ-1",), "optional backend"),
+            ),
+        )
+        project = add_test_result(project, result)
+        artifact = project.current(ArtifactKind.TEST_RESULT)
+        handoff = project.current(ArtifactKind.SANDBOX_HANDOFF)
+        self.assertEqual((handoff.ref,), artifact.upstream)
+        self.assertIn('"passed":1', artifact.content)
+        self.assertIn('"skipped":1', artifact.content)
+        self.assertEqual(project, project_from_dict(project_to_dict(project)))
+
+    def test_result_rejects_missing_stale_or_mismatched_handoff(self):
+        result = SandboxTestResult("sha256:" + "b" * 64, "adapter", (TestCaseResult("T", "passed", 1),))
+        with self.assertRaisesRegex(ValueError, "current sandbox handoff"):
+            add_test_result(self.approved_output_project(), result)
+        project = add_sandbox_handoff(self.approved_output_project(), self.handoff())
+        with self.assertRaisesRegex(ValueError, "exact sandbox request"):
+            add_test_result(project, result)
+        handoff = project.current(ArtifactKind.SANDBOX_HANDOFF)
+        with self.assertRaisesRegex(ValueError, "add_test_result"):
+            add_artifact(project, ArtifactKind.TEST_RESULT, "{}", (handoff.ref,))
+
+    def test_result_rejects_malformed_and_forged_state(self):
+        import json
+        from specatom_hs.projects import _artifact_id, content_sha256
+        project = add_sandbox_handoff(self.approved_output_project(), self.handoff())
+        valid = SandboxTestResult(
+            sandbox_request_hash(self.handoff()), "adapter", (TestCaseResult("T", "failed", 2, stderr="boom", assertion="x == y"),),
+        )
+        for invalid in (
+            SandboxTestResult(valid.request_hash, "adapter", (TestCaseResult("T", "unknown", 1),)),
+            SandboxTestResult(valid.request_hash, "adapter", (TestCaseResult("T", "passed", 1), TestCaseResult("T", "failed", 2))),
+        ):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                add_test_result(project, invalid)
+        project = add_test_result(project, valid)
+        for mutation in ("summary", "unknown", "request_hash"):
+            payload = project_to_dict(project)
+            artifact = next(item for item in payload["artifacts"] if item["kind"] == "test-result")
+            body = json.loads(artifact["content"])
+            if mutation == "summary":
+                body["summary"]["passed"] = 99
+            elif mutation == "unknown":
+                body["host_pid"] = 1
+            else:
+                body["request_hash"] = "sha256:" + "c" * 64
+            artifact["content"] = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            artifact["content_hash"] = content_sha256(artifact["content"])
+            artifact["artifact_id"] = _artifact_id("demo", ArtifactKind.TEST_RESULT, 1, artifact["content_hash"])
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "test result"):
+                project_from_dict(payload)
+
+    def test_replacing_handoff_invalidates_prior_test_result(self):
+        project = add_sandbox_handoff(self.approved_output_project(), self.handoff())
+        result = SandboxTestResult(sandbox_request_hash(self.handoff()), "adapter", (TestCaseResult("T", "passed", 1),))
+        project = add_test_result(project, result)
+        old = project.current(ArtifactKind.TEST_RESULT)
+        replacement = SandboxHandoff(self.handoff().image_digest, ("python", "-m", "pytest", "-v"), self.handoff().files, self.handoff().limits)
+        project = add_sandbox_handoff(project, replacement)
+        self.assertIsNone(project.current(ArtifactKind.TEST_RESULT))
+        self.assertEqual(ArtifactState.INVALIDATED, project.artifact(old.artifact_id).state)
 
     def test_compile_admission_rejects_deferred_and_stale_review(self):
         project = self.populated()

@@ -21,6 +21,7 @@ class ArtifactKind(str, Enum):
     LOGICAL_REVIEW = "logical-review"
     COMPILER_OUTPUT = "compiler-output"
     SANDBOX_HANDOFF = "sandbox-handoff"
+    TEST_RESULT = "test-result"
 
 
 class ArtifactState(str, Enum):
@@ -133,6 +134,8 @@ def add_artifact(
         raise ValueError("use the phase-specific add_compiler_output transition API")
     if kind is ArtifactKind.SANDBOX_HANDOFF:
         raise ValueError("use the phase-specific add_sandbox_handoff transition API")
+    if kind is ArtifactKind.TEST_RESULT:
+        raise ValueError("use the phase-specific add_test_result transition API")
     return _add_derived_artifact(project, kind, content, upstream)
 
 
@@ -278,6 +281,25 @@ def add_sandbox_handoff(project: Project, handoff: object) -> Project:
     return _add_derived_artifact(
         project, ArtifactKind.SANDBOX_HANDOFF, canonical_sandbox_handoff(handoff), (output.ref,)
     )
+
+
+def add_test_result(project: Project, result: object) -> Project:
+    """Persist adapter output without invoking an adapter or generated code."""
+    import json
+    from .sandbox_handoff import sandbox_handoff_from_dict
+    from .sandbox_protocol import canonical_test_result, sandbox_request_hash, validate_test_result
+
+    handoff_artifact = project.current(ArtifactKind.SANDBOX_HANDOFF)
+    if handoff_artifact is None:
+        raise ValueError("test result requires the exact current sandbox handoff")
+    try:
+        handoff = sandbox_handoff_from_dict(json.loads(handoff_artifact.content))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"invalid current sandbox handoff: {exc}") from exc
+    validate_test_result(result)
+    if result.request_hash != sandbox_request_hash(handoff):
+        raise ValueError("test result does not bind to the exact sandbox request")
+    return _add_derived_artifact(project, ArtifactKind.TEST_RESULT, canonical_test_result(result), (handoff_artifact.ref,))
 
 
 def decide(
@@ -516,6 +538,22 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             raise ValueError("malformed project state: sandbox handoff is not canonical")
         if handoff.files != tuple(generated.path for generated in bundle.files):
             raise ValueError("malformed project state: sandbox handoff files do not match compiler output")
+    test_result = project.current(ArtifactKind.TEST_RESULT)
+    if test_result is not None:
+        from .sandbox_handoff import sandbox_handoff_from_dict
+        from .sandbox_protocol import canonical_test_result, sandbox_request_hash, test_result_from_dict
+        import json
+        if sandbox_handoff is None or test_result.upstream != (sandbox_handoff.ref,):
+            raise ValueError("malformed project state: test result has invalid sandbox-handoff input")
+        try:
+            handoff = sandbox_handoff_from_dict(json.loads(sandbox_handoff.content))
+            result = test_result_from_dict(json.loads(test_result.content))
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"malformed project state: invalid test result: {exc}") from exc
+        if test_result.content != canonical_test_result(result):
+            raise ValueError("malformed project state: test result is not canonical")
+        if result.request_hash != sandbox_request_hash(handoff):
+            raise ValueError("malformed project state: test result request hash mismatch")
     for annotation in annotations:
         target = project.artifact(annotation.artifact.artifact_id)
         if target.content_hash != annotation.artifact.content_hash:
