@@ -122,6 +122,15 @@ does not publish files, import Python, evaluate MeTTa, spawn processes, or run
 tests. Unsafe paths, unknown fields, forged execution state, and stale compile
 admission fail closed.
 
+`build_compilation_request(project, guidance)` is the provider-independent
+Phase 5 outbound seam. It first enforces compile admission, then binds the exact
+current reviewed specification, reviewed tests, and approved logical IR
+identities and bytes into a canonical request hash. `build_compilation_prompt`
+produces exactly one system/user message pair and a strict JSON response schema;
+`parse_compilation_completion` accepts only inert `CompilerOutputBundle` data
+whose compiler attribution and guidance match the exact provider interaction.
+The seam does not publish generated files, invoke a provider, or execute code.
+
 `sandbox_request_to_dict(handoff)` exposes the narrow Phase 6 adapter message
 without invoking an adapter. `add_test_result(project, result)` accepts strict
 per-test pass/fail/error/skip records only when their request digest binds to
