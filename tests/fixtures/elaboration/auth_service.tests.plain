@@ -1,0 +1,7 @@
+***system tests***
+- [covers:AUTH-1] AUTH-TEST-1: Authenticate a known :User: with the correct password. Verify one :Session: is created, the returned :AuthToken: names that session, and captured logs contain neither credential.
+- [covers:AUTH-2] AUTH-TEST-2: Exercise an invalid password and an active LoginPolicy lockout. Verify both return the same public error and create no :Session: or :AuthToken:.
+- [covers:AUTH-3] AUTH-TEST-3: Attempt refresh with valid, expired, and revoked sessions. Verify only the valid :Session: receives a replacement :AuthToken:.
+- [covers:AUTH-4] AUTH-TEST-4: Give one :User: multiple sessions, complete a password reset, and verify every prior :Session: is revoked before the success response.
+- [covers:AUTH-5] AUTH-TEST-5: Submit a suspicious login and verify :AuditSink: receives exactly one risk event with the required fields and no password or bearer credential.
+- [covers:AUTH-6] AUTH-TEST-6: Verify compilation remains blocked while the export retention and authorization question is unresolved.

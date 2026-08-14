@@ -17,6 +17,8 @@ from .projects import ArtifactRef, content_sha256
 
 SCHEMA = "plain2metta-elaboration/v1"
 _MARKER = re.compile(r"\[(?:id|covers):[^\]\r\n]+\]|:[A-Za-z][A-Za-z0-9_-]*:")
+_REQUIREMENT_ID = re.compile(r"\[id:([^\]\r\n]+)\]")
+_COVERAGE_ID = re.compile(r"\[covers:([^\]\r\n]+)\]")
 
 
 @dataclass(frozen=True)
@@ -62,6 +64,28 @@ class ElaborationAdmission:
     required_markers: tuple[str, ...]
     preserved_markers: tuple[str, ...]
     admitted: bool
+
+
+def requirement_test_coverage(elaborated_spec: str, test_spec: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return exact requirement/test coverage, rejecting ambiguous identities.
+
+    Phase 2 output is review prose, so this intentionally checks only explicit
+    ``[id:...]`` and ``[covers:...]`` declarations.  It does not infer that two
+    English sentences describe the same behavior.
+    """
+    _text(elaborated_spec, "elaborated_spec")
+    _text(test_spec, "test_spec")
+    requirements = tuple(_REQUIREMENT_ID.findall(elaborated_spec))
+    covers = tuple(_COVERAGE_ID.findall(test_spec))
+    if any(not value.strip() or value != value.strip() for value in (*requirements, *covers)):
+        raise ValueError("requirement and coverage IDs must be canonical non-blank text")
+    if len(set(requirements)) != len(requirements):
+        raise ValueError("elaborated requirement IDs must be unique")
+    unknown = tuple(dict.fromkeys(value for value in covers if value not in requirements))
+    if unknown:
+        raise ValueError(f"test spec covers unknown requirement IDs: {unknown!r}")
+    covered = tuple(value for value in requirements if value in covers)
+    return requirements, covered
 
 
 def _text(value: object, field: str, *, blank: bool = False) -> str:
@@ -209,6 +233,12 @@ def admit_elaboration(
     _validate_summary(test_validation, "test_validation")
     required = tuple(dict.fromkeys(_MARKER.findall(request.source_text)))
     preserved = tuple(marker for marker in required if marker in response.elaborated_spec)
+    requirement_ids, covered_requirement_ids = requirement_test_coverage(
+        response.elaborated_spec, response.test_spec,
+    )
+    if covered_requirement_ids != requirement_ids:
+        missing = tuple(value for value in requirement_ids if value not in covered_requirement_ids)
+        raise ValueError(f"test spec does not cover requirement IDs: {missing!r}")
     admitted = (
         preserved == required
         and elaborated_validation.fail_count == 0

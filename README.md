@@ -158,9 +158,13 @@ Requests bind source text to an exact original-spec identity; responses bind to
 the canonical request and require backend/model, interaction ID, token counts,
 and timestamp provenance. `admit_elaboration` records deterministic validation
 summaries and admits output only when every original `[id:...]`, `[covers:...]`,
-and `:Concept:` marker remains in the elaborated spec and neither output has a
-validation failure or blocking question. This module does not invoke or retry a
-provider and does not persist returned content.
+and `:Concept:` marker remains in the elaborated spec, every unique elaborated
+`[id:...]` has an explicit test `[covers:...]`, and neither output has a
+validation failure or blocking question. Duplicate requirement IDs, unknown
+coverage targets, and uncovered requirements fail closed. Provider-free gold
+auth-service and ML/time-series elaboration corpora live under
+`tests/fixtures/elaboration/`. This module does not invoke or retry a provider
+and does not persist returned content.
 
 `ElaborationAdmissionService` is the adapter-independent return seam. It runs
 the existing SpecAtom-HS validator over the combined elaborated-spec/test-spec

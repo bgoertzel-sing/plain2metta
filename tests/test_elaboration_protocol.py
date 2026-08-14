@@ -49,6 +49,25 @@ class ElaborationProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             elaboration_admission_from_dict(encoded)
 
+    def test_admission_requires_explicit_complete_requirement_coverage(self):
+        uncovered = ElaborationResponse(
+            self.response.request_hash,
+            "***requirements***\n- [id:R-1] A :User: signs in.\n",
+            "***system tests***\n- TEST-1: A user signs in.\n",
+            self.response.provenance,
+        )
+        with self.assertRaises(ValueError):
+            admit_elaboration(self.request, uncovered, self.clean, self.clean)
+
+        duplicate = ElaborationResponse(
+            self.response.request_hash,
+            "- [id:R-1] first\n- [id:R-1] second\n",
+            "- [covers:R-1] test\n",
+            self.response.provenance,
+        )
+        with self.assertRaises(ValueError):
+            admit_elaboration(self.request, duplicate, self.clean, self.clean)
+
     def test_forged_stale_and_malformed_messages_fail_closed(self):
         stale = ElaborationResponse("sha256:" + "0" * 64, self.response.elaborated_spec, self.response.test_spec, self.response.provenance)
         with self.assertRaises(ValueError):

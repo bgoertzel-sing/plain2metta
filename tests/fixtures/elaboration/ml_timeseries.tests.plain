@@ -1,0 +1,6 @@
+***system tests***
+- [covers:ML-1] ML-TEST-1: Use synthetic rows containing a future-only signal. Verify feature construction excludes every value timestamped after the prediction time.
+- [covers:ML-2] ML-TEST-2: Give train and later partitions different distributions. Verify split boundaries are chronological and normalization parameters equal values computed from :TrainingRows: alone.
+- [covers:ML-3] ML-TEST-3: Make one candidate best on validation and another best on test. Verify selection chooses the validation winner without reading test labels.
+- [covers:ML-4] ML-TEST-4: Run the selected model on a fixed test partition and verify one evaluation reports finite MSE, directional accuracy, time bounds, row counts, and hyperparameters.
+- [covers:ML-5] ML-TEST-5: Verify executable compilation remains blocked until the model family and baseline comparator question is resolved.
