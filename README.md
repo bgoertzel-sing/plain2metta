@@ -144,6 +144,9 @@ list/status, version history, and trace inspection. It returns JSON-serializable
 metadata, omits artifact bodies from history, and permits exact `spec_id`
 filtering of the current traceability report. Its `phase3_review` query
 recomputes the exact-version review diff without returning raw artifact bodies.
+Its `phase3_review_decisions` query reparses and validates the current canonical
+review log against the exact current elaborated/test versions, returning decision
+metadata and the log artifact identity but no spec or reviewed-snapshot bodies.
 It has no rollback, mutation,
 provider, network, or execution capability.
 
@@ -151,6 +154,9 @@ provider, network, or execution capability.
 starting a listener. The Phase 3 report is available at
 `/api/review/<canonical-project-id>` with no query parameters; malformed or
 alternate identities and stale artifact chains fail closed.
+Validated current decisions are separately available at
+`/api/review-decisions/<canonical-project-id>` so the review-diff response remains
+stable; the route has no query parameters or mutation authority.
 
 `ProjectCommandService` is the framework-neutral write boundary for the first
 author/review operations. It exposes only persisted project creation, exact

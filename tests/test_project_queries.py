@@ -4,7 +4,10 @@ from pathlib import Path
 
 from specatom_hs.project_queries import ProjectQueryService
 from specatom_hs.project_repository import FilesystemProjectRepository
-from specatom_hs.projects import ArtifactKind, add_artifact, replace_source
+from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog
+from specatom_hs.projects import (
+    ApprovalDecision, ArtifactKind, add_artifact, replace_source, submit_phase3_review,
+)
 
 import tests.test_projects as project_fixtures
 
@@ -59,6 +62,38 @@ class ProjectQueryServiceTests(unittest.TestCase):
         self.repository.save(replace_source(project, "changed\n"))
         with self.assertRaisesRegex(ValueError, "requires exact current"):
             self.queries.phase3_review("demo")
+
+    def test_phase3_review_decisions_are_validated_exact_version_metadata(self):
+        project = self.repository.create("reviewed", "Reviewed", "sketch\n")
+        source = project.current(ArtifactKind.ORIGINAL_SPEC)
+        project = add_artifact(project, ArtifactKind.ELABORATED_SPEC, "detailed\n", (source.ref,))
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        project = add_artifact(project, ArtifactKind.TEST_SPEC, "verify\n", (elaborated.ref,))
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        log = Phase3ReviewLog(elaborated.ref, tests.ref, (
+            Phase3Decision(elaborated.ref, ApprovalDecision.APPROVED, "reviewer-a", "2026-08-14T12:43:00Z"),
+            Phase3Decision(tests.ref, ApprovalDecision.CHANGES_REQUESTED, "reviewer-b", "2026-08-14T12:43:01Z", "item:TEST-1", "Tighten assertion."),
+        ))
+        project = submit_phase3_review(project, log)
+        self.repository.save(project)
+
+        result = self.queries.phase3_review_decisions("reviewed")
+        artifact = project.current(ArtifactKind.REVIEW_LOG)
+        self.assertEqual(artifact.artifact_id, result["review_log_artifact_id"])
+        self.assertEqual(artifact.content_hash, result["review_log_content_hash"])
+        self.assertEqual("plain2metta-phase3-review-log/v1", result["review_log"]["schema"])
+        self.assertEqual(2, len(result["review_log"]["decisions"]))
+        self.assertNotIn("content", result)
+        self.assertFalse(hasattr(self.queries, "submit_phase3_review"))
+
+        self.repository.save(replace_source(project, "changed\n"))
+        with self.assertRaisesRegex(ValueError, "no current Phase 3 review log"):
+            self.queries.phase3_review_decisions("reviewed")
+
+    def test_missing_phase3_review_decisions_fail_closed(self):
+        self.repository.create("unreviewed", "Unreviewed", "source")
+        with self.assertRaisesRegex(ValueError, "no current Phase 3 review log"):
+            self.queries.phase3_review_decisions("unreviewed")
 
     def test_trace_supports_full_and_exact_spec_queries(self):
         project = project_fixtures.ProjectModelTests().traceability_project()

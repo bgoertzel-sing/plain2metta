@@ -9,7 +9,9 @@ from specatom_hs.project_queries import ProjectQueryService
 from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.project_transport import ProjectCommandApplication, ReadOnlyProjectApplication
 from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog, phase3_review_log_to_dict
-from specatom_hs.projects import ApprovalDecision, ArtifactKind, add_artifact, replace_source
+from specatom_hs.projects import (
+    ApprovalDecision, ArtifactKind, add_artifact, replace_source, submit_phase3_review,
+)
 
 import tests.test_projects as project_fixtures
 
@@ -22,6 +24,19 @@ class ReadOnlyProjectApplicationTests(unittest.TestCase):
         project = project_fixtures.ProjectModelTests().traceability_project()
         repository.create("demo", "Demo", "placeholder")
         repository.save(project_fixtures.add_traceability_report(project))
+        review_project = repository.create("reviewed", "Reviewed", "sketch\n")
+        source = review_project.current(ArtifactKind.ORIGINAL_SPEC)
+        review_project = add_artifact(review_project, ArtifactKind.ELABORATED_SPEC, "detailed\n", (source.ref,))
+        elaborated = review_project.current(ArtifactKind.ELABORATED_SPEC)
+        review_project = add_artifact(review_project, ArtifactKind.TEST_SPEC, "verify\n", (elaborated.ref,))
+        tests = review_project.current(ArtifactKind.TEST_SPEC)
+        review_project = submit_phase3_review(review_project, Phase3ReviewLog(
+            elaborated.ref, tests.ref, (
+                Phase3Decision(elaborated.ref, ApprovalDecision.APPROVED, "reviewer", "2026-08-14T12:43:00Z"),
+                Phase3Decision(tests.ref, ApprovalDecision.APPROVED, "reviewer", "2026-08-14T12:43:01Z"),
+            ),
+        ))
+        repository.save(review_project)
         self.app = ReadOnlyProjectApplication(ProjectQueryService(repository))
 
     def tearDown(self):
@@ -64,6 +79,10 @@ class ReadOnlyProjectApplicationTests(unittest.TestCase):
             sorted(review["inputs"]),
         )
         self.assertTrue(all("content" not in item for item in review["inputs"].values()))
+        decisions = self.request("/api/review-decisions/reviewed")["body"]
+        self.assertEqual("plain2metta-phase3-review-log/v1", decisions["review_log"]["schema"])
+        self.assertEqual(2, len(decisions["review_log"]["decisions"]))
+        self.assertNotIn("content", decisions)
 
     def test_transport_has_no_mutation_or_server_capability(self):
         self.assertFalse(hasattr(self.app, "run"))
@@ -81,7 +100,8 @@ class ReadOnlyProjectApplicationTests(unittest.TestCase):
 
     def test_unknown_routes_projects_and_spec_ids_are_not_found(self):
         for path, query in (("/api/unknown/demo", ""), ("/api/projects/missing", ""),
-                            ("/api/review/missing", ""), ("/api/trace/demo", "spec_id=missing")):
+                            ("/api/review/missing", ""), ("/api/review-decisions/missing", ""),
+                            ("/api/trace/demo", "spec_id=missing")):
             with self.subTest(path=path, query=query):
                 response = self.request(path, query)
                 self.assertEqual("404 Not Found", response["status"])
@@ -94,6 +114,7 @@ class ReadOnlyProjectApplicationTests(unittest.TestCase):
             ("/api/projects/demo/extra", ""),
             ("/api/projects", "unexpected=1"),
             ("/api/review/demo", "unexpected=1"),
+            ("/api/review-decisions/reviewed", "unexpected=1"),
             ("/api/review/demo", "broken"),
             ("/api/trace/demo", "spec_id="),
             ("/api/trace/demo", "spec_id=REQ-1&spec_id=REQ-2"),

@@ -62,6 +62,9 @@ class ReadOnlyProjectApplication:
         if resource == "review":
             self._query(query_string, ())
             return self._queries.phase3_review(project_id)
+        if resource == "review-decisions":
+            self._query(query_string, ())
+            return self._queries.phase3_review_decisions(project_id)
         if resource == "trace":
             query = self._query(query_string, ("spec_id",))
             return self._queries.trace(project_id, query.get("spec_id"))

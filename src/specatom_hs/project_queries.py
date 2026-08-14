@@ -8,6 +8,11 @@ from typing import Any, Protocol
 
 from .project_repository import ProjectStatus, project_status
 from .projects import ArtifactKind, ArtifactState, Project
+from .phase3_review import (
+    phase3_review_log_from_dict,
+    phase3_review_log_to_dict,
+    validate_phase3_review_log,
+)
 from .review_diff import build_phase3_review_diff, phase3_review_diff_to_dict
 from .traceability import TraceabilityEntry, traceability_report_from_dict
 
@@ -63,6 +68,28 @@ class ProjectQueryService:
     def phase3_review(self, project_id: str) -> dict[str, Any]:
         """Return recomputed exact-version review material without artifact bodies."""
         return phase3_review_diff_to_dict(build_phase3_review_diff(self._projects.get(project_id)))
+
+    def phase3_review_decisions(self, project_id: str) -> dict[str, Any]:
+        """Return the validated current review log without reviewed artifact bodies."""
+        project = self._projects.get(project_id)
+        artifact = project.current(ArtifactKind.REVIEW_LOG)
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        if artifact is None or artifact.state is not ArtifactState.CURRENT:
+            raise ValueError("project has no current Phase 3 review log")
+        if elaborated is None or tests is None or artifact.upstream != (elaborated.ref, tests.ref):
+            raise ValueError("current Phase 3 review log is not bound to exact current inputs")
+        try:
+            log = phase3_review_log_from_dict(json.loads(artifact.content))
+            validate_phase3_review_log(log, elaborated.ref, tests.ref)
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"invalid current Phase 3 review log: {exc}") from exc
+        return {
+            "project_id": project.project_id,
+            "review_log_artifact_id": artifact.artifact_id,
+            "review_log_content_hash": artifact.content_hash,
+            "review_log": phase3_review_log_to_dict(log),
+        }
 
     def trace(self, project_id: str, spec_id: str | None = None) -> dict[str, Any]:
         if spec_id is not None and (not isinstance(spec_id, str) or not spec_id.strip()):
