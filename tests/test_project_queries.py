@@ -43,6 +43,23 @@ class ProjectQueryServiceTests(unittest.TestCase):
             item["upstream_artifact_ids"] for item in history if item["kind"] == "elaborated-spec"
         ))
 
+    def test_phase3_review_is_recomputed_from_exact_current_versions(self):
+        project = self.repository.create("demo", "Demo", "sketch\n")
+        source = project.current(ArtifactKind.ORIGINAL_SPEC)
+        project = add_artifact(project, ArtifactKind.ELABORATED_SPEC, "detailed\n", (source.ref,))
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        project = add_artifact(project, ArtifactKind.TEST_SPEC, "verify\n", (elaborated.ref,))
+        self.repository.save(project)
+        report = self.queries.phase3_review("demo")
+        self.assertEqual("plain2metta-phase3-review-diff/v1", report["schema"])
+        self.assertEqual(source.artifact_id, report["inputs"]["original_spec"]["artifact_id"])
+        self.assertNotIn("content", report["inputs"]["original_spec"])
+        self.assertFalse(hasattr(self.queries, "approve"))
+
+        self.repository.save(replace_source(project, "changed\n"))
+        with self.assertRaisesRegex(ValueError, "requires exact current"):
+            self.queries.phase3_review("demo")
+
     def test_trace_supports_full_and_exact_spec_queries(self):
         project = project_fixtures.ProjectModelTests().traceability_project()
         project = project_fixtures.add_traceability_report(project)

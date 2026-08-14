@@ -142,7 +142,9 @@ unexpected entries, symlinks, or forged state fail closed.
 `ProjectQueryService` is the narrow read-only boundary corresponding to project
 list/status, version history, and trace inspection. It returns JSON-serializable
 metadata, omits artifact bodies from history, and permits exact `spec_id`
-filtering of the current traceability report. It has no rollback, mutation,
+filtering of the current traceability report. Its `phase3_review` query
+recomputes the exact-version review diff without returning raw artifact bodies.
+It has no rollback, mutation,
 provider, network, or execution capability.
 
 `ProjectCommandService` is the framework-neutral write boundary for the first

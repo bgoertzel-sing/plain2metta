@@ -8,6 +8,7 @@ from typing import Any, Protocol
 
 from .project_repository import ProjectStatus, project_status
 from .projects import ArtifactKind, ArtifactState, Project
+from .review_diff import build_phase3_review_diff, phase3_review_diff_to_dict
 from .traceability import TraceabilityEntry, traceability_report_from_dict
 
 
@@ -58,6 +59,10 @@ class ProjectQueryService:
             for artifact in sorted(project.artifacts, key=lambda item: (item.kind.value, item.version))
         )
         return tuple(asdict(version) for version in versions)
+
+    def phase3_review(self, project_id: str) -> dict[str, Any]:
+        """Return recomputed exact-version review material without artifact bodies."""
+        return phase3_review_diff_to_dict(build_phase3_review_diff(self._projects.get(project_id)))
 
     def trace(self, project_id: str, spec_id: str | None = None) -> dict[str, Any]:
         if spec_id is not None and (not isinstance(spec_id, str) or not spec_id.strip()):
