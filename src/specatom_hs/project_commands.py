@@ -12,6 +12,7 @@ from .projects import (
     add_artifact,
     annotate,
     decide,
+    decide_logical_finding,
     submit_phase3_review,
 )
 
@@ -118,6 +119,38 @@ class ProjectCommandService:
         """Atomically persist a strict exact-version Phase 3 review transaction."""
         project = self._repository.get(project_id)
         updated = submit_phase3_review(project, review_log)
+        self._repository.save(updated)
+        return updated
+
+    def submit_logical_finding_decision(
+        self,
+        project_id: str,
+        logical_ir_artifact_id: str,
+        logical_ir_content_hash: str,
+        logical_review_artifact_id: str,
+        logical_review_content_hash: str,
+        finding_id: str,
+        disposition: str,
+        reviewer: str,
+        rationale: str,
+    ) -> Project:
+        """Persist one decision only against the exact current IR and review."""
+        from .logical_ir import FindingDisposition
+
+        project = self._repository.get(project_id)
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        review = project.current(ArtifactKind.LOGICAL_REVIEW)
+        if logical is None or logical.ref != _artifact_ref(logical_ir_artifact_id, logical_ir_content_hash):
+            raise ValueError("decision requires the exact current logical IR artifact")
+        if review is None or review.ref != _artifact_ref(logical_review_artifact_id, logical_review_content_hash):
+            raise ValueError("decision requires the exact current logical review artifact")
+        if not isinstance(disposition, str):
+            raise ValueError("disposition must be a declared logical finding disposition")
+        try:
+            declared = FindingDisposition(disposition)
+        except ValueError as exc:
+            raise ValueError("disposition must be a declared logical finding disposition") from exc
+        updated = decide_logical_finding(project, finding_id, declared, reviewer, rationale)
         self._repository.save(updated)
         return updated
 

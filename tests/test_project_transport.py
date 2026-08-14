@@ -10,7 +10,10 @@ from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.project_transport import ProjectCommandApplication, ReadOnlyProjectApplication
 from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog, phase3_review_log_to_dict
 from specatom_hs.elaboration_protocol import ProviderProvenance
-from specatom_hs.logical_ir import LogicalIRDocument, TypeDeclaration, logical_ir_to_dict
+from specatom_hs.logical_ir import (
+    FindingDisposition, LogicalIRDocument, RequirementObligation,
+    TypeDeclaration, logical_ir_to_dict,
+)
 from specatom_hs.logical_ir_backend import LogicalIRBackendConfig, LogicalIRCoordinator
 from specatom_hs.logical_ir_prompt import ProviderCompletion, RESPONSE_SCHEMA
 from specatom_hs.projects import (
@@ -217,7 +220,8 @@ class ProjectCommandApplicationTests(unittest.TestCase):
         project, payload = self.phase3_project_and_payload()
         self.assertEqual("200 OK", self.request("/api/review/review-demo", payload)["status"])
         document = LogicalIRDocument(
-            "review_demo", (TypeDeclaration("type.Value", "Value", ("R-1",)),), (), (), (), (),
+            "review_demo", (TypeDeclaration("type.Value", "Value", ("R-1",)),), (),
+            (RequirementObligation("R-1", (), ("R-1",)),), (), (),
         )
 
         class Backend:
@@ -254,6 +258,60 @@ class ProjectCommandApplicationTests(unittest.TestCase):
             artifact = updated.current(kind)
             self.assertEqual(artifact.artifact_id, response["body"][f"{prefix}_artifact_id"])
             self.assertEqual(artifact.content_hash, response["body"][f"{prefix}_content_hash"])
+
+    def test_submit_exact_logical_finding_decision_and_read_current_review(self):
+        self.app, _, _ = self.logical_ir_app()
+        self.assertEqual("200 OK", self.request("/api/logical-ir/review-demo", {})["status"])
+        project = self.repository.get("review-demo")
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        review = project.current(ArtifactKind.LOGICAL_REVIEW)
+        finding_id = json.loads(review.content)["findings"][0]["finding_id"]
+        payload = {
+            "logical_ir_artifact_id": logical.artifact_id,
+            "logical_ir_content_hash": logical.content_hash,
+            "logical_review_artifact_id": review.artifact_id,
+            "logical_review_content_hash": review.content_hash,
+            "finding_id": finding_id,
+            "disposition": FindingDisposition.WAIVED.value,
+            "reviewer": "ben",
+            "rationale": "Accepted for this bounded slice.",
+        }
+        response = self.request("/api/logical-review/review-demo", payload)
+        self.assertEqual("200 OK", response["status"])
+        self.assertEqual("submit_logical_finding_decision", response["body"]["command"])
+        updated = self.repository.get("review-demo")
+        self.assertEqual(2, updated.current(ArtifactKind.LOGICAL_REVIEW).version)
+
+        read_app = ReadOnlyProjectApplication(ProjectQueryService(self.repository))
+        original_app, self.app = self.app, read_app
+        read = self.request("/api/logical-review/review-demo", method="GET", raw_body=b"")
+        self.app = original_app
+        self.assertEqual("200 OK", read["status"])
+        self.assertFalse(read["body"]["logical_review"]["blocks_compilation"])
+        self.assertNotIn("content", read["body"])
+
+    def test_logical_finding_route_rejects_stale_expanded_and_alternate_requests_without_write(self):
+        self.app, _, _ = self.logical_ir_app()
+        self.request("/api/logical-ir/review-demo", {})
+        project = self.repository.get("review-demo")
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        review = project.current(ArtifactKind.LOGICAL_REVIEW)
+        base = {
+            "logical_ir_artifact_id": logical.artifact_id,
+            "logical_ir_content_hash": logical.content_hash,
+            "logical_review_artifact_id": review.artifact_id,
+            "logical_review_content_hash": review.content_hash,
+            "finding_id": json.loads(review.content)["findings"][0]["finding_id"],
+            "disposition": "waived", "reviewer": "ben", "rationale": "Accepted.",
+        }
+        stale = dict(base, logical_review_content_hash="sha256:" + "0" * 64)
+        expanded = dict(base, authority="forged")
+        for path, payload in (("/api/logical-review/review-demo", stale),
+                              ("/api/logical-review/review-demo", expanded),
+                              ("/api/logical-review/%72eview-demo", base)):
+            with self.subTest(path=path):
+                self.assertEqual("400 Bad Request", self.request(path, payload)["status"])
+                self.assertEqual(project, self.repository.get("review-demo"))
 
     def test_logical_ir_route_rejects_malformed_alternate_and_unconfigured_requests(self):
         self.app, backend, before = self.logical_ir_app()

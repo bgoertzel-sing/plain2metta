@@ -148,6 +148,8 @@ recomputes the exact-version review diff without returning raw artifact bodies.
 Its `phase3_review_decisions` query reparses and validates the current canonical
 review log against the exact current elaborated/test versions, returning decision
 metadata and the log artifact identity but no spec or reviewed-snapshot bodies.
+Its `logical_review` query validates the current report against the exact current
+logical IR and returns findings plus artifact identities without the IR body.
 It has no rollback, mutation,
 provider, network, or execution capability.
 
@@ -158,6 +160,8 @@ alternate identities and stale artifact chains fail closed.
 Validated current decisions are separately available at
 `/api/review-decisions/<canonical-project-id>` so the review-diff response remains
 stable; the route has no query parameters or mutation authority.
+Validated logical findings are available at exact
+`GET /api/logical-review/<canonical-project-id>`.
 
 `ProjectCommandService` is the framework-neutral write boundary for the first
 author/review operations. It exposes only persisted project creation, exact
@@ -241,6 +245,11 @@ Phase 3 transaction at `POST /api/review/<canonical-project-id>`. The review
 route accepts the canonical `plain2metta-phase3-review-log/v1` shape and returns
 the persisted review-log artifact identity. It starts no listener and has no
 generic artifact mutation, compile, provider, or execution route.
+
+The exact `POST /api/logical-review/<canonical-project-id>` route accepts one
+finding decision only when the request names the current logical-IR and
+logical-review IDs and hashes. Repair, waiver, and defer decisions require a
+reviewer identity and rationale; stale or expanded requests produce no write.
 
 When constructed with an explicitly configured `LogicalIRCoordinator`, the
 same POST-only adapter also exposes exact

@@ -65,6 +65,9 @@ class ReadOnlyProjectApplication:
         if resource == "review-decisions":
             self._query(query_string, ())
             return self._queries.phase3_review_decisions(project_id)
+        if resource == "logical-review":
+            self._query(query_string, ())
+            return self._queries.logical_review(project_id)
         if resource == "trace":
             query = self._query(query_string, ("spec_id",))
             return self._queries.trace(project_id, query.get("spec_id"))
@@ -132,6 +135,28 @@ class ProjectCommandApplication:
             self._exact_keys(payload, {"project_id", "name", "source"})
             project = self._commands.create_project(payload["project_id"], payload["name"], payload["source"])
             return {"command": "create_project", "project_id": project.project_id}
+
+        logical_review_parts = raw_path.split("/")
+        if len(logical_review_parts) == 4 and logical_review_parts[:3] == ["", "api", "logical-review"]:
+            encoded_project_id = logical_review_parts[3]
+            if not encoded_project_id:
+                raise KeyError("unknown route")
+            project_id = unquote(encoded_project_id, errors="strict")
+            if "/" in project_id or project_id != encoded_project_id:
+                raise ValueError("project_id path segment must use canonical unescaped ASCII")
+            self._exact_keys(payload, {
+                "logical_ir_artifact_id", "logical_ir_content_hash",
+                "logical_review_artifact_id", "logical_review_content_hash",
+                "finding_id", "disposition", "reviewer", "rationale",
+            })
+            project = self._commands.submit_logical_finding_decision(project_id, **payload)
+            review = project.current(ArtifactKind.LOGICAL_REVIEW)
+            return {
+                "command": "submit_logical_finding_decision",
+                "project_id": project.project_id,
+                "logical_review_artifact_id": review.artifact_id,
+                "logical_review_content_hash": review.content_hash,
+            }
 
         logical_parts = raw_path.split("/")
         if len(logical_parts) == 4 and logical_parts[:3] == ["", "api", "logical-ir"]:

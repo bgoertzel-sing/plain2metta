@@ -15,6 +15,12 @@ from .phase3_review import (
 )
 from .review_diff import build_phase3_review_diff, phase3_review_diff_to_dict
 from .traceability import TraceabilityEntry, traceability_report_from_dict
+from .logical_ir import (
+    logical_ir_from_dict,
+    logical_review_from_dict,
+    logical_review_to_dict,
+    validate_review_for_document,
+)
 
 
 class ProjectReader(Protocol):
@@ -100,6 +106,30 @@ class ProjectQueryService:
             "review_log_artifact_id": artifact.artifact_id,
             "review_log_content_hash": artifact.content_hash,
             "review_log": metadata,
+        }
+
+    def logical_review(self, project_id: str) -> dict[str, Any]:
+        """Return the validated exact-version logical review without IR content."""
+        project = self._projects.get(project_id)
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        review = project.current(ArtifactKind.LOGICAL_REVIEW)
+        if logical is None or review is None:
+            raise ValueError("project has no current logical IR review")
+        if review.state is not ArtifactState.CURRENT or review.upstream != (logical.ref,):
+            raise ValueError("current logical review is not bound to the exact current logical IR")
+        try:
+            document = logical_ir_from_dict(json.loads(logical.content))
+            report = logical_review_from_dict(json.loads(review.content))
+            validate_review_for_document(report, document)
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"invalid current logical review: {exc}") from exc
+        return {
+            "project_id": project.project_id,
+            "logical_ir_artifact_id": logical.artifact_id,
+            "logical_ir_content_hash": logical.content_hash,
+            "logical_review_artifact_id": review.artifact_id,
+            "logical_review_content_hash": review.content_hash,
+            "logical_review": logical_review_to_dict(report),
         }
 
     def trace(self, project_id: str, spec_id: str | None = None) -> dict[str, Any]:

@@ -6,8 +6,10 @@ from specatom_hs.project_queries import ProjectQueryService
 from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog
 from specatom_hs.projects import (
-    ApprovalDecision, ArtifactKind, add_artifact, replace_source, submit_phase3_review,
+    ApprovalDecision, ArtifactKind, add_artifact, add_logical_ir_document,
+    replace_source, submit_phase3_review,
 )
+from specatom_hs.logical_ir import LogicalIRDocument, RequirementObligation, TypeDeclaration
 
 import tests.test_projects as project_fixtures
 
@@ -98,6 +100,42 @@ class ProjectQueryServiceTests(unittest.TestCase):
         self.repository.create("unreviewed", "Unreviewed", "source")
         with self.assertRaisesRegex(ValueError, "no current Phase 3 review log"):
             self.queries.phase3_review_decisions("unreviewed")
+
+    def test_logical_review_is_validated_exact_version_metadata_without_ir_body(self):
+        project = self.repository.create("logical", "Logical", "source")
+        source = project.current(ArtifactKind.ORIGINAL_SPEC)
+        project = add_artifact(project, ArtifactKind.ELABORATED_SPEC, "elaborated", (source.ref,))
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        project = add_artifact(project, ArtifactKind.TEST_SPEC, "tests", (elaborated.ref,))
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        project = submit_phase3_review(project, Phase3ReviewLog(elaborated.ref, tests.ref, (
+            Phase3Decision(elaborated.ref, ApprovalDecision.APPROVED, "alice", "2026-08-14T13:58:00Z"),
+            Phase3Decision(tests.ref, ApprovalDecision.APPROVED, "bob", "2026-08-14T13:58:01Z"),
+        )))
+        project = add_logical_ir_document(project, LogicalIRDocument(
+            "Logical", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),), (),
+            (RequirementObligation("REQ-1", (), ("REQ-1",)),), (), (),
+        ))
+        self.repository.save(project)
+
+        result = self.queries.logical_review("logical")
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        review = project.current(ArtifactKind.LOGICAL_REVIEW)
+        self.assertEqual(logical.artifact_id, result["logical_ir_artifact_id"])
+        self.assertEqual(review.content_hash, result["logical_review_content_hash"])
+        self.assertTrue(result["logical_review"]["blocks_compilation"])
+        self.assertEqual(1, len(result["logical_review"]["findings"]))
+        self.assertNotIn("content", result)
+        self.assertNotIn("logical_ir", result)
+
+        self.repository.save(replace_source(project, "changed"))
+        with self.assertRaisesRegex(ValueError, "no current logical IR review"):
+            self.queries.logical_review("logical")
+
+    def test_missing_logical_review_fails_closed(self):
+        self.repository.create("no-logical", "No logical", "source")
+        with self.assertRaisesRegex(ValueError, "no current logical IR review"):
+            self.queries.logical_review("no-logical")
 
     def test_trace_supports_full_and_exact_spec_queries(self):
         project = project_fixtures.ProjectModelTests().traceability_project()
