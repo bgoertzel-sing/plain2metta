@@ -15,6 +15,7 @@ from typing import Any, Iterable, Mapping
 
 class ArtifactKind(str, Enum):
     ORIGINAL_SPEC = "original-spec"
+    ELABORATION_LOG = "elaboration-log"
     ELABORATED_SPEC = "elaborated-spec"
     TEST_SPEC = "test-spec"
     LOGICAL_IR = "logical-ir"
@@ -129,6 +130,8 @@ def add_artifact(
 ) -> Project:
     if kind is ArtifactKind.ORIGINAL_SPEC:
         raise ValueError("use replace_source to version the original spec")
+    if kind is ArtifactKind.ELABORATION_LOG:
+        raise ValueError("use add_admitted_elaboration to enforce validation admission")
     if kind in (ArtifactKind.LOGICAL_IR, ArtifactKind.LOGICAL_REVIEW):
         raise ValueError("use add_logical_ir or add_logical_ir_document to enforce the review gate")
     if kind is ArtifactKind.COMPILER_OUTPUT:
@@ -140,6 +143,49 @@ def add_artifact(
     if kind is ArtifactKind.TRACEABILITY_REPORT:
         raise ValueError("use the phase-specific add_traceability_report transition API")
     return _add_derived_artifact(project, kind, content, upstream)
+
+
+def add_admitted_elaboration(project: Project, request: object, response: object, admission: object) -> Project:
+    """Atomically construct the admitted Phase 2 interaction and both outputs."""
+    from .elaboration_protocol import (
+        elaboration_admission_to_dict,
+        elaboration_request_hash,
+        elaboration_request_to_dict,
+        elaboration_response_hash,
+        elaboration_response_to_dict,
+        validate_elaboration_admission,
+        validate_elaboration_request,
+        validate_elaboration_response,
+    )
+    import json
+
+    validate_elaboration_request(request)
+    validate_elaboration_response(response, request)
+    validate_elaboration_admission(admission)
+    source = project.current(ArtifactKind.ORIGINAL_SPEC)
+    if source is None or request.source != source.ref:
+        raise ValueError("elaboration requires the exact current original spec")
+    if admission.request_hash != elaboration_request_hash(request):
+        raise ValueError("admission does not bind to the exact request")
+    if admission.response_hash != elaboration_response_hash(response):
+        raise ValueError("admission does not bind to the exact response")
+    if not admission.admitted:
+        raise ValueError("elaboration response did not pass validation admission")
+    log_content = json.dumps({
+        "schema": "plain2metta-elaboration-log/v1",
+        "request": elaboration_request_to_dict(request),
+        "response": elaboration_response_to_dict(response),
+        "admission": elaboration_admission_to_dict(admission),
+    }, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    project = _add_derived_artifact(project, ArtifactKind.ELABORATION_LOG, log_content, (source.ref,))
+    log = project.current(ArtifactKind.ELABORATION_LOG)
+    project = _add_derived_artifact(
+        project, ArtifactKind.ELABORATED_SPEC, response.elaborated_spec, (source.ref, log.ref),
+    )
+    elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+    return _add_derived_artifact(
+        project, ArtifactKind.TEST_SPEC, response.test_spec, (elaborated.ref, log.ref),
+    )
 
 
 def _add_derived_artifact(
@@ -523,6 +569,54 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             raise ValueError("malformed project state: approved artifact lacks reviewer")
         if target.state is ArtifactState.INVALIDATED and approval.decision is not ApprovalDecision.INVALIDATED:
             raise ValueError("malformed project state: stale artifact has active approval")
+    elaboration_log = project.current(ArtifactKind.ELABORATION_LOG)
+    if elaboration_log is not None:
+        from .elaboration_protocol import (
+            elaboration_admission_from_dict,
+            elaboration_request_from_dict,
+            elaboration_response_from_dict,
+        )
+        import json
+        original = project.current(ArtifactKind.ORIGINAL_SPEC)
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        try:
+            payload = json.loads(elaboration_log.content)
+            if not isinstance(payload, dict) or set(payload) != {"schema", "request", "response", "admission"}:
+                raise ValueError("interaction log has unknown or missing fields")
+            if payload["schema"] != "plain2metta-elaboration-log/v1":
+                raise ValueError("unsupported interaction-log schema")
+            request = elaboration_request_from_dict(payload["request"])
+            response = elaboration_response_from_dict(payload["response"])
+            admission = elaboration_admission_from_dict(payload["admission"])
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"malformed project state: invalid elaboration log: {exc}") from exc
+        if (
+            original is None or elaborated is None or tests is None
+            or elaboration_log.upstream != (original.ref,)
+            or request.source != original.ref
+            or elaborated.upstream != (original.ref, elaboration_log.ref)
+            or tests.upstream != (elaborated.ref, elaboration_log.ref)
+            or response.elaborated_spec != elaborated.content
+            or response.test_spec != tests.content
+            or not admission.admitted
+        ):
+            raise ValueError("malformed project state: elaboration chain does not match admitted interaction")
+        try:
+            add_admitted_elaboration(
+                Project(project.project_id, project.name, (original,)), request, response, admission,
+            )
+        except ValueError as exc:
+            raise ValueError(f"malformed project state: forged elaboration admission: {exc}") from exc
+        from .elaboration_admission import validate_elaboration_outputs
+        elaborated_validation, test_validation = validate_elaboration_outputs(
+            response.elaborated_spec, response.test_spec, project.project_id,
+        )
+        if (
+            elaborated_validation != admission.elaborated_validation
+            or test_validation != admission.test_validation
+        ):
+            raise ValueError("malformed project state: elaboration validation evidence is forged")
     logical = project.current(ArtifactKind.LOGICAL_IR)
     if logical is not None:
         elaborated = project.current(ArtifactKind.ELABORATED_SPEC)

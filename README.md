@@ -162,6 +162,14 @@ and `:Concept:` marker remains in the elaborated spec and neither output has a
 validation failure or blocking question. This module does not invoke or retry a
 provider and does not persist returned content.
 
+`ElaborationAdmissionService` is the adapter-independent return seam. It runs
+the existing SpecAtom-HS validator over the combined elaborated-spec/test-spec
+review corpus, rejects failures, blocking questions, marker loss, stale source
+identity, or forged provenance, then commits the canonical interaction log and
+both derived artifacts with one atomic repository save. Deserialization
+re-runs validation and rejects rewritten diagnostics or interaction evidence.
+It does not invoke a provider.
+
 `ReadOnlyProjectApplication` is a server-independent WSGI adapter for that
 service. It exposes only `GET /api/projects`, `GET /api/projects/:id`,
 `GET /api/versions/:id`, and `GET /api/trace/:id` (with an optional single
