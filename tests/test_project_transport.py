@@ -8,7 +8,8 @@ from specatom_hs.project_commands import ProjectCommandService
 from specatom_hs.project_queries import ProjectQueryService
 from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.project_transport import ProjectCommandApplication, ReadOnlyProjectApplication
-from specatom_hs.projects import replace_source
+from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog, phase3_review_log_to_dict
+from specatom_hs.projects import ApprovalDecision, ArtifactKind, add_artifact, replace_source
 
 import tests.test_projects as project_fixtures
 
@@ -171,6 +172,48 @@ class ProjectCommandApplicationTests(unittest.TestCase):
             (elaborated.ref,),
             self.repository.get("demo").current(project_fixtures.ArtifactKind.TEST_SPEC).upstream,
         )
+
+    def phase3_project_and_payload(self):
+        self.repository.create("review-demo", "Review Demo", "source")
+        project = self.repository.get("review-demo")
+        source = project.current(ArtifactKind.ORIGINAL_SPEC)
+        project = add_artifact(project, ArtifactKind.ELABORATED_SPEC, "elaborated", (source.ref,))
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        project = add_artifact(project, ArtifactKind.TEST_SPEC, "tests", (elaborated.ref,))
+        self.repository.save(project)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        log = Phase3ReviewLog(elaborated.ref, tests.ref, (
+            Phase3Decision(elaborated.ref, ApprovalDecision.APPROVED, "alice", "2026-08-14T12:36:00Z", None, "Reviewed."),
+            Phase3Decision(tests.ref, ApprovalDecision.APPROVED, "bob", "2026-08-14T12:36:01Z", None, "Reviewed."),
+        ))
+        return project, phase3_review_log_to_dict(log)
+
+    def test_submit_exact_phase3_review_route_persists_log_and_snapshots(self):
+        _, payload = self.phase3_project_and_payload()
+        response = self.request("/api/review/review-demo", payload)
+        self.assertEqual("200 OK", response["status"])
+        self.assertEqual("submit_phase3_review", response["body"]["command"])
+        updated = self.repository.get("review-demo")
+        log = updated.current(ArtifactKind.REVIEW_LOG)
+        self.assertEqual(log.artifact_id, response["body"]["review_log_artifact_id"])
+        self.assertEqual(log.content_hash, response["body"]["review_log_content_hash"])
+        self.assertIsNotNone(updated.current(ArtifactKind.REVIEWED_ELABORATED_SPEC))
+        self.assertIsNotNone(updated.current(ArtifactKind.REVIEWED_TEST_SPEC))
+
+    def test_phase3_review_route_rejects_stale_expanded_and_alternate_requests_without_write(self):
+        project, payload = self.phase3_project_and_payload()
+        cases = []
+        expanded = dict(payload)
+        expanded["authority"] = "forged"
+        cases.append(("/api/review/review-demo", expanded))
+        stale = json.loads(json.dumps(payload))
+        stale["inputs"]["elaborated_spec"]["content_hash"] = "sha256:" + "0" * 64
+        cases.append(("/api/review/review-demo", stale))
+        cases.append(("/api/review/%72eview-demo", payload))
+        for path, body in cases:
+            with self.subTest(path=path, body=body):
+                self.assertEqual("400 Bad Request", self.request(path, body)["status"])
+                self.assertEqual(project, self.repository.get("review-demo"))
 
     def test_spec_submission_transport_rejects_forged_or_unknown_payloads_without_write(self):
         self.request("/api/projects", {"project_id": "demo", "name": "Demo", "source": "source"})

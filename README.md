@@ -223,9 +223,12 @@ provider capabilities; an external deployment may mount it deliberately.
 `ProjectCommandApplication` is the separate POST-only WSGI adapter for the
 command service. It accepts exact `application/json` bodies with an explicit
 canonical `Content-Length` of at most 1 MiB, rejects duplicate/unknown fields,
-and exposes only project creation, exact-upstream spec submission, and exact
-artifact-bound annotation and decision routes. It starts no listener and has
-no generic artifact mutation, compile, provider, or execution route.
+and exposes only project creation, exact-upstream spec submission, exact
+artifact-bound annotation and decision routes, and the strict exact-version
+Phase 3 transaction at `POST /api/review/<canonical-project-id>`. The review
+route accepts the canonical `plain2metta-phase3-review-log/v1` shape and returns
+the persisted review-log artifact identity. It starts no listener and has no
+generic artifact mutation, compile, provider, or execution route.
 
 ```python
 from specatom_hs.project_repository import FilesystemProjectRepository

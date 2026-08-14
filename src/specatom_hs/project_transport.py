@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, unquote
 
 from .project_queries import ProjectQueryService
 from .project_commands import ProjectCommandService
+from .phase3_review import phase3_review_log_from_dict
 from .projects import ArtifactKind
 
 
@@ -125,6 +126,24 @@ class ProjectCommandApplication:
             self._exact_keys(payload, {"project_id", "name", "source"})
             project = self._commands.create_project(payload["project_id"], payload["name"], payload["source"])
             return {"command": "create_project", "project_id": project.project_id}
+
+        review_parts = raw_path.split("/")
+        if len(review_parts) == 4 and review_parts[:3] == ["", "api", "review"]:
+            encoded_project_id = review_parts[3]
+            if not encoded_project_id:
+                raise KeyError("unknown route")
+            project_id = unquote(encoded_project_id, errors="strict")
+            if "/" in project_id or project_id != encoded_project_id:
+                raise ValueError("project_id path segment must use canonical unescaped ASCII")
+            review_log = phase3_review_log_from_dict(payload)
+            project = self._commands.submit_phase3_review(project_id, review_log)
+            artifact = project.current(ArtifactKind.REVIEW_LOG)
+            return {
+                "command": "submit_phase3_review",
+                "project_id": project.project_id,
+                "review_log_artifact_id": artifact.artifact_id,
+                "review_log_content_hash": artifact.content_hash,
+            }
 
         parts = raw_path.split("/")
         if len(parts) != 5 or parts[:2] != ["", "api"] or parts[2] != "projects":
