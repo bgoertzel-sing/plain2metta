@@ -100,8 +100,9 @@ class ReadOnlyProjectApplication:
 class ProjectCommandApplication:
     """Expose only bounded JSON author/review commands without starting a server."""
 
-    def __init__(self, commands: ProjectCommandService):
+    def __init__(self, commands: ProjectCommandService, logical_ir=None):
         self._commands = commands
+        self._logical_ir = logical_ir
 
     def __call__(self, environ: dict[str, Any], start_response: StartResponse) -> Iterable[bytes]:
         if environ.get("REQUEST_METHOD") != "POST":
@@ -113,6 +114,8 @@ class ProjectCommandApplication:
             return self._respond(start_response, 409, {"error": "conflict"})
         except FileNotFoundError:
             return self._respond(start_response, 404, {"error": "not_found"})
+        except (TimeoutError, ConnectionError) as exc:
+            return self._respond(start_response, 502, {"error": "backend_failure", "detail": str(exc)})
         except (KeyError, ValueError, TypeError, json.JSONDecodeError) as exc:
             return self._respond(start_response, 400, {"error": "invalid_request", "detail": str(exc)})
         return self._respond(start_response, 201 if result["command"] == "create_project" else 200, result)
@@ -129,6 +132,37 @@ class ProjectCommandApplication:
             self._exact_keys(payload, {"project_id", "name", "source"})
             project = self._commands.create_project(payload["project_id"], payload["name"], payload["source"])
             return {"command": "create_project", "project_id": project.project_id}
+
+        logical_parts = raw_path.split("/")
+        if len(logical_parts) == 4 and logical_parts[:3] == ["", "api", "logical-ir"]:
+            encoded_project_id = logical_parts[3]
+            if not encoded_project_id:
+                raise KeyError("unknown route")
+            project_id = unquote(encoded_project_id, errors="strict")
+            if "/" in project_id or project_id != encoded_project_id:
+                raise ValueError("project_id path segment must use canonical unescaped ASCII")
+            if self._logical_ir is None:
+                raise KeyError("logical IR generation is not configured")
+            self._exact_keys(payload, set(), {"guidance"})
+            guidance = payload.get("guidance", "")
+            if not isinstance(guidance, str):
+                raise ValueError("guidance must be text")
+            project = self._logical_ir.generate_once(project_id, guidance)
+            interaction = project.current(ArtifactKind.LOGICAL_IR_LOG)
+            logical = project.current(ArtifactKind.LOGICAL_IR)
+            review = project.current(ArtifactKind.LOGICAL_REVIEW)
+            if interaction is None or logical is None or review is None:
+                raise ValueError("logical IR admission did not produce the required artifact set")
+            return {
+                "command": "generate_logical_ir",
+                "project_id": project.project_id,
+                "interaction_log_artifact_id": interaction.artifact_id,
+                "interaction_log_content_hash": interaction.content_hash,
+                "logical_ir_artifact_id": logical.artifact_id,
+                "logical_ir_content_hash": logical.content_hash,
+                "logical_review_artifact_id": review.artifact_id,
+                "logical_review_content_hash": review.content_hash,
+            }
 
         review_parts = raw_path.split("/")
         if len(review_parts) == 4 and review_parts[:3] == ["", "api", "review"]:
@@ -237,7 +271,7 @@ class ProjectCommandApplication:
     ) -> tuple[bytes]:
         body = (json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
         reason = {200: "OK", 201: "Created", 400: "Bad Request", 404: "Not Found",
-                  405: "Method Not Allowed", 409: "Conflict"}[status]
+                  405: "Method Not Allowed", 409: "Conflict", 502: "Bad Gateway"}[status]
         headers = [("Content-Type", "application/json; charset=utf-8"), ("Content-Length", str(len(body)))]
         headers.extend(extra_headers)
         start_response(f"{status} {reason}", headers)

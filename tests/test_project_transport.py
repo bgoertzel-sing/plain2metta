@@ -9,6 +9,10 @@ from specatom_hs.project_queries import ProjectQueryService
 from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.project_transport import ProjectCommandApplication, ReadOnlyProjectApplication
 from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog, phase3_review_log_to_dict
+from specatom_hs.elaboration_protocol import ProviderProvenance
+from specatom_hs.logical_ir import LogicalIRDocument, TypeDeclaration, logical_ir_to_dict
+from specatom_hs.logical_ir_backend import LogicalIRBackendConfig, LogicalIRCoordinator
+from specatom_hs.logical_ir_prompt import ProviderCompletion, RESPONSE_SCHEMA
 from specatom_hs.projects import (
     ApprovalDecision, ArtifactKind, add_artifact, replace_source, submit_phase3_review,
 )
@@ -208,6 +212,69 @@ class ProjectCommandApplicationTests(unittest.TestCase):
             Phase3Decision(tests.ref, ApprovalDecision.APPROVED, "bob", "2026-08-14T12:36:01Z", None, "Reviewed."),
         ))
         return project, phase3_review_log_to_dict(log)
+
+    def logical_ir_app(self, *, failure=None):
+        project, payload = self.phase3_project_and_payload()
+        self.assertEqual("200 OK", self.request("/api/review/review-demo", payload)["status"])
+        document = LogicalIRDocument(
+            "review_demo", (TypeDeclaration("type.Value", "Value", ("R-1",)),), (), (), (), (),
+        )
+
+        class Backend:
+            calls = 0
+
+            def generate_logical_ir(inner_self, prompt, config):
+                inner_self.calls += 1
+                if failure is not None:
+                    raise failure
+                text = json.dumps({"schema": RESPONSE_SCHEMA, "logical_ir": logical_ir_to_dict(document)})
+                return ProviderCompletion(text, ProviderProvenance(
+                    "fake", "model-a", "interaction-transport", 12, 24,
+                    "2026-08-14T13:50:00Z",
+                ))
+
+        backend = Backend()
+        coordinator = LogicalIRCoordinator(
+            self.repository, backend, LogicalIRBackendConfig("fake", "model-a", 0.0, 4096),
+        )
+        return ProjectCommandApplication(ProjectCommandService(self.repository), coordinator), backend, project
+
+    def test_generate_logical_ir_exact_route_persists_atomic_artifact_set(self):
+        self.app, backend, _ = self.logical_ir_app()
+        response = self.request("/api/logical-ir/review-demo", {"guidance": "Stay literal."})
+        self.assertEqual("200 OK", response["status"])
+        self.assertEqual("generate_logical_ir", response["body"]["command"])
+        self.assertEqual(1, backend.calls)
+        updated = self.repository.get("review-demo")
+        for kind, prefix in (
+            (ArtifactKind.LOGICAL_IR_LOG, "interaction_log"),
+            (ArtifactKind.LOGICAL_IR, "logical_ir"),
+            (ArtifactKind.LOGICAL_REVIEW, "logical_review"),
+        ):
+            artifact = updated.current(kind)
+            self.assertEqual(artifact.artifact_id, response["body"][f"{prefix}_artifact_id"])
+            self.assertEqual(artifact.content_hash, response["body"][f"{prefix}_content_hash"])
+
+    def test_logical_ir_route_rejects_malformed_alternate_and_unconfigured_requests(self):
+        self.app, backend, before = self.logical_ir_app()
+        for path, payload in (
+            ("/api/logical-ir/%72eview-demo", {}),
+            ("/api/logical-ir/review-demo", {"guidance": 7}),
+            ("/api/logical-ir/review-demo", {"guidance": "x", "retry": True}),
+        ):
+            with self.subTest(path=path, payload=payload):
+                self.assertEqual("400 Bad Request", self.request(path, payload)["status"])
+        self.assertEqual(0, backend.calls)
+        self.assertIsNone(self.repository.get("review-demo").current(ArtifactKind.LOGICAL_IR))
+        self.app = ProjectCommandApplication(ProjectCommandService(self.repository))
+        self.assertEqual("400 Bad Request", self.request("/api/logical-ir/review-demo", {})["status"])
+
+    def test_logical_ir_backend_failure_returns_bad_gateway_without_write_or_retry(self):
+        self.app, backend, _ = self.logical_ir_app(failure=TimeoutError("timed out"))
+        response = self.request("/api/logical-ir/review-demo", {})
+        self.assertEqual("502 Bad Gateway", response["status"])
+        self.assertEqual(1, backend.calls)
+        self.assertIsNone(self.repository.get("review-demo").current(ArtifactKind.LOGICAL_IR))
 
     def test_submit_exact_phase3_review_route_persists_log_and_snapshots(self):
         _, payload = self.phase3_project_and_payload()

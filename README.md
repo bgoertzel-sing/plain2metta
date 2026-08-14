@@ -242,6 +242,15 @@ route accepts the canonical `plain2metta-phase3-review-log/v1` shape and returns
 the persisted review-log artifact identity. It starts no listener and has no
 generic artifact mutation, compile, provider, or execution route.
 
+When constructed with an explicitly configured `LogicalIRCoordinator`, the
+same POST-only adapter also exposes exact
+`POST /api/logical-ir/<canonical-project-id>`. Its body is either `{}` or a
+strict object containing only text `guidance`. The route makes the
+coordinator's single configured backend call and returns only the identities
+and hashes of the atomically admitted interaction log, logical IR, and logical
+review. It adds no backend selection, retry, credential, or generic mutation
+policy; without a coordinator the route fails closed.
+
 ```python
 from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.project_queries import ProjectQueryService
