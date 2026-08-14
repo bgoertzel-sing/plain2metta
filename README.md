@@ -192,6 +192,13 @@ routes the exact parsed response through `ElaborationAdmissionService`. It has
 no retry, fallback, provider selection, credential, or partial-persistence
 policy.
 
+`build_phase3_review_diff` produces a deterministic, read-only Phase 3 review
+report. It binds the exact current original, elaborated, and test-spec artifact
+IDs and hashes, includes an original-to-elaborated unified diff and a full
+test-spec addition view, and can be strictly serialized. Validation recomputes
+the report from current project state, so stale or edited review material fails
+closed. It has no approval or mutation capability.
+
 `ReadOnlyProjectApplication` is a server-independent WSGI adapter for that
 service. It exposes only `GET /api/projects`, `GET /api/projects/:id`,
 `GET /api/versions/:id`, and `GET /api/trace/:id` (with an optional single
