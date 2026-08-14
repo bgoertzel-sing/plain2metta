@@ -12,11 +12,13 @@ This repository currently contains two layers:
 - `plain_to_metta`: the earlier stdlib MVP compiler used by the project notebook examples.
 - `specatom_hs`: the minimal scaffold recommended by the SpecAtom-HS source summary, with small modules for schema, source indexing, pass registry, validation records, and conservative PeTTa backend gates.
 
-The first Plain2MeTTa v2 seam is `specatom_hs.projects`: immutable project and
+The Plain2MeTTa v2 seams are `specatom_hs.projects` and
+`specatom_hs.logical_ir`: immutable project and
 artifact versions, SHA-256 content provenance, approvals bound to exact
 artifact versions, transitive invalidation after an upstream change, and a
-strict versioned dictionary representation. It does not yet perform
-elaboration, logical-IR generation, or executable compilation.
+strict versioned dictionary representation, plus a non-executable logical-IR
+schema and hash-bound machine-readable review findings. It does not yet perform
+LLM elaboration, executable compilation, or execution.
 
 ## What is intentionally supported
 
@@ -95,6 +97,15 @@ logical IR. Generic `add_artifact` calls cannot bypass this gate.
 Use `project_to_dict` and `project_from_dict` for the versioned JSON-ready
 boundary. Deserialization recomputes content hashes and rejects malformed or
 forged provenance and approval bindings.
+
+`add_logical_ir_document(project, document)` is the structured Phase 4 seam.
+It accepts only typed declarations, contracts, obligations, dependencies,
+provenance, and explicit operational holes; no executable-body field exists.
+It atomically adds canonical logical-IR content and a hash-bound logical-review
+artifact. `review_logical_ir` reports source-linked critical missing-definition,
+uncovered-requirement, and unmarked-operational-gap findings. Critical open or
+deferred findings set the derived `blocks_compilation` flag; repair and waiver
+decisions require reviewer identity and rationale.
 
 For local persistence, `FilesystemProjectRepository` exposes only create, get,
 save, and list-status operations. Project IDs are storage-safe lowercase slugs;

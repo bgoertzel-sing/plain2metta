@@ -7,12 +7,16 @@ from specatom_hs.projects import (
     ArtifactState,
     add_artifact,
     add_logical_ir,
+    add_logical_ir_document,
     annotate,
     create_project,
     decide,
     project_from_dict,
     project_to_dict,
     replace_source,
+)
+from specatom_hs.logical_ir import (
+    Contract, LogicalIRDocument, OperationalHole, RequirementObligation, TypeDeclaration,
 )
 
 
@@ -117,6 +121,47 @@ class ProjectModelTests(unittest.TestCase):
         elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
         with self.assertRaisesRegex(ValueError, "add_logical_ir"):
             add_artifact(project, ArtifactKind.LOGICAL_IR, "logical", [elaborated.ref])
+
+    def test_structured_logical_ir_persists_hash_bound_review(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
+        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        document = LogicalIRDocument(
+            "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),),
+            (Contract("contract.work", "work", ("Value",), "Value", (), (), (), ("REQ-1",), True),),
+            (RequirementObligation("REQ-1", ("TEST-1",), ("REQ-1",)),), (),
+            (OperationalHole("hole.work", "contract.work", "Value", "grounding required", ("REQ-1",)),),
+        )
+        project = add_logical_ir_document(project, document)
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        review = project.current(ArtifactKind.LOGICAL_REVIEW)
+        self.assertEqual((logical.ref,), review.upstream)
+        self.assertEqual(project, project_from_dict(project_to_dict(project)))
+
+    def test_deserialization_rejects_logical_review_bound_to_forged_hash(self):
+        project = self.populated()
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
+        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        document = LogicalIRDocument(
+            "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),), (), (), (), (),
+        )
+        payload = project_to_dict(add_logical_ir_document(project, document))
+        review = next(item for item in payload["artifacts"] if item["kind"] == "logical-review")
+        import json
+        review_payload = json.loads(review["content"])
+        review_payload["logical_ir_hash"] = "sha256:" + "0" * 64
+        review["content"] = json.dumps(review_payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        from specatom_hs.projects import content_sha256
+        review["content_hash"] = content_sha256(review["content"])
+        # Its content-derived ID also changes; this leaves a structurally plausible forgery.
+        from specatom_hs.projects import _artifact_id
+        review["artifact_id"] = _artifact_id("demo", ArtifactKind.LOGICAL_REVIEW, review["version"], review["content_hash"])
+        with self.assertRaisesRegex(ValueError, "logical review hash mismatch"):
+            project_from_dict(payload)
 
     def test_revoking_input_approval_invalidates_logical_ir(self):
         project = self.populated()

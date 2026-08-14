@@ -18,6 +18,7 @@ class ArtifactKind(str, Enum):
     ELABORATED_SPEC = "elaborated-spec"
     TEST_SPEC = "test-spec"
     LOGICAL_IR = "logical-ir"
+    LOGICAL_REVIEW = "logical-review"
 
 
 class ArtifactState(str, Enum):
@@ -124,8 +125,8 @@ def add_artifact(
 ) -> Project:
     if kind is ArtifactKind.ORIGINAL_SPEC:
         raise ValueError("use replace_source to version the original spec")
-    if kind is ArtifactKind.LOGICAL_IR:
-        raise ValueError("use add_logical_ir to enforce the review gate")
+    if kind in (ArtifactKind.LOGICAL_IR, ArtifactKind.LOGICAL_REVIEW):
+        raise ValueError("use add_logical_ir or add_logical_ir_document to enforce the review gate")
     return _add_derived_artifact(project, kind, content, upstream)
 
 
@@ -167,6 +168,20 @@ def add_logical_ir(project: Project, content: str) -> Project:
     if not _is_approved(project, elaborated) or not _is_approved(project, tests):
         raise ValueError("logical IR requires explicit approval of exact current elaborated spec and test spec")
     return _add_derived_artifact(project, ArtifactKind.LOGICAL_IR, content, (elaborated.ref, tests.ref))
+
+
+def add_logical_ir_document(project: Project, document: object) -> Project:
+    """Persist a canonical non-executable IR and its initial hash-bound review."""
+    from .logical_ir import canonical_logical_ir, logical_review_to_dict, review_logical_ir
+    import json
+
+    project = add_logical_ir(project, canonical_logical_ir(document))
+    logical = project.current(ArtifactKind.LOGICAL_IR)
+    report = review_logical_ir(document)
+    if report.logical_ir_hash != logical.content_hash:
+        raise ValueError("logical review hash does not bind to the persisted logical IR")
+    content = json.dumps(logical_review_to_dict(report), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return _add_derived_artifact(project, ArtifactKind.LOGICAL_REVIEW, content, (logical.ref,))
 
 
 def decide(
@@ -352,6 +367,18 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             raise ValueError("malformed project state: logical IR has invalid reviewed inputs")
         if not _is_approved(project, elaborated) or not _is_approved(project, tests):
             raise ValueError("malformed project state: logical IR lacks exact input approvals")
+    logical_review = project.current(ArtifactKind.LOGICAL_REVIEW)
+    if logical_review is not None:
+        from .logical_ir import logical_review_from_dict
+        import json
+        if logical is None or logical_review.upstream != (logical.ref,):
+            raise ValueError("malformed project state: logical review has invalid logical-IR input")
+        try:
+            report = logical_review_from_dict(json.loads(logical_review.content))
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"malformed project state: invalid logical review: {exc}") from exc
+        if report.logical_ir_hash != logical.content_hash:
+            raise ValueError("malformed project state: logical review hash mismatch")
     for annotation in annotations:
         target = project.artifact(annotation.artifact.artifact_id)
         if target.content_hash != annotation.artifact.content_hash:
