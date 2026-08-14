@@ -8,6 +8,7 @@ from specatom_hs.project_commands import ProjectCommandService
 from specatom_hs.project_queries import ProjectQueryService
 from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.project_transport import ProjectCommandApplication, ReadOnlyProjectApplication
+from specatom_hs.projects import replace_source
 
 import tests.test_projects as project_fixtures
 
@@ -16,6 +17,7 @@ class ReadOnlyProjectApplicationTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
         repository = FilesystemProjectRepository(Path(self.temporary.name) / "projects")
+        self.repository = repository
         project = project_fixtures.ProjectModelTests().traceability_project()
         repository.create("demo", "Demo", "placeholder")
         repository.save(project_fixtures.add_traceability_report(project))
@@ -54,6 +56,13 @@ class ReadOnlyProjectApplicationTests(unittest.TestCase):
         spec_id = trace["entries"][0]["spec_id"]
         filtered = self.request("/api/trace/demo", f"spec_id={spec_id}")["body"]
         self.assertEqual([spec_id], [entry["spec_id"] for entry in filtered["entries"]])
+        review = self.request("/api/review/demo")["body"]
+        self.assertEqual("plain2metta-phase3-review-diff/v1", review["schema"])
+        self.assertEqual(
+            ["elaborated_spec", "original_spec", "test_spec"],
+            sorted(review["inputs"]),
+        )
+        self.assertTrue(all("content" not in item for item in review["inputs"].values()))
 
     def test_transport_has_no_mutation_or_server_capability(self):
         self.assertFalse(hasattr(self.app, "run"))
@@ -61,8 +70,17 @@ class ReadOnlyProjectApplicationTests(unittest.TestCase):
         self.assertEqual("405 Method Not Allowed", response["status"])
         self.assertEqual("GET", response["headers"]["Allow"])
 
+    def test_review_route_recomputes_and_rejects_stale_artifact_chain(self):
+        before = self.request("/api/review/demo")
+        self.assertEqual("200 OK", before["status"])
+        self.repository.save(replace_source(self.repository.get("demo"), "changed\n"))
+        stale = self.request("/api/review/demo")
+        self.assertEqual("400 Bad Request", stale["status"])
+        self.assertEqual("invalid_request", stale["body"]["error"])
+
     def test_unknown_routes_projects_and_spec_ids_are_not_found(self):
-        for path, query in (("/api/unknown/demo", ""), ("/api/projects/missing", ""), ("/api/trace/demo", "spec_id=missing")):
+        for path, query in (("/api/unknown/demo", ""), ("/api/projects/missing", ""),
+                            ("/api/review/missing", ""), ("/api/trace/demo", "spec_id=missing")):
             with self.subTest(path=path, query=query):
                 response = self.request(path, query)
                 self.assertEqual("404 Not Found", response["status"])
@@ -74,6 +92,8 @@ class ReadOnlyProjectApplicationTests(unittest.TestCase):
             ("/api/projects/%2e%2e%2fescape", ""),
             ("/api/projects/demo/extra", ""),
             ("/api/projects", "unexpected=1"),
+            ("/api/review/demo", "unexpected=1"),
+            ("/api/review/demo", "broken"),
             ("/api/trace/demo", "spec_id="),
             ("/api/trace/demo", "spec_id=REQ-1&spec_id=REQ-2"),
             ("/api/trace/demo", "broken"),

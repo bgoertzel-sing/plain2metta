@@ -147,6 +147,11 @@ recomputes the exact-version review diff without returning raw artifact bodies.
 It has no rollback, mutation,
 provider, network, or execution capability.
 
+`ReadOnlyProjectApplication` maps that boundary to exact GET routes without
+starting a listener. The Phase 3 report is available at
+`/api/review/<canonical-project-id>` with no query parameters; malformed or
+alternate identities and stale artifact chains fail closed.
+
 `ProjectCommandService` is the framework-neutral write boundary for the first
 author/review operations. It exposes only persisted project creation, exact
 hash-bound annotations, declared approval decisions, and optimistic
