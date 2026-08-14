@@ -1,0 +1,7 @@
+{
+  "schema": "plain2metta-gold-disposition/v1",
+  "admission": "reject",
+  "retained_blocking_questions": [
+    "name the model family and baseline comparator before executable compilation"
+  ]
+}
