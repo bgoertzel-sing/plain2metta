@@ -106,10 +106,11 @@ class ReadOnlyProjectApplication:
 class ProjectCommandApplication:
     """Expose only bounded JSON author/review commands without starting a server."""
 
-    def __init__(self, commands: ProjectCommandService, logical_ir=None, compilation=None):
+    def __init__(self, commands: ProjectCommandService, logical_ir=None, compilation=None, sandbox=None):
         self._commands = commands
         self._logical_ir = logical_ir
         self._compilation = compilation
+        self._sandbox = sandbox
 
     def __call__(self, environ: dict[str, Any], start_response: StartResponse) -> Iterable[bytes]:
         if environ.get("REQUEST_METHOD") != "POST":
@@ -139,6 +140,28 @@ class ProjectCommandApplication:
             self._exact_keys(payload, {"project_id", "name", "source"})
             project = self._commands.create_project(payload["project_id"], payload["name"], payload["source"])
             return {"command": "create_project", "project_id": project.project_id}
+
+        test_parts = raw_path.split("/")
+        if len(test_parts) == 4 and test_parts[:3] == ["", "api", "test"]:
+            encoded_project_id = test_parts[3]
+            if not encoded_project_id:
+                raise KeyError("unknown route")
+            project_id = unquote(encoded_project_id, errors="strict")
+            if "/" in project_id or project_id != encoded_project_id:
+                raise ValueError("project_id path segment must use canonical unescaped ASCII")
+            if self._sandbox is None:
+                raise KeyError("sandbox execution is not configured")
+            self._exact_keys(payload, set())
+            project = self._sandbox.execute_once(project_id)
+            result = project.current(ArtifactKind.TEST_RESULT)
+            if result is None:
+                raise ValueError("sandbox admission did not produce a test result")
+            return {
+                "command": "test_project",
+                "project_id": project.project_id,
+                "test_result_artifact_id": result.artifact_id,
+                "test_result_content_hash": result.content_hash,
+            }
 
         compilation_parts = raw_path.split("/")
         if len(compilation_parts) == 4 and compilation_parts[:3] == ["", "api", "compile"]:

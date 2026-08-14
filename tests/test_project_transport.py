@@ -16,6 +16,11 @@ from specatom_hs.compilation_prompt import (
     RESPONSE_SCHEMA as COMPILATION_RESPONSE_SCHEMA,
 )
 from specatom_hs.compiler_output import CompilerOutputBundle, GeneratedFile, compiler_output_to_dict
+from specatom_hs.sandbox_backend import SandboxAdapterConfig, SandboxCoordinator
+from specatom_hs.sandbox_handoff import SandboxHandoff, SandboxLimits
+from specatom_hs.sandbox_protocol import (
+    SandboxTestResult, TestCaseResult, sandbox_request_hash, test_result_to_dict,
+)
 from specatom_hs.logical_ir import (
     Contract, FindingDisposition, LogicalIRDocument, OperationalHole, RequirementObligation,
     TypeDeclaration, logical_ir_to_dict,
@@ -23,7 +28,7 @@ from specatom_hs.logical_ir import (
 from specatom_hs.logical_ir_backend import LogicalIRBackendConfig, LogicalIRCoordinator
 from specatom_hs.logical_ir_prompt import ProviderCompletion, RESPONSE_SCHEMA
 from specatom_hs.projects import (
-    ApprovalDecision, ArtifactKind, add_artifact, add_logical_ir_document, decide,
+    ApprovalDecision, ArtifactKind, add_artifact, add_logical_ir_document, add_sandbox_handoff, decide,
     replace_source, submit_phase3_review,
 )
 
@@ -439,6 +444,73 @@ class ProjectCommandApplicationTests(unittest.TestCase):
         response = self.request("/api/compile/review-demo", {"guidance": "Stay literal."})
         self.assertEqual("502 Bad Gateway", response["status"])
         self.assertEqual(1, backend.calls)
+        self.assertEqual(before, self.repository.get("review-demo"))
+
+    def sandbox_app(self, *, failure=None):
+        self.app, _, _ = self.compilation_app()
+        self.assertEqual("200 OK", self.request(
+            "/api/compile/review-demo", {"guidance": "Stay literal."},
+        )["status"])
+        project = self.repository.get("review-demo")
+        output = project.current(ArtifactKind.COMPILER_OUTPUT)
+        project = decide(project, output.ref, ApprovalDecision.APPROVED, "ben")
+        handoff = SandboxHandoff(
+            "sha256:" + "a" * 64, ("python", "-m", "pytest"),
+            ("review_demo.metta", "tests/test_review_demo.py"), SandboxLimits(10, 256, 30),
+        )
+        project = add_sandbox_handoff(project, handoff)
+        self.repository.save(project)
+
+        class Adapter:
+            calls = 0
+
+            def execute(inner_self, request, config):
+                inner_self.calls += 1
+                if failure is not None:
+                    raise failure
+                return test_result_to_dict(SandboxTestResult(
+                    sandbox_request_hash(handoff), config.adapter,
+                    (TestCaseResult("T-1", "passed", 12, covered_spec_ids=("R-1",)),),
+                ))
+
+        adapter = Adapter()
+        coordinator = SandboxCoordinator(
+            self.repository, adapter, SandboxAdapterConfig("isolated:v1"),
+        )
+        app = ProjectCommandApplication(
+            ProjectCommandService(self.repository), sandbox=coordinator,
+        )
+        return app, adapter, project
+
+    def test_test_exact_opt_in_route_persists_atomic_result(self):
+        self.app, adapter, _ = self.sandbox_app()
+        response = self.request("/api/test/review-demo", {})
+        self.assertEqual("200 OK", response["status"])
+        self.assertEqual("test_project", response["body"]["command"])
+        self.assertEqual(1, adapter.calls)
+        result = self.repository.get("review-demo").current(ArtifactKind.TEST_RESULT)
+        self.assertEqual(result.artifact_id, response["body"]["test_result_artifact_id"])
+        self.assertEqual(result.content_hash, response["body"]["test_result_content_hash"])
+
+    def test_test_route_rejects_malformed_alternate_and_unconfigured_requests(self):
+        self.app, adapter, before = self.sandbox_app()
+        for path, payload in (
+            ("/api/test/%72eview-demo", {}),
+            ("/api/test/review-demo", {"retry": True}),
+            ("/api/test/review-demo", {"guidance": "run"}),
+        ):
+            with self.subTest(path=path, payload=payload):
+                self.assertEqual("400 Bad Request", self.request(path, payload)["status"])
+        self.assertEqual(0, adapter.calls)
+        self.assertEqual(before, self.repository.get("review-demo"))
+        self.app = ProjectCommandApplication(ProjectCommandService(self.repository))
+        self.assertEqual("400 Bad Request", self.request("/api/test/review-demo", {})["status"])
+
+    def test_test_backend_failure_returns_bad_gateway_without_write_or_retry(self):
+        self.app, adapter, before = self.sandbox_app(failure=TimeoutError("timed out"))
+        response = self.request("/api/test/review-demo", {})
+        self.assertEqual("502 Bad Gateway", response["status"])
+        self.assertEqual(1, adapter.calls)
         self.assertEqual(before, self.repository.get("review-demo"))
 
     def test_submit_exact_phase3_review_route_persists_log_and_snapshots(self):

@@ -158,6 +158,13 @@ then rechecks the exact current handoff before atomically saving the test
 result. It supplies no built-in host executor, retry, network, secret,
 generated-file publication, or adapter-selection capability.
 
+`ProjectCommandApplication` exposes sandbox execution only when that
+coordinator is explicitly supplied, at exact
+`POST /api/test/<canonical-project-id>`. The body must be exactly an empty JSON
+object. Alternate identities, query parameters, expanded schemas, missing
+configuration, and backend failures fail without partial writes or retries;
+success returns only the admitted test-result artifact identity and hash.
+
 `add_traceability_report(project)` is the pure Phase 7 reporting transition.
 It joins the exact original/elaborated/test/logical/output/handoff/result chain
 to compiler-declared code locations and sandbox-returned test coverage. Each
