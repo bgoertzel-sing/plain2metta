@@ -10,14 +10,21 @@ from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.project_transport import ProjectCommandApplication, ReadOnlyProjectApplication
 from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog, phase3_review_log_to_dict
 from specatom_hs.elaboration_protocol import ProviderProvenance
+from specatom_hs.compilation_backend import CompilationBackendConfig, CompilationCoordinator
+from specatom_hs.compilation_prompt import (
+    ProviderCompletion as CompilationProviderCompletion,
+    RESPONSE_SCHEMA as COMPILATION_RESPONSE_SCHEMA,
+)
+from specatom_hs.compiler_output import CompilerOutputBundle, GeneratedFile, compiler_output_to_dict
 from specatom_hs.logical_ir import (
-    Contract, FindingDisposition, LogicalIRDocument, RequirementObligation,
+    Contract, FindingDisposition, LogicalIRDocument, OperationalHole, RequirementObligation,
     TypeDeclaration, logical_ir_to_dict,
 )
 from specatom_hs.logical_ir_backend import LogicalIRBackendConfig, LogicalIRCoordinator
 from specatom_hs.logical_ir_prompt import ProviderCompletion, RESPONSE_SCHEMA
 from specatom_hs.projects import (
-    ApprovalDecision, ArtifactKind, add_artifact, replace_source, submit_phase3_review,
+    ApprovalDecision, ArtifactKind, add_artifact, add_logical_ir_document, decide,
+    replace_source, submit_phase3_review,
 )
 
 import tests.test_projects as project_fixtures
@@ -334,6 +341,89 @@ class ProjectCommandApplicationTests(unittest.TestCase):
         self.assertEqual("502 Bad Gateway", response["status"])
         self.assertEqual(1, backend.calls)
         self.assertIsNone(self.repository.get("review-demo").current(ArtifactKind.LOGICAL_IR))
+
+    def compilation_app(self, *, failure=None):
+        project, payload = self.phase3_project_and_payload()
+        self.assertEqual("200 OK", self.request("/api/review/review-demo", payload)["status"])
+        document = LogicalIRDocument(
+            "review_demo", (TypeDeclaration("type.Value", "Value", ("R-1",)),),
+            (Contract("contract.work", "work", ("Value",), "Value", (), (), (), ("R-1",), True),),
+            (RequirementObligation("R-1", ("T-1",), ("R-1",)),), (),
+            (OperationalHole(
+                "hole.work", "contract.work", "Value", "grounding required", ("R-1",),
+            ),),
+        )
+        project = add_logical_ir_document(self.repository.get("review-demo"), document)
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        project = decide(project, logical.ref, ApprovalDecision.APPROVED, "ben")
+        self.repository.save(project)
+        bundle = CompilerOutputBundle((
+            GeneratedFile("review_demo.metta", "; [id:R-1]\n", ("R-1",)),
+            GeneratedFile("tests/test_review_demo.py", "# [covers:R-1]\n", ("R-1",), ("T-1",)),
+        ), "fake:model-a", "Stay literal.")
+
+        class Backend:
+            calls = 0
+
+            def compile(inner_self, prompt, config):
+                inner_self.calls += 1
+                if failure is not None:
+                    raise failure
+                text = json.dumps({
+                    "schema": COMPILATION_RESPONSE_SCHEMA,
+                    "compiler_output": compiler_output_to_dict(bundle),
+                })
+                return CompilationProviderCompletion(text, ProviderProvenance(
+                    "fake", "model-a", "compile-transport", 20, 30,
+                    "2026-08-14T15:40:00Z",
+                ))
+
+        backend = Backend()
+        coordinator = CompilationCoordinator(
+            self.repository, backend, CompilationBackendConfig("fake", "model-a", 0.0, 8192),
+        )
+        app = ProjectCommandApplication(
+            ProjectCommandService(self.repository), compilation=coordinator,
+        )
+        return app, backend, project
+
+    def test_compile_exact_route_persists_atomic_artifact_set(self):
+        self.app, backend, _ = self.compilation_app()
+        response = self.request("/api/compile/review-demo", {"guidance": "Stay literal."})
+        self.assertEqual("200 OK", response["status"])
+        self.assertEqual("compile_project", response["body"]["command"])
+        self.assertEqual(1, backend.calls)
+        updated = self.repository.get("review-demo")
+        for kind, prefix in (
+            (ArtifactKind.COMPILATION_LOG, "compilation_log"),
+            (ArtifactKind.COMPILER_OUTPUT, "compiler_output"),
+        ):
+            artifact = updated.current(kind)
+            self.assertEqual(artifact.artifact_id, response["body"][f"{prefix}_artifact_id"])
+            self.assertEqual(artifact.content_hash, response["body"][f"{prefix}_content_hash"])
+
+    def test_compile_route_rejects_malformed_alternate_and_unconfigured_requests(self):
+        self.app, backend, before = self.compilation_app()
+        for path, payload in (
+            ("/api/compile/%72eview-demo", {"guidance": "Stay literal."}),
+            ("/api/compile/review-demo", {"guidance": 7}),
+            ("/api/compile/review-demo", {"guidance": "Stay literal.", "retry": True}),
+        ):
+            with self.subTest(path=path, payload=payload):
+                self.assertEqual("400 Bad Request", self.request(path, payload)["status"])
+        self.assertEqual(0, backend.calls)
+        self.assertEqual(before, self.repository.get("review-demo"))
+        self.app = ProjectCommandApplication(ProjectCommandService(self.repository))
+        self.assertEqual("400 Bad Request", self.request(
+            "/api/compile/review-demo", {"guidance": "Stay literal."},
+        )["status"])
+
+    def test_compile_backend_failure_returns_bad_gateway_without_write_or_retry(self):
+        self.app, backend, before = self.compilation_app(failure=TimeoutError("timed out"))
+        response = self.request("/api/compile/review-demo", {"guidance": "Stay literal."})
+        self.assertEqual("502 Bad Gateway", response["status"])
+        self.assertEqual(1, backend.calls)
+        self.assertEqual(before, self.repository.get("review-demo"))
 
     def test_submit_exact_phase3_review_route_persists_log_and_snapshots(self):
         _, payload = self.phase3_project_and_payload()

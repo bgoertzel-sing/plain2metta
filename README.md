@@ -137,6 +137,13 @@ and atomically saves a canonical provenance log with the inert compiler output.
 It has no retry, fallback, provider selection, credential, publication, import,
 evaluation, or execution policy.
 
+`ProjectCommandApplication` exposes that coordinator only when explicitly
+configured at exact `POST /api/compile/<canonical-project-id>`. The bounded JSON
+body permits only optional text `guidance`; alternate path identities, query
+parameters, expanded schemas, missing configuration, and backend failures fail
+without partial writes or retries. The response contains only the admitted
+compilation-log and compiler-output identities and hashes.
+
 `sandbox_request_to_dict(handoff)` exposes the narrow Phase 6 adapter message
 without invoking an adapter. `add_test_result(project, result)` accepts strict
 per-test pass/fail/error/skip records only when their request digest binds to

@@ -103,9 +103,10 @@ class ReadOnlyProjectApplication:
 class ProjectCommandApplication:
     """Expose only bounded JSON author/review commands without starting a server."""
 
-    def __init__(self, commands: ProjectCommandService, logical_ir=None):
+    def __init__(self, commands: ProjectCommandService, logical_ir=None, compilation=None):
         self._commands = commands
         self._logical_ir = logical_ir
+        self._compilation = compilation
 
     def __call__(self, environ: dict[str, Any], start_response: StartResponse) -> Iterable[bytes]:
         if environ.get("REQUEST_METHOD") != "POST":
@@ -135,6 +136,34 @@ class ProjectCommandApplication:
             self._exact_keys(payload, {"project_id", "name", "source"})
             project = self._commands.create_project(payload["project_id"], payload["name"], payload["source"])
             return {"command": "create_project", "project_id": project.project_id}
+
+        compilation_parts = raw_path.split("/")
+        if len(compilation_parts) == 4 and compilation_parts[:3] == ["", "api", "compile"]:
+            encoded_project_id = compilation_parts[3]
+            if not encoded_project_id:
+                raise KeyError("unknown route")
+            project_id = unquote(encoded_project_id, errors="strict")
+            if "/" in project_id or project_id != encoded_project_id:
+                raise ValueError("project_id path segment must use canonical unescaped ASCII")
+            if self._compilation is None:
+                raise KeyError("compilation is not configured")
+            self._exact_keys(payload, set(), {"guidance"})
+            guidance = payload.get("guidance", "")
+            if not isinstance(guidance, str):
+                raise ValueError("guidance must be text")
+            project = self._compilation.compile_once(project_id, guidance)
+            interaction = project.current(ArtifactKind.COMPILATION_LOG)
+            output = project.current(ArtifactKind.COMPILER_OUTPUT)
+            if interaction is None or output is None:
+                raise ValueError("compilation admission did not produce the required artifact set")
+            return {
+                "command": "compile_project",
+                "project_id": project.project_id,
+                "compilation_log_artifact_id": interaction.artifact_id,
+                "compilation_log_content_hash": interaction.content_hash,
+                "compiler_output_artifact_id": output.artifact_id,
+                "compiler_output_content_hash": output.content_hash,
+            }
 
         logical_review_parts = raw_path.split("/")
         if len(logical_review_parts) == 4 and logical_review_parts[:3] == ["", "api", "logical-review"]:
