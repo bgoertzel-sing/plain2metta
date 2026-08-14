@@ -151,6 +151,13 @@ the exact current sandbox handoff. Results include captured output, duration,
 covered spec IDs, and a derived summary. The core package still contains no
 host executor, generated-file publisher, or adapter invocation.
 
+`SandboxCoordinator` is the explicitly configured Phase 6 invocation seam. It
+makes exactly one call to an injected out-of-process adapter with the canonical
+inert request, validates the strict response and configured adapter identity,
+then rechecks the exact current handoff before atomically saving the test
+result. It supplies no built-in host executor, retry, network, secret,
+generated-file publication, or adapter-selection capability.
+
 `add_traceability_report(project)` is the pure Phase 7 reporting transition.
 It joins the exact original/elaborated/test/logical/output/handoff/result chain
 to compiler-declared code locations and sandbox-returned test coverage. Each
