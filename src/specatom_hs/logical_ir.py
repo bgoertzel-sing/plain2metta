@@ -410,6 +410,27 @@ def decide_finding(report: LogicalReviewReport, finding_id: str, disposition: Fi
     return replace(report, findings=tuple(findings))
 
 
+def replay_review_decisions(report: LogicalReviewReport, document: LogicalIRDocument) -> LogicalReviewReport:
+    """Regenerate the deterministic review and replay only exact finding decisions.
+
+    The prior report must itself be an exact review of the unchanged document.
+    This deliberately rejects best-effort matching when a checker, document, or
+    finding sequence changes: a reviewer must see and decide the new report.
+    """
+    validate_review_for_document(report, document)
+    regenerated = review_logical_ir(document)
+    decisions = {finding.finding_id: finding for finding in report.findings}
+    return replace(regenerated, findings=tuple(
+        replace(
+            finding,
+            disposition=decisions[finding.finding_id].disposition,
+            reviewer=decisions[finding.finding_id].reviewer,
+            rationale=decisions[finding.finding_id].rationale,
+        )
+        for finding in regenerated.findings
+    ))
+
+
 def validate_review_for_document(report: LogicalReviewReport, document: LogicalIRDocument) -> None:
     """Require a review to be exactly the deterministic report plus decisions.
 
@@ -419,7 +440,9 @@ def validate_review_for_document(report: LogicalReviewReport, document: LogicalI
     expected = review_logical_ir(document)
     if report.logical_ir_hash != expected.logical_ir_hash:
         raise ValueError("logical review hash does not match logical IR")
-    if len(report.findings) != len(expected.findings):
+    if tuple(finding.finding_id for finding in report.findings) != tuple(
+        finding.finding_id for finding in expected.findings
+    ):
         raise ValueError("logical review findings do not match logical IR")
     expected_by_id = {finding.finding_id: finding for finding in expected.findings}
     for finding in report.findings:

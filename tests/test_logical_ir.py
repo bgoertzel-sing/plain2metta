@@ -6,7 +6,7 @@ from specatom_hs.logical_ir import (
     LogicalIRDocument, OperationalHole, RequirementObligation, TypeDeclaration,
     canonical_logical_ir, decide_finding, logical_ir_from_dict, logical_ir_hash,
     logical_ir_to_dict, logical_review_from_dict, logical_review_to_dict,
-    review_logical_ir,
+    replay_review_decisions, review_logical_ir, validate_review_for_document,
 )
 
 
@@ -164,6 +164,52 @@ class LogicalIRTests(unittest.TestCase):
         self.assertFalse(any(x.category in {FindingCategory.INCONSISTENT_TYPE,
                                             FindingCategory.UNREACHABLE_OBLIGATION}
                              for x in report.findings))
+
+    def test_decisions_replay_stably_across_all_eight_finding_categories(self):
+        document = LogicalIRDocument(
+            "AllFindings",
+            (TypeDeclaration("type.Input", "Input", ("REQ-1",)),),
+            (
+                Contract("contract.a", "transform", ("Input",), "Missing", (), (),
+                         ("records are retained",), ("REQ-1",), True),
+                Contract("contract.b", "transform", ("Input",), "Input", (), (),
+                         ("records are not retained",), ("REQ-2",), False),
+                Contract("contract.leak", "leak", ("Input",), "Input", (), (),
+                         ("test labels are read for selection",), ("REQ-3",), False),
+            ),
+            (
+                RequirementObligation("REQ-1", (), ("REQ-1",)),
+                RequirementObligation("REQ-4", ("TEST-4",), ("REQ-4",)),
+            ),
+            (
+                DependencyDeclaration("dependency.a", "transform", "leak", "before", ("REQ-1",)),
+                DependencyDeclaration("dependency.b", "leak", "transform", "before", ("REQ-3",)),
+            ),
+            (OperationalHole("hole.b", "contract.b", "Missing", "adapter required", ("REQ-2",)),),
+        )
+        report = review_logical_ir(document)
+        self.assertEqual(set(FindingCategory), {finding.category for finding in report.findings})
+        dispositions = (FindingDisposition.REPAIRED, FindingDisposition.WAIVED,
+                        FindingDisposition.DEFERRED)
+        for index, finding in enumerate(report.findings):
+            report = decide_finding(report, finding.finding_id, dispositions[index % 3],
+                                    "ben", f"decision {index}")
+
+        replayed = replay_review_decisions(report, document)
+        self.assertEqual(logical_review_to_dict(report), logical_review_to_dict(replayed))
+        validate_review_for_document(replayed, document)
+
+    def test_replay_fails_closed_for_changed_document_or_reordered_findings(self):
+        document = self.document(hole=False, tests=(), output="Missing")
+        report = review_logical_ir(document)
+        decided = decide_finding(report, report.findings[0].finding_id,
+                                 FindingDisposition.WAIVED, "ben", "accepted")
+        changed = self.document(hole=False, tests=("TEST-1",), output="Missing")
+        with self.assertRaisesRegex(ValueError, "logical review"):
+            replay_review_decisions(decided, changed)
+        reordered = type(decided)(decided.logical_ir_hash, tuple(reversed(decided.findings)))
+        with self.assertRaisesRegex(ValueError, "findings do not match"):
+            replay_review_decisions(reordered, document)
 
 
 if __name__ == "__main__":
