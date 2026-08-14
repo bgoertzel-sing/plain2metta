@@ -1,0 +1,89 @@
+"""Framework-neutral persisted commands for the first v2 review transitions."""
+
+from __future__ import annotations
+
+from typing import Protocol
+
+from .projects import (
+    ApprovalDecision,
+    ArtifactRef,
+    Project,
+    annotate,
+    decide,
+)
+
+
+class ProjectWriter(Protocol):
+    """Minimum persistence capability required by the command boundary."""
+
+    def create(self, project_id: str, name: str, source: str) -> Project: ...
+
+    def get(self, project_id: str) -> Project: ...
+
+    def save(self, project: Project, *, require_existing: bool = True) -> None: ...
+
+
+class ProjectCommandService:
+    """Persist explicit user commands without exposing generic mutation seams."""
+
+    def __init__(self, repository: ProjectWriter):
+        self._repository = repository
+
+    def create_project(self, project_id: str, name: str, source: str) -> Project:
+        return self._repository.create(project_id, name, source)
+
+    def add_annotation(
+        self,
+        project_id: str,
+        artifact_id: str,
+        content_hash: str,
+        reviewer: str,
+        comment: str,
+        target: str | None = None,
+    ) -> Project:
+        project = self._repository.get(project_id)
+        updated = annotate(
+            project,
+            _artifact_ref(artifact_id, content_hash),
+            reviewer,
+            comment,
+            target,
+        )
+        self._repository.save(updated)
+        return updated
+
+    def submit_decision(
+        self,
+        project_id: str,
+        artifact_id: str,
+        content_hash: str,
+        decision: str,
+        reviewer: str | None = None,
+        rationale: str | None = None,
+    ) -> Project:
+        if not isinstance(decision, str):
+            raise ValueError("decision must be a declared review decision")
+        try:
+            declared = ApprovalDecision(decision)
+        except ValueError as exc:
+            raise ValueError("decision must be a declared review decision") from exc
+        if declared is ApprovalDecision.INVALIDATED:
+            raise ValueError("invalidation is derived and cannot be submitted")
+        project = self._repository.get(project_id)
+        updated = decide(
+            project,
+            _artifact_ref(artifact_id, content_hash),
+            declared,
+            reviewer,
+            rationale,
+        )
+        self._repository.save(updated)
+        return updated
+
+
+def _artifact_ref(artifact_id: str, content_hash: str) -> ArtifactRef:
+    if not isinstance(artifact_id, str) or not artifact_id.strip():
+        raise ValueError("artifact_id must be non-blank text")
+    if not isinstance(content_hash, str) or not content_hash.startswith("sha256:"):
+        raise ValueError("content_hash must be an explicit SHA-256 artifact hash")
+    return ArtifactRef(artifact_id, content_hash)
