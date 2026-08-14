@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "artifact_type": "literate-logical-ir-verification-skeleton",
+  "executable": false,
+  "module_id": "AuthService",
+  "types": [
+    {"declaration_id": "type.User", "name": "User", "source_clause_ids": ["AUTH-1", "AUTH-2", "AUTH-4", "AUTH-5", "AUTH-6"]},
+    {"declaration_id": "type.Session", "name": "Session", "source_clause_ids": ["AUTH-1", "AUTH-2", "AUTH-3", "AUTH-4"]},
+    {"declaration_id": "type.AuthToken", "name": "AuthToken", "source_clause_ids": ["AUTH-1", "AUTH-2", "AUTH-3"]},
+    {"declaration_id": "type.Password", "name": "Password", "source_clause_ids": ["AUTH-1", "AUTH-2"]},
+    {"declaration_id": "type.Unit", "name": "Unit", "source_clause_ids": ["AUTH-4", "AUTH-5"]}
+  ],
+  "contracts": [
+    {"contract_id": "contract.authenticate", "name": "authenticate", "inputs": ["User", "Password"], "output": "AuthToken", "preconditions": ["the user is registered"], "postconditions": ["success creates exactly one session bound to the returned token"], "invariants": ["passwords and tokens are never logged"], "source_clause_ids": ["AUTH-1"], "requires_grounding": true},
+    {"contract_id": "contract.reject_login", "name": "reject_login", "inputs": ["User", "Password"], "output": "Unit", "preconditions": ["verification fails or the account is locked"], "postconditions": ["no session or token is created"], "invariants": ["both causes return the same public error"], "source_clause_ids": ["AUTH-2"], "requires_grounding": true},
+    {"contract_id": "contract.refresh_token", "name": "refresh_token", "inputs": ["AuthToken", "Session"], "output": "AuthToken", "preconditions": ["the session exists, is unexpired, and is not revoked"], "postconditions": ["a replacement token is returned or reauthentication is required"], "invariants": ["an invalid session never yields a token"], "source_clause_ids": ["AUTH-3"], "requires_grounding": true},
+    {"contract_id": "contract.reset_password", "name": "reset_password", "inputs": ["User", "Password"], "output": "Unit", "preconditions": ["the password reset succeeds"], "postconditions": ["all current user sessions are revoked before success"], "invariants": ["revocation precedes success"], "source_clause_ids": ["AUTH-4"], "requires_grounding": true},
+    {"contract_id": "contract.audit_risk", "name": "audit_risk", "inputs": ["User"], "output": "Unit", "preconditions": ["a suspicious login occurred"], "postconditions": ["exactly one risk event is sent"], "invariants": ["the event contains no password or bearer credential"], "source_clause_ids": ["AUTH-5"], "requires_grounding": true},
+    {"contract_id": "contract.export_events", "name": "export_events", "inputs": ["User", "SupportExportPolicy"], "output": "Unit", "preconditions": ["retention and authorization policy is defined"], "postconditions": ["only authorized retained events are exported"], "invariants": ["compilation remains blocked until policy is defined"], "source_clause_ids": ["AUTH-6"], "requires_grounding": true}
+  ],
+  "obligations": [
+    {"requirement_id": "AUTH-1", "planned_test_ids": ["AUTH-TEST-1"], "source_clause_ids": ["AUTH-1"]},
+    {"requirement_id": "AUTH-2", "planned_test_ids": ["AUTH-TEST-2"], "source_clause_ids": ["AUTH-2"]},
+    {"requirement_id": "AUTH-3", "planned_test_ids": ["AUTH-TEST-3"], "source_clause_ids": ["AUTH-3"]},
+    {"requirement_id": "AUTH-4", "planned_test_ids": ["AUTH-TEST-4"], "source_clause_ids": ["AUTH-4"]},
+    {"requirement_id": "AUTH-5", "planned_test_ids": ["AUTH-TEST-5"], "source_clause_ids": ["AUTH-5"]},
+    {"requirement_id": "AUTH-6", "planned_test_ids": ["AUTH-TEST-6"], "source_clause_ids": ["AUTH-6"]}
+  ],
+  "dependencies": [
+    {"dependency_id": "dependency.reset_before_success", "before": "reset_password", "after": "AUTH-TEST-4", "relation": "tested-by", "source_clause_ids": ["AUTH-4"]}
+  ],
+  "operational_holes": [
+    {"hole_id": "hole.authenticate", "contract_id": "contract.authenticate", "expected_type": "AuthToken", "rationale": "password verification and session persistence require grounded implementations", "source_clause_ids": ["AUTH-1"]},
+    {"hole_id": "hole.reject_login", "contract_id": "contract.reject_login", "expected_type": "Unit", "rationale": "lockout lookup and failure response require grounded implementations", "source_clause_ids": ["AUTH-2"]},
+    {"hole_id": "hole.refresh_token", "contract_id": "contract.refresh_token", "expected_type": "AuthToken", "rationale": "session lookup and token signing require grounded implementations", "source_clause_ids": ["AUTH-3"]},
+    {"hole_id": "hole.reset_password", "contract_id": "contract.reset_password", "expected_type": "Unit", "rationale": "password storage and transactional session revocation require grounded implementations", "source_clause_ids": ["AUTH-4"]},
+    {"hole_id": "hole.audit_risk", "contract_id": "contract.audit_risk", "expected_type": "Unit", "rationale": "audit delivery requires a grounded sink adapter", "source_clause_ids": ["AUTH-5"]},
+    {"hole_id": "hole.export_events", "contract_id": "contract.export_events", "expected_type": "Unit", "rationale": "support export policy and storage adapter remain unresolved", "source_clause_ids": ["AUTH-6"]}
+  ]
+}
