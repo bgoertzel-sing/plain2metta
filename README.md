@@ -172,6 +172,10 @@ review log against the exact current elaborated/test versions, returning decisio
 metadata and the log artifact identity but no spec or reviewed-snapshot bodies.
 Its `logical_review` query validates the current report against the exact current
 logical IR and returns findings plus artifact identities without the IR body.
+Its `compiler_output` query validates the current compilation log/output pair
+and returns only artifact identities, compiler attribution, generated paths,
+content hashes, byte sizes, and traceability IDs. Generated-file bodies,
+guidance, approval/mutation, publication, and execution authority are omitted.
 It has no rollback, mutation,
 provider, network, or execution capability.
 
@@ -184,6 +188,8 @@ Validated current decisions are separately available at
 stable; the route has no query parameters or mutation authority.
 Validated logical findings are available at exact
 `GET /api/logical-review/<canonical-project-id>`.
+Validated inert compiler-output metadata is available at exact
+`GET /api/compiler-output/<canonical-project-id>` with no query parameters.
 
 `ProjectCommandService` is the framework-neutral write boundary for the first
 author/review operations. It exposes only persisted project creation, exact

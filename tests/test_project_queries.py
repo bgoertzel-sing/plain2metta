@@ -6,10 +6,16 @@ from specatom_hs.project_queries import ProjectQueryService
 from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog
 from specatom_hs.projects import (
-    ApprovalDecision, ArtifactKind, add_artifact, add_logical_ir_document,
+    ApprovalDecision, ArtifactKind, add_artifact, add_compilation_response,
+    add_logical_ir_document,
     replace_source, submit_phase3_review,
 )
 from specatom_hs.logical_ir import Contract, LogicalIRDocument, RequirementObligation, TypeDeclaration
+from specatom_hs.compiler_output import CompilerOutputBundle, GeneratedFile
+from specatom_hs.compilation_prompt import (
+    CompilationResponse, build_compilation_request, compilation_request_hash,
+)
+from specatom_hs.elaboration_protocol import ProviderProvenance
 
 import tests.test_projects as project_fixtures
 
@@ -137,6 +143,35 @@ class ProjectQueryServiceTests(unittest.TestCase):
         self.repository.create("no-logical", "No logical", "source")
         with self.assertRaisesRegex(ValueError, "no current logical IR review"):
             self.queries.logical_review("no-logical")
+
+    def test_compiler_output_is_exact_validated_metadata_without_file_bodies(self):
+        project = project_fixtures.ProjectModelTests().admitted_project()
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        bundle = CompilerOutputBundle((
+            GeneratedFile("src/demo.metta", "; π\n", ("REQ-1",), ("TEST-1",)),
+        ), "fixture:compiler")
+        request = build_compilation_request(project)
+        project = add_compilation_response(project, request, CompilationResponse(
+            compilation_request_hash(request), bundle,
+            ProviderProvenance("fixture", "compiler", "query-1", 1, 1, "2026-08-14T15:52:00Z"),
+        ))
+        output = project.current(ArtifactKind.COMPILER_OUTPUT)
+        self.repository.create(project.project_id, project.name, "placeholder")
+        self.repository.save(project)
+
+        result = self.queries.compiler_output(project.project_id)
+        self.assertEqual(output.artifact_id, result["compiler_output_artifact_id"])
+        self.assertEqual(logical.content_hash, result["logical_ir_content_hash"])
+        self.assertEqual("src/demo.metta", result["files"][0]["path"])
+        self.assertEqual(5, result["files"][0]["byte_size"])
+        self.assertNotIn("content", result["files"][0])
+        self.assertNotIn("guidance", result)
+        self.assertFalse(hasattr(self.queries, "save"))
+
+    def test_missing_compiler_output_fails_closed(self):
+        self.repository.create("uncompiled", "Uncompiled", "source")
+        with self.assertRaisesRegex(ValueError, "no current compiler output"):
+            self.queries.compiler_output("uncompiled")
 
     def test_trace_supports_full_and_exact_spec_queries(self):
         project = project_fixtures.ProjectModelTests().traceability_project()

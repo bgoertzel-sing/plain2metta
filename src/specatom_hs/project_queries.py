@@ -21,6 +21,10 @@ from .logical_ir import (
     logical_review_to_dict,
     validate_review_for_document,
 )
+from .compiler_output import (
+    canonical_compiler_output,
+    compiler_output_from_dict,
+)
 
 
 class ProjectReader(Protocol):
@@ -130,6 +134,54 @@ class ProjectQueryService:
             "logical_review_artifact_id": review.artifact_id,
             "logical_review_content_hash": review.content_hash,
             "logical_review": logical_review_to_dict(report),
+        }
+
+    def compiler_output(self, project_id: str) -> dict[str, Any]:
+        """Return validated inert output metadata without generated-file bodies."""
+        project = self._projects.get(project_id)
+        output = project.current(ArtifactKind.COMPILER_OUTPUT)
+        interaction = project.current(ArtifactKind.COMPILATION_LOG)
+        logical = project.current(ArtifactKind.LOGICAL_IR)
+        if output is None or interaction is None:
+            raise ValueError("project has no current compiler output")
+        if (
+            output.state is not ArtifactState.CURRENT
+            or interaction.state is not ArtifactState.CURRENT
+            or logical is None
+            or output.upstream != (logical.ref,)
+        ):
+            raise ValueError("current compiler output is not bound to the exact current logical IR")
+        try:
+            bundle = compiler_output_from_dict(json.loads(output.content))
+            log = json.loads(interaction.content)
+            if output.content != canonical_compiler_output(bundle):
+                raise ValueError("compiler output is not canonical")
+            if (
+                not isinstance(log, dict)
+                or set(log) != {"schema", "request", "request_hash", "compiler_output_hash", "provenance"}
+                or log.get("schema") != "plain2metta-compilation-log/v1"
+                or log.get("compiler_output_hash") != output.content_hash
+            ):
+                raise ValueError("compilation log does not bind the exact compiler output")
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"invalid current compiler output: {exc}") from exc
+        return {
+            "project_id": project.project_id,
+            "compilation_log_artifact_id": interaction.artifact_id,
+            "compilation_log_content_hash": interaction.content_hash,
+            "compiler_output_artifact_id": output.artifact_id,
+            "compiler_output_content_hash": output.content_hash,
+            "logical_ir_artifact_id": logical.artifact_id,
+            "logical_ir_content_hash": logical.content_hash,
+            "compiler": bundle.compiler,
+            "executed": False,
+            "files": tuple({
+                "path": item.path,
+                "content_hash": content_sha256(item.content),
+                "byte_size": len(item.content.encode("utf-8")),
+                "spec_ids": item.spec_ids,
+                "test_ids": item.test_ids,
+            } for item in bundle.files),
         }
 
     def trace(self, project_id: str, spec_id: str | None = None) -> dict[str, Any]:

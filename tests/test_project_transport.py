@@ -402,6 +402,22 @@ class ProjectCommandApplicationTests(unittest.TestCase):
             self.assertEqual(artifact.artifact_id, response["body"][f"{prefix}_artifact_id"])
             self.assertEqual(artifact.content_hash, response["body"][f"{prefix}_content_hash"])
 
+        output = updated.current(ArtifactKind.COMPILER_OUTPUT)
+        command_app, self.app = self.app, ReadOnlyProjectApplication(ProjectQueryService(self.repository))
+        read = self.request("/api/compiler-output/review-demo", method="GET", raw_body=b"")
+        ambiguous = self.request(
+            "/api/compiler-output/review-demo", method="GET", raw_body=b"", query="include_content=true",
+        )
+        alternate = self.request("/api/compiler-output/%72eview-demo", method="GET", raw_body=b"")
+        self.app = command_app
+        self.assertEqual("200 OK", read["status"])
+        self.assertEqual(output.artifact_id, read["body"]["compiler_output_artifact_id"])
+        self.assertEqual(2, len(read["body"]["files"]))
+        self.assertTrue(all("content" not in item for item in read["body"]["files"]))
+        self.assertNotIn("guidance", read["body"])
+        self.assertEqual("400 Bad Request", ambiguous["status"])
+        self.assertEqual("400 Bad Request", alternate["status"])
+
     def test_compile_route_rejects_malformed_alternate_and_unconfigured_requests(self):
         self.app, backend, before = self.compilation_app()
         for path, payload in (
