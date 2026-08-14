@@ -147,8 +147,11 @@ provider, network, or execution capability.
 
 `ProjectCommandService` is the framework-neutral write boundary for the first
 author/review operations. It exposes only persisted project creation, exact
-hash-bound annotations, and declared approval decisions. It has no generic
-artifact write, elaboration, compilation, provider, or execution method.
+hash-bound annotations, declared approval decisions, and optimistic
+submission of elaborated-spec and test-spec versions. Each submission names
+the exact current upstream artifact ID and content hash; stale or wrong-stage
+references fail without a write. It has no generic artifact write, LLM
+elaboration, compilation, provider, or execution method.
 
 `ReadOnlyProjectApplication` is a server-independent WSGI adapter for that
 service. It exposes only `GET /api/projects`, `GET /api/projects/:id`,
@@ -159,9 +162,9 @@ provider capabilities; an external deployment may mount it deliberately.
 `ProjectCommandApplication` is the separate POST-only WSGI adapter for the
 command service. It accepts exact `application/json` bodies with an explicit
 canonical `Content-Length` of at most 1 MiB, rejects duplicate/unknown fields,
-and exposes only project creation plus exact artifact-bound annotation and
-decision routes. It starts no listener and has no generic artifact mutation,
-compile, provider, or execution route.
+and exposes only project creation, exact-upstream spec submission, and exact
+artifact-bound annotation and decision routes. It starts no listener and has
+no generic artifact mutation, compile, provider, or execution route.
 
 ```python
 from specatom_hs.project_repository import FilesystemProjectRepository

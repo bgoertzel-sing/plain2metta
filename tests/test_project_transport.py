@@ -131,6 +131,39 @@ class ProjectCommandApplicationTests(unittest.TestCase):
         self.assertEqual(1, len(self.repository.get("demo").annotations))
         self.assertEqual(1, len(self.repository.get("demo").approvals))
 
+    def test_submit_elaborated_and_test_specs_with_exact_upstreams(self):
+        self.request("/api/projects", {"project_id": "demo", "name": "Demo", "source": "source"})
+        source = self.repository.get("demo").current(project_fixtures.ArtifactKind.ORIGINAL_SPEC)
+        elaborated_response = self.request("/api/projects/demo/elaborated-spec", {
+            "upstream_artifact_id": source.artifact_id,
+            "upstream_content_hash": source.content_hash,
+            "content": "elaborated",
+        })
+        self.assertEqual("200 OK", elaborated_response["status"])
+        elaborated = self.repository.get("demo").current(project_fixtures.ArtifactKind.ELABORATED_SPEC)
+        test_response = self.request("/api/projects/demo/test-spec", {
+            "upstream_artifact_id": elaborated.artifact_id,
+            "upstream_content_hash": elaborated.content_hash,
+            "content": "tests",
+        })
+        self.assertEqual("200 OK", test_response["status"])
+        self.assertEqual(
+            (elaborated.ref,),
+            self.repository.get("demo").current(project_fixtures.ArtifactKind.TEST_SPEC).upstream,
+        )
+
+    def test_spec_submission_transport_rejects_forged_or_unknown_payloads_without_write(self):
+        self.request("/api/projects", {"project_id": "demo", "name": "Demo", "source": "source"})
+        source = self.repository.get("demo").current(project_fixtures.ArtifactKind.ORIGINAL_SPEC)
+        before = self.repository.get("demo")
+        payload = {"upstream_artifact_id": source.artifact_id,
+                   "upstream_content_hash": "sha256:" + "0" * 64, "content": "x"}
+        self.assertEqual("400 Bad Request", self.request("/api/projects/demo/elaborated-spec", payload)["status"])
+        payload["upstream_content_hash"] = source.content_hash
+        payload["artifact_id"] = source.artifact_id
+        self.assertEqual("400 Bad Request", self.request("/api/projects/demo/elaborated-spec", payload)["status"])
+        self.assertEqual(before, self.repository.get("demo"))
+
     def test_transport_exposes_only_post_command_routes(self):
         response = self.request("/api/projects", {}, method="GET")
         self.assertEqual("405 Method Not Allowed", response["status"])

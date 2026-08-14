@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, unquote
 
 from .project_queries import ProjectQueryService
 from .project_commands import ProjectCommandService
+from .projects import ArtifactKind
 
 
 StartResponse = Callable[[str, list[tuple[str, str]]], Any]
@@ -141,6 +142,18 @@ class ProjectCommandApplication:
             project = self._commands.submit_decision(project_id, **payload)
             return {"command": "submit_decision", "project_id": project.project_id,
                     "approval_count": len(project.approvals)}
+        submission = {
+            "elaborated-spec": self._commands.submit_elaborated_spec,
+            "test-spec": self._commands.submit_test_spec,
+        }.get(command)
+        if submission is not None:
+            self._exact_keys(payload, {"upstream_artifact_id", "upstream_content_hash", "content"})
+            project = submission(project_id, **payload)
+            artifact = project.current(
+                ArtifactKind.ELABORATED_SPEC if command == "elaborated-spec" else ArtifactKind.TEST_SPEC
+            )
+            return {"command": f"submit_{command.replace('-', '_')}", "project_id": project.project_id,
+                    "artifact_id": artifact.artifact_id, "content_hash": artifact.content_hash}
         raise KeyError("unknown route")
 
     @staticmethod

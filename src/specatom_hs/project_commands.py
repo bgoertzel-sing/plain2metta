@@ -6,8 +6,10 @@ from typing import Protocol
 
 from .projects import (
     ApprovalDecision,
+    ArtifactKind,
     ArtifactRef,
     Project,
+    add_artifact,
     annotate,
     decide,
 )
@@ -31,6 +33,37 @@ class ProjectCommandService:
 
     def create_project(self, project_id: str, name: str, source: str) -> Project:
         return self._repository.create(project_id, name, source)
+
+    def submit_elaborated_spec(
+        self, project_id: str, upstream_artifact_id: str,
+        upstream_content_hash: str, content: str,
+    ) -> Project:
+        return self._submit_derived_spec(
+            project_id, ArtifactKind.ORIGINAL_SPEC, ArtifactKind.ELABORATED_SPEC,
+            upstream_artifact_id, upstream_content_hash, content,
+        )
+
+    def submit_test_spec(
+        self, project_id: str, upstream_artifact_id: str,
+        upstream_content_hash: str, content: str,
+    ) -> Project:
+        return self._submit_derived_spec(
+            project_id, ArtifactKind.ELABORATED_SPEC, ArtifactKind.TEST_SPEC,
+            upstream_artifact_id, upstream_content_hash, content,
+        )
+
+    def _submit_derived_spec(
+        self, project_id: str, upstream_kind: ArtifactKind, result_kind: ArtifactKind,
+        upstream_artifact_id: str, upstream_content_hash: str, content: str,
+    ) -> Project:
+        project = self._repository.get(project_id)
+        supplied = _artifact_ref(upstream_artifact_id, upstream_content_hash)
+        current = project.current(upstream_kind)
+        if current is None or supplied != current.ref:
+            raise ValueError(f"submission requires the exact current {upstream_kind.value} artifact")
+        updated = add_artifact(project, result_kind, content, (supplied,))
+        self._repository.save(updated)
+        return updated
 
     def add_annotation(
         self,

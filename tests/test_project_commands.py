@@ -42,6 +42,42 @@ class ProjectCommandServiceTests(unittest.TestCase):
         self.assertEqual(updated, self.repository.get("demo"))
         self.assertEqual(ApprovalDecision.APPROVED, updated.approvals[0].decision)
 
+    def test_exact_upstream_elaborated_and_test_specs_are_persisted(self):
+        project = self.commands.create_project("demo", "Demo", "source")
+        source = project.current(ArtifactKind.ORIGINAL_SPEC)
+        project = self.commands.submit_elaborated_spec(
+            "demo", source.artifact_id, source.content_hash, "elaborated"
+        )
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        project = self.commands.submit_test_spec(
+            "demo", elaborated.artifact_id, elaborated.content_hash, "tests"
+        )
+        self.assertEqual(project, self.repository.get("demo"))
+        self.assertEqual((source.ref,), elaborated.upstream)
+        self.assertEqual((elaborated.ref,), project.current(ArtifactKind.TEST_SPEC).upstream)
+
+    def test_spec_submission_rejects_stale_hash_wrong_kind_and_missing_stage_without_write(self):
+        project = self.commands.create_project("demo", "Demo", "source")
+        source = project.current(ArtifactKind.ORIGINAL_SPEC)
+        before = self.repository.get("demo")
+        with self.assertRaises(ValueError):
+            self.commands.submit_elaborated_spec("demo", source.artifact_id, "sha256:" + "0" * 64, "x")
+        with self.assertRaises(ValueError):
+            self.commands.submit_test_spec("demo", source.artifact_id, source.content_hash, "tests")
+        self.assertEqual(before, self.repository.get("demo"))
+
+        project = self.commands.submit_elaborated_spec(
+            "demo", source.artifact_id, source.content_hash, "first"
+        )
+        old = project.current(ArtifactKind.ELABORATED_SPEC)
+        project = self.commands.submit_elaborated_spec(
+            "demo", source.artifact_id, source.content_hash, "second"
+        )
+        before = self.repository.get("demo")
+        with self.assertRaises(ValueError):
+            self.commands.submit_test_spec("demo", old.artifact_id, old.content_hash, "tests")
+        self.assertEqual(before, self.repository.get("demo"))
+
     def test_stale_or_mismatched_artifact_identity_fails_without_write(self):
         project = self.commands.create_project("demo", "Demo", "source")
         source = project.current(ArtifactKind.ORIGINAL_SPEC)
