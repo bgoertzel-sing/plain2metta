@@ -188,7 +188,8 @@ class ProjectModelTests(unittest.TestCase):
         project = self.populated()
         project = self.reviewed(project)
         document = LogicalIRDocument(
-            "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),), (),
+            "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),),
+            (Contract("contract.work", "work", ("Value",), "Value", (), (), (), ("REQ-1",), False),),
             (RequirementObligation("REQ-1", (), ("REQ-1",)),), (), (),
         )
         project = add_logical_ir_document(project, document)

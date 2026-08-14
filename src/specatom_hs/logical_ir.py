@@ -258,6 +258,44 @@ def review_logical_ir(document: LogicalIRDocument) -> LogicalReviewReport:
         if not obligation.planned_test_ids:
             add(FindingCategory.UNCOVERED_REQUIREMENT, obligation.requirement_id, f"requirement {obligation.requirement_id} has no planned test", obligation.source_clause_ids)
 
+    contracts_by_name: dict[str, Contract] = {}
+    contracts_by_id = {contract.contract_id: contract for contract in document.contracts}
+    for contract in document.contracts:
+        previous = contracts_by_name.get(contract.name)
+        signature = (contract.inputs, contract.output)
+        if previous is not None and signature != (previous.inputs, previous.output):
+            sources = tuple(dict.fromkeys(previous.source_clause_ids + contract.source_clause_ids))
+            add(
+                FindingCategory.INCONSISTENT_TYPE,
+                f"contract-name:{contract.name}",
+                f"contract name {contract.name} has inconsistent signatures "
+                f"{previous.inputs} -> {previous.output} and {contract.inputs} -> {contract.output}",
+                sources,
+            )
+        else:
+            contracts_by_name[contract.name] = contract
+    for hole in document.operational_holes:
+        contract = contracts_by_id[hole.contract_id]
+        if hole.expected_type != contract.output:
+            sources = tuple(dict.fromkeys(contract.source_clause_ids + hole.source_clause_ids))
+            add(
+                FindingCategory.INCONSISTENT_TYPE,
+                hole.hole_id,
+                f"operational hole {hole.hole_id} expects {hole.expected_type} but "
+                f"contract {contract.contract_id} returns {contract.output}",
+                sources,
+            )
+
+    contract_sources = {source for contract in document.contracts for source in contract.source_clause_ids}
+    for obligation in document.obligations:
+        if contract_sources.isdisjoint(obligation.source_clause_ids):
+            add(
+                FindingCategory.UNREACHABLE_OBLIGATION,
+                obligation.requirement_id,
+                f"requirement {obligation.requirement_id} is not linked by provenance to any contract",
+                obligation.source_clause_ids,
+            )
+
     # These checks are deliberately syntactic and deterministic.  They report
     # review findings rather than pretending to prove arbitrary English.
     def condition_key(value: str) -> tuple[str, bool]:

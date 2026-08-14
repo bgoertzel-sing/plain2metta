@@ -9,7 +9,7 @@ from specatom_hs.projects import (
     ApprovalDecision, ArtifactKind, add_artifact, add_logical_ir_document,
     replace_source, submit_phase3_review,
 )
-from specatom_hs.logical_ir import LogicalIRDocument, RequirementObligation, TypeDeclaration
+from specatom_hs.logical_ir import Contract, LogicalIRDocument, RequirementObligation, TypeDeclaration
 
 import tests.test_projects as project_fixtures
 
@@ -113,7 +113,8 @@ class ProjectQueryServiceTests(unittest.TestCase):
             Phase3Decision(tests.ref, ApprovalDecision.APPROVED, "bob", "2026-08-14T13:58:01Z"),
         )))
         project = add_logical_ir_document(project, LogicalIRDocument(
-            "Logical", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),), (),
+            "Logical", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),),
+            (Contract("contract.work", "work", ("Value",), "Value", (), (), (), ("REQ-1",), False),),
             (RequirementObligation("REQ-1", (), ("REQ-1",)),), (), (),
         ))
         self.repository.save(project)

@@ -11,7 +11,7 @@ from specatom_hs.project_transport import ProjectCommandApplication, ReadOnlyPro
 from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog, phase3_review_log_to_dict
 from specatom_hs.elaboration_protocol import ProviderProvenance
 from specatom_hs.logical_ir import (
-    FindingDisposition, LogicalIRDocument, RequirementObligation,
+    Contract, FindingDisposition, LogicalIRDocument, RequirementObligation,
     TypeDeclaration, logical_ir_to_dict,
 )
 from specatom_hs.logical_ir_backend import LogicalIRBackendConfig, LogicalIRCoordinator
@@ -220,7 +220,8 @@ class ProjectCommandApplicationTests(unittest.TestCase):
         project, payload = self.phase3_project_and_payload()
         self.assertEqual("200 OK", self.request("/api/review/review-demo", payload)["status"])
         document = LogicalIRDocument(
-            "review_demo", (TypeDeclaration("type.Value", "Value", ("R-1",)),), (),
+            "review_demo", (TypeDeclaration("type.Value", "Value", ("R-1",)),),
+            (Contract("contract.work", "work", ("Value",), "Value", (), (), (), ("R-1",), False),),
             (RequirementObligation("R-1", (), ("R-1",)),), (), (),
         )
 

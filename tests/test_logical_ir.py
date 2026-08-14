@@ -131,6 +131,40 @@ class LogicalIRTests(unittest.TestCase):
         self.assertEqual(1, len(leakage))
         self.assertEqual(("REQ-2",), leakage[0].source_clause_ids)
 
+    def test_deterministic_review_finds_inconsistent_contract_and_hole_types(self):
+        base = self.document()
+        conflicting = Contract("contract.transform-v2", "transform", ("Result",), "Input",
+                               (), (), (), ("REQ-2",), False)
+        mismatched_hole = OperationalHole("hole.mismatch", "contract.transform-v2", "Result",
+                                          "grounded implementation required", ("REQ-3",))
+        report = review_logical_ir(LogicalIRDocument(
+            base.module_id, base.types, base.contracts + (conflicting,), base.obligations,
+            base.dependencies, base.operational_holes + (mismatched_hole,),
+        ))
+        findings = [x for x in report.findings if x.category is FindingCategory.INCONSISTENT_TYPE]
+        self.assertEqual(2, len(findings))
+        self.assertEqual({"REQ-1", "REQ-2", "REQ-3"},
+                         {source for finding in findings for source in finding.source_clause_ids})
+        self.assertTrue(report.blocks_compilation)
+
+    def test_deterministic_review_finds_unreachable_obligation_by_provenance(self):
+        base = self.document()
+        orphan = RequirementObligation("REQ-2", ("TEST-2",), ("REQ-2",))
+        report = review_logical_ir(LogicalIRDocument(
+            base.module_id, base.types, base.contracts, base.obligations + (orphan,),
+            base.dependencies, base.operational_holes,
+        ))
+        findings = [x for x in report.findings if x.category is FindingCategory.UNREACHABLE_OBLIGATION]
+        self.assertEqual(1, len(findings))
+        self.assertEqual(("REQ-2",), findings[0].source_clause_ids)
+        self.assertTrue(report.blocks_compilation)
+
+    def test_reachable_obligation_and_matching_types_do_not_trigger_findings(self):
+        report = review_logical_ir(self.document())
+        self.assertFalse(any(x.category in {FindingCategory.INCONSISTENT_TYPE,
+                                            FindingCategory.UNREACHABLE_OBLIGATION}
+                             for x in report.findings))
+
 
 if __name__ == "__main__":
     unittest.main()
