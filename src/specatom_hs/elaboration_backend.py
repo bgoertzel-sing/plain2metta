@@ -15,7 +15,11 @@ from .elaboration_admission import (
     ElaborationAdmissionService, ElaborationRequestService, Validator,
     validate_elaboration_outputs,
 )
-from .elaboration_protocol import ElaborationRequest, ElaborationResponse, validate_elaboration_response
+from .elaboration_prompt import (
+    ElaborationPromptEnvelope, ProviderCompletion, build_elaboration_prompt,
+    parse_elaboration_completion,
+)
+from .elaboration_protocol import validate_elaboration_response
 
 
 @dataclass(frozen=True)
@@ -28,8 +32,8 @@ class ElaborationBackendConfig:
 
 class ElaborationBackend(Protocol):
     def elaborate(
-        self, request: ElaborationRequest, config: ElaborationBackendConfig,
-    ) -> ElaborationResponse: ...
+        self, prompt: ElaborationPromptEnvelope, config: ElaborationBackendConfig,
+    ) -> ProviderCompletion: ...
 
 
 def validate_backend_config(config: object) -> None:
@@ -73,7 +77,9 @@ class ElaborationCoordinator:
         self, project_id: str, guidance: str = "", section: str | None = None,
     ):
         request = self._requests.build_request(project_id, guidance, section)
-        response = self._backend.elaborate(request, self._config)
+        prompt = build_elaboration_prompt(request)
+        completion = self._backend.elaborate(prompt, self._config)
+        response = parse_elaboration_completion(request, completion)
         validate_elaboration_response(response, request)
         if (
             response.provenance.backend != self._config.backend

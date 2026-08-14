@@ -5,9 +5,8 @@ from pathlib import Path
 from specatom_hs.elaboration_backend import (
     ElaborationBackendConfig, ElaborationCoordinator, validate_backend_config,
 )
-from specatom_hs.elaboration_protocol import (
-    ElaborationResponse, ProviderProvenance, elaboration_request_hash,
-)
+from specatom_hs.elaboration_prompt import ProviderCompletion
+from specatom_hs.elaboration_protocol import ProviderProvenance
 from specatom_hs.project_repository import FilesystemProjectRepository
 from specatom_hs.projects import ArtifactKind
 
@@ -19,13 +18,13 @@ class FakeBackend:
         self.model = model
         self.stale = stale
 
-    def elaborate(self, request, config):
-        self.calls.append((request, config))
-        request_hash = "sha256:" + "0" * 64 if self.stale else elaboration_request_hash(request)
-        return ElaborationResponse(
-            request_hash, "***requirements***\n",
-            "***acceptance tests***\n",
-            ProviderProvenance(self.provenance_backend, self.model, "interaction-1", 10, 20, "2026-08-14T11:08:00Z"),
+    def elaborate(self, prompt, config):
+        self.calls.append((prompt, config))
+        text = '{"schema":"plain2metta-elaboration-response/v1","elaborated_spec":"***requirements***\\n","test_spec":"***acceptance tests***\\n"}'
+        if self.stale:
+            text = '{"schema":"wrong","elaborated_spec":"x","test_spec":"y"}'
+        return ProviderCompletion(
+            text, ProviderProvenance(self.provenance_backend, self.model, "interaction-1", 10, 20, "2026-08-14T11:08:00Z"),
         )
 
 
@@ -45,9 +44,9 @@ class ElaborationBackendTests(unittest.TestCase):
             "demo", "Reviewable English.", "notes",
         )
         self.assertEqual(1, len(backend.calls))
-        request, config = backend.calls[0]
+        prompt, config = backend.calls[0]
         self.assertEqual(self.config, config)
-        self.assertEqual("Reviewable English.", request.guidance)
+        self.assertIn("Reviewable English.", prompt.messages[1].content)
         self.assertIsNotNone(updated.current(ArtifactKind.ELABORATION_LOG))
         self.assertEqual(updated, self.repository.get("demo"))
 

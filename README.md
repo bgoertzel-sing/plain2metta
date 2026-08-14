@@ -178,10 +178,15 @@ content.
 
 `ElaborationCoordinator` is the deliberately small provider invocation seam.
 It receives an explicitly selected `ElaborationBackend` adapter and immutable
-backend/model/temperature/token configuration, makes exactly one call, checks
-returned provenance against that configuration, and routes the exact response
-through `ElaborationAdmissionService`. It has no retry, fallback, provider
-selection, credential, or partial-persistence policy.
+backend/model/temperature/token configuration. The adapter receives a canonical
+two-message prompt envelope containing the exact request and a strict JSON
+response schema. The system prompt requires reviewable English, marker
+preservation, explicit questions, requirement coverage, and no unguided
+dependencies or claims of execution. The coordinator makes exactly one call,
+rejects non-JSON, schema-expanded, blank, or misattributed completions, and
+routes the exact parsed response through `ElaborationAdmissionService`. It has
+no retry, fallback, provider selection, credential, or partial-persistence
+policy.
 
 `ReadOnlyProjectApplication` is a server-independent WSGI adapter for that
 service. It exposes only `GET /api/projects`, `GET /api/projects/:id`,
