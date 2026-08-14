@@ -20,6 +20,7 @@ class ArtifactKind(str, Enum):
     LOGICAL_IR = "logical-ir"
     LOGICAL_REVIEW = "logical-review"
     COMPILER_OUTPUT = "compiler-output"
+    SANDBOX_HANDOFF = "sandbox-handoff"
 
 
 class ArtifactState(str, Enum):
@@ -130,6 +131,8 @@ def add_artifact(
         raise ValueError("use add_logical_ir or add_logical_ir_document to enforce the review gate")
     if kind is ArtifactKind.COMPILER_OUTPUT:
         raise ValueError("use the phase-specific add_compiler_output transition API")
+    if kind is ArtifactKind.SANDBOX_HANDOFF:
+        raise ValueError("use the phase-specific add_sandbox_handoff transition API")
     return _add_derived_artifact(project, kind, content, upstream)
 
 
@@ -252,6 +255,28 @@ def add_compiler_output(project: Project, bundle: object) -> Project:
     logical = admit_compilation(project)
     return _add_derived_artifact(
         project, ArtifactKind.COMPILER_OUTPUT, canonical_compiler_output(bundle), (logical.ref,)
+    )
+
+
+def add_sandbox_handoff(project: Project, handoff: object) -> Project:
+    """Persist inert sandbox metadata for the exact approved compiler output."""
+    from .compiler_output import compiler_output_from_dict
+    from .sandbox_handoff import canonical_sandbox_handoff, validate_sandbox_handoff
+    import json
+
+    output = project.current(ArtifactKind.COMPILER_OUTPUT)
+    if output is None or not _is_approved(project, output):
+        raise ValueError("sandbox handoff requires explicit approval of the exact current compiler output")
+    try:
+        bundle = compiler_output_from_dict(json.loads(output.content))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"invalid current compiler output: {exc}") from exc
+    validate_sandbox_handoff(handoff)
+    expected_files = tuple(generated.path for generated in bundle.files)
+    if handoff.files != expected_files:
+        raise ValueError("sandbox handoff files must exactly match the approved compiler output")
+    return _add_derived_artifact(
+        project, ArtifactKind.SANDBOX_HANDOFF, canonical_sandbox_handoff(handoff), (output.ref,)
     )
 
 
@@ -473,6 +498,24 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             raise ValueError(f"malformed project state: compiler output lacks compile admission: {exc}") from exc
         if admitted.ref != logical.ref:
             raise ValueError("malformed project state: compiler output logical IR is not admitted")
+    sandbox_handoff = project.current(ArtifactKind.SANDBOX_HANDOFF)
+    if sandbox_handoff is not None:
+        from .compiler_output import compiler_output_from_dict
+        from .sandbox_handoff import canonical_sandbox_handoff, sandbox_handoff_from_dict
+        import json
+        if compiler_output is None or sandbox_handoff.upstream != (compiler_output.ref,):
+            raise ValueError("malformed project state: sandbox handoff has invalid compiler-output input")
+        if not _is_approved(project, compiler_output):
+            raise ValueError("malformed project state: sandbox handoff lacks exact compiler-output approval")
+        try:
+            handoff = sandbox_handoff_from_dict(json.loads(sandbox_handoff.content))
+            bundle = compiler_output_from_dict(json.loads(compiler_output.content))
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"malformed project state: invalid sandbox handoff: {exc}") from exc
+        if sandbox_handoff.content != canonical_sandbox_handoff(handoff):
+            raise ValueError("malformed project state: sandbox handoff is not canonical")
+        if handoff.files != tuple(generated.path for generated in bundle.files):
+            raise ValueError("malformed project state: sandbox handoff files do not match compiler output")
     for annotation in annotations:
         target = project.artifact(annotation.artifact.artifact_id)
         if target.content_hash != annotation.artifact.content_hash:

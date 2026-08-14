@@ -8,6 +8,7 @@ from specatom_hs.projects import (
     Project,
     add_artifact,
     add_compiler_output,
+    add_sandbox_handoff,
     add_logical_ir,
     add_logical_ir_document,
     admit_compilation,
@@ -23,6 +24,7 @@ from specatom_hs.logical_ir import (
     Contract, FindingDisposition, LogicalIRDocument, OperationalHole, RequirementObligation, TypeDeclaration,
 )
 from specatom_hs.compiler_output import CompilerOutputBundle, GeneratedFile
+from specatom_hs.sandbox_handoff import SandboxHandoff, SandboxLimits
 
 
 class ProjectModelTests(unittest.TestCase):
@@ -277,6 +279,81 @@ class ProjectModelTests(unittest.TestCase):
         changed = decide(project, logical.ref, ApprovalDecision.CHANGES_REQUESTED, "ben", "revise IR")
         self.assertIsNone(changed.current(ArtifactKind.COMPILER_OUTPUT))
         self.assertEqual(ArtifactState.INVALIDATED, changed.artifact(output.artifact_id).state)
+
+    def approved_output_project(self):
+        project = add_compiler_output(
+            self.admitted_project(),
+            CompilerOutputBundle((
+                GeneratedFile("demo.metta", "; inert\n", ("REQ-1",)),
+                GeneratedFile("tests/test_demo.py", "pass\n", ("REQ-1",), ("TEST-1",)),
+            ), "model:test"),
+        )
+        output = project.current(ArtifactKind.COMPILER_OUTPUT)
+        return decide(project, output.ref, ApprovalDecision.APPROVED, "ben", "reviewed generated files")
+
+    def handoff(self):
+        return SandboxHandoff(
+            "sha256:" + "a" * 64,
+            ("python", "-m", "pytest", "-q"),
+            ("demo.metta", "tests/test_demo.py"),
+            SandboxLimits(10, 256, 30),
+        )
+
+    def test_approved_output_creates_inert_exact_sandbox_handoff(self):
+        project = self.approved_output_project()
+        output = project.current(ArtifactKind.COMPILER_OUTPUT)
+        project = add_sandbox_handoff(project, self.handoff())
+        handoff = project.current(ArtifactKind.SANDBOX_HANDOFF)
+        self.assertEqual((output.ref,), handoff.upstream)
+        self.assertIn('"executed":false', handoff.content)
+        self.assertIn('"opt_in_required":true', handoff.content)
+        self.assertEqual(project, project_from_dict(project_to_dict(project)))
+
+    def test_handoff_requires_exact_output_approval_and_file_set(self):
+        unapproved = add_compiler_output(
+            self.admitted_project(),
+            CompilerOutputBundle((GeneratedFile("demo.metta", "", ("REQ-1",)),), "model:test"),
+        )
+        with self.assertRaisesRegex(ValueError, "explicit approval"):
+            add_sandbox_handoff(unapproved, self.handoff())
+        approved = self.approved_output_project()
+        bad = SandboxHandoff(self.handoff().image_digest, ("pytest",), ("demo.metta",), self.handoff().limits)
+        with self.assertRaisesRegex(ValueError, "exactly match"):
+            add_sandbox_handoff(approved, bad)
+        output = approved.current(ArtifactKind.COMPILER_OUTPUT)
+        with self.assertRaisesRegex(ValueError, "add_sandbox_handoff"):
+            add_artifact(approved, ArtifactKind.SANDBOX_HANDOFF, "{}", (output.ref,))
+
+    def test_handoff_rejects_weak_isolation_execution_and_forgery(self):
+        import json
+        from specatom_hs.projects import _artifact_id, content_sha256
+        project = add_sandbox_handoff(self.approved_output_project(), self.handoff())
+        for mutation in ("executed", "network", "files", "unknown"):
+            payload = project_to_dict(project)
+            artifact = next(item for item in payload["artifacts"] if item["kind"] == "sandbox-handoff")
+            body = json.loads(artifact["content"])
+            if mutation == "executed":
+                body["executed"] = True
+            elif mutation == "network":
+                body["isolation"]["network"] = True
+            elif mutation == "files":
+                body["files"] = ["demo.metta"]
+            else:
+                body["environment"] = {"TOKEN": "secret"}
+            artifact["content"] = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            artifact["content_hash"] = content_sha256(artifact["content"])
+            artifact["artifact_id"] = _artifact_id("demo", ArtifactKind.SANDBOX_HANDOFF, 1, artifact["content_hash"])
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "sandbox handoff"):
+                project_from_dict(payload)
+
+    def test_revoking_output_approval_invalidates_handoff(self):
+        project = self.approved_output_project()
+        output = project.current(ArtifactKind.COMPILER_OUTPUT)
+        project = add_sandbox_handoff(project, self.handoff())
+        handoff = project.current(ArtifactKind.SANDBOX_HANDOFF)
+        changed = decide(project, output.ref, ApprovalDecision.CHANGES_REQUESTED, "ben", "revise output")
+        self.assertIsNone(changed.current(ArtifactKind.SANDBOX_HANDOFF))
+        self.assertEqual(ArtifactState.INVALIDATED, changed.artifact(handoff.artifact_id).state)
 
     def test_compile_admission_rejects_deferred_and_stale_review(self):
         project = self.populated()
