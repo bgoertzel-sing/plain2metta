@@ -89,10 +89,11 @@ project = annotate(project, elaborated.ref, "reviewer", "Looks precise.", "item:
 ```
 
 `add_logical_ir(project, content)` is the only logical-IR creation seam. It
-fails closed until both the exact current elaborated spec and exact current
-test spec have explicit `APPROVED` decisions with reviewer identities. A
-later source/artifact edit or approval revocation transitively invalidates the
-logical IR. Generic `add_artifact` calls cannot bypass this gate.
+fails closed until Phase 3 has materialized the exact current paired reviewed
+elaborated/test snapshots, and records those snapshot refs—not the Phase 2
+inputs—as its immutable upstream provenance. A later source/artifact edit or
+review-approval revocation transitively invalidates the snapshots and logical
+IR. Generic `add_artifact` calls cannot bypass this gate.
 
 Use `project_to_dict` and `project_from_dict` for the versioned JSON-ready
 boundary. Deserialization recomputes content hashes and rejects malformed or

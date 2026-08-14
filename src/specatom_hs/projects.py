@@ -223,14 +223,15 @@ def _is_approved(project: Project, artifact: ArtifactVersion) -> bool:
 
 
 def add_logical_ir(project: Project, content: str) -> Project:
-    """Add a logical IR only from the exact current approved spec and tests."""
-    elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
-    tests = project.current(ArtifactKind.TEST_SPEC)
-    if elaborated is None or tests is None:
-        raise ValueError("logical IR requires current elaborated-spec and test-spec artifacts")
-    if not _is_approved(project, elaborated) or not _is_approved(project, tests):
-        raise ValueError("logical IR requires explicit approval of exact current elaborated spec and test spec")
-    return _add_derived_artifact(project, ArtifactKind.LOGICAL_IR, content, (elaborated.ref, tests.ref))
+    """Add a logical IR only from the exact current Phase 3 reviewed snapshots."""
+    reviewed_elaborated = project.current(ArtifactKind.REVIEWED_ELABORATED_SPEC)
+    reviewed_tests = project.current(ArtifactKind.REVIEWED_TEST_SPEC)
+    if reviewed_elaborated is None or reviewed_tests is None:
+        raise ValueError("logical IR requires exact current reviewed elaborated and test snapshots")
+    return _add_derived_artifact(
+        project, ArtifactKind.LOGICAL_IR, content,
+        (reviewed_elaborated.ref, reviewed_tests.ref),
+    )
 
 
 def submit_phase3_review(project: Project, decisions: object) -> Project:
@@ -406,17 +407,18 @@ def add_traceability_report(project: Project) -> Project:
     required = tuple(
         project.current(kind) for kind in (
             ArtifactKind.ORIGINAL_SPEC, ArtifactKind.ELABORATED_SPEC, ArtifactKind.TEST_SPEC,
+            ArtifactKind.REVIEWED_ELABORATED_SPEC, ArtifactKind.REVIEWED_TEST_SPEC,
             ArtifactKind.LOGICAL_IR, ArtifactKind.COMPILER_OUTPUT, ArtifactKind.SANDBOX_HANDOFF,
             ArtifactKind.TEST_RESULT,
         )
     )
     if any(artifact is None for artifact in required):
         raise ValueError("traceability report requires the exact complete current provenance chain")
-    original, elaborated, tests, logical, output, handoff, result_artifact = required
+    original, elaborated, tests, reviewed_elaborated, reviewed_tests, logical, output, handoff, result_artifact = required
     expected_links = (
         (elaborated, (original.ref,)),
         (tests, (elaborated.ref,)),
-        (logical, (elaborated.ref, tests.ref)),
+        (logical, (reviewed_elaborated.ref, reviewed_tests.ref)),
         (output, (logical.ref,)),
         (handoff, (output.ref,)),
         (result_artifact, (handoff.ref,)),
@@ -699,12 +701,13 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             raise ValueError("malformed project state: reviewed snapshots do not match exact approved inputs")
     logical = project.current(ArtifactKind.LOGICAL_IR)
     if logical is not None:
-        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
-        tests = project.current(ArtifactKind.TEST_SPEC)
-        if elaborated is None or tests is None or logical.upstream != (elaborated.ref, tests.ref):
+        reviewed_elaborated = project.current(ArtifactKind.REVIEWED_ELABORATED_SPEC)
+        reviewed_tests = project.current(ArtifactKind.REVIEWED_TEST_SPEC)
+        if (
+            reviewed_elaborated is None or reviewed_tests is None
+            or logical.upstream != (reviewed_elaborated.ref, reviewed_tests.ref)
+        ):
             raise ValueError("malformed project state: logical IR has invalid reviewed inputs")
-        if not _is_approved(project, elaborated) or not _is_approved(project, tests):
-            raise ValueError("malformed project state: logical IR lacks exact input approvals")
     logical_review = project.current(ArtifactKind.LOGICAL_REVIEW)
     if logical_review is not None:
         from .logical_ir import logical_ir_from_dict, logical_review_from_dict, validate_review_for_document
@@ -791,6 +794,7 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
         required = tuple(
             project.current(kind) for kind in (
                 ArtifactKind.ORIGINAL_SPEC, ArtifactKind.ELABORATED_SPEC, ArtifactKind.TEST_SPEC,
+                ArtifactKind.REVIEWED_ELABORATED_SPEC, ArtifactKind.REVIEWED_TEST_SPEC,
                 ArtifactKind.LOGICAL_IR, ArtifactKind.COMPILER_OUTPUT, ArtifactKind.SANDBOX_HANDOFF,
                 ArtifactKind.TEST_RESULT,
             )

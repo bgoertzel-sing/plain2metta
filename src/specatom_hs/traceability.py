@@ -74,7 +74,8 @@ def build_traceability_report(
 
 def validate_provenance(provenance: tuple[ProvenanceLink, ...]) -> None:
     expected = (
-        "original-spec", "elaborated-spec", "test-spec", "logical-ir",
+        "original-spec", "elaborated-spec", "test-spec",
+        "reviewed-elaborated-spec", "reviewed-test-spec", "logical-ir",
         "compiler-output", "sandbox-handoff", "test-result",
     )
     if tuple(link.phase for link in provenance) != expected:

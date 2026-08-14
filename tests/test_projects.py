@@ -21,6 +21,7 @@ from specatom_hs.projects import (
     project_from_dict,
     project_to_dict,
     replace_source,
+    submit_phase3_review,
 )
 from specatom_hs.logical_ir import (
     Contract, FindingDisposition, LogicalIRDocument, OperationalHole, RequirementObligation, TypeDeclaration,
@@ -30,6 +31,7 @@ from specatom_hs.sandbox_handoff import SandboxHandoff, SandboxLimits
 from specatom_hs.sandbox_protocol import (
     SandboxTestResult, TestCaseResult, sandbox_request_hash, sandbox_request_to_dict,
 )
+from specatom_hs.phase3_review import Phase3Decision, Phase3ReviewLog
 
 
 class ProjectModelTests(unittest.TestCase):
@@ -40,6 +42,15 @@ class ProjectModelTests(unittest.TestCase):
         elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
         project = add_artifact(project, ArtifactKind.TEST_SPEC, "tests", [elaborated.ref])
         return project
+
+    def reviewed(self, project, elaborated_content=None, test_content=None):
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        log = Phase3ReviewLog(elaborated.ref, tests.ref, (
+            Phase3Decision(elaborated.ref, ApprovalDecision.APPROVED, "ben", "2026-08-14T13:00:00Z"),
+            Phase3Decision(tests.ref, ApprovalDecision.APPROVED, "ben", "2026-08-14T13:00:01Z"),
+        ), elaborated_content, test_content)
+        return submit_phase3_review(project, log)
 
     def test_project_and_artifacts_are_immutable_and_content_addressed(self):
         project = create_project("demo", "Demo", "source")
@@ -114,19 +125,23 @@ class ProjectModelTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     annotate(project, elaborated.ref, reviewer, comment, target)
 
-    def test_logical_ir_requires_both_exact_current_approvals(self):
+    def test_logical_ir_requires_exact_current_reviewed_snapshots(self):
         project = self.populated()
         elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
         tests = project.current(ArtifactKind.TEST_SPEC)
-        with self.assertRaisesRegex(ValueError, "explicit approval"):
+        with self.assertRaisesRegex(ValueError, "reviewed"):
             add_logical_ir(project, "logical")
         project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
-        with self.assertRaisesRegex(ValueError, "explicit approval"):
-            add_logical_ir(project, "logical")
         project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        with self.assertRaisesRegex(ValueError, "reviewed"):
+            add_logical_ir(project, "logical")
+        project = self.reviewed(self.populated(), "reviewed elaborated", "reviewed tests")
         project = add_logical_ir(project, "logical")
         logical = project.current(ArtifactKind.LOGICAL_IR)
-        self.assertEqual((elaborated.ref, tests.ref), logical.upstream)
+        self.assertEqual((
+            project.current(ArtifactKind.REVIEWED_ELABORATED_SPEC).ref,
+            project.current(ArtifactKind.REVIEWED_TEST_SPEC).ref,
+        ), logical.upstream)
 
     def test_generic_artifact_api_cannot_bypass_logical_ir_review_gate(self):
         project = self.populated()
@@ -136,10 +151,7 @@ class ProjectModelTests(unittest.TestCase):
 
     def test_structured_logical_ir_persists_hash_bound_review(self):
         project = self.populated()
-        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
-        tests = project.current(ArtifactKind.TEST_SPEC)
-        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
-        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        project = self.reviewed(project)
         document = LogicalIRDocument(
             "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),),
             (Contract("contract.work", "work", ("Value",), "Value", (), (), (), ("REQ-1",), True),),
@@ -154,10 +166,7 @@ class ProjectModelTests(unittest.TestCase):
 
     def test_deserialization_rejects_logical_review_bound_to_forged_hash(self):
         project = self.populated()
-        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
-        tests = project.current(ArtifactKind.TEST_SPEC)
-        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
-        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        project = self.reviewed(project)
         document = LogicalIRDocument(
             "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),), (), (), (), (),
         )
@@ -177,10 +186,7 @@ class ProjectModelTests(unittest.TestCase):
 
     def test_persisted_finding_transition_and_exact_compile_admission(self):
         project = self.populated()
-        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
-        tests = project.current(ArtifactKind.TEST_SPEC)
-        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
-        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        project = self.reviewed(project)
         document = LogicalIRDocument(
             "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),), (),
             (RequirementObligation("REQ-1", (), ("REQ-1",)),), (), (),
@@ -208,10 +214,7 @@ class ProjectModelTests(unittest.TestCase):
 
     def admitted_project(self):
         project = self.populated()
-        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
-        tests = project.current(ArtifactKind.TEST_SPEC)
-        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
-        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        project = self.reviewed(project)
         document = LogicalIRDocument(
             "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),),
             (Contract("contract.work", "work", ("Value",), "Value", (), (), (), ("REQ-1",), True),),
@@ -482,10 +485,7 @@ class ProjectModelTests(unittest.TestCase):
 
     def test_compile_admission_rejects_deferred_and_stale_review(self):
         project = self.populated()
-        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
-        tests = project.current(ArtifactKind.TEST_SPEC)
-        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
-        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        project = self.reviewed(project)
         document = LogicalIRDocument(
             "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),), (),
             (RequirementObligation("REQ-1", (), ("REQ-1",)),), (), (),
@@ -508,10 +508,7 @@ class ProjectModelTests(unittest.TestCase):
 
     def test_deserialization_rejects_dropped_or_rewritten_logical_finding(self):
         project = self.populated()
-        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
-        tests = project.current(ArtifactKind.TEST_SPEC)
-        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
-        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        project = self.reviewed(project)
         document = LogicalIRDocument(
             "Demo", (TypeDeclaration("type.Value", "Value", ("REQ-1",)),), (),
             (RequirementObligation("REQ-1", (), ("REQ-1",)),), (), (),
@@ -536,24 +533,32 @@ class ProjectModelTests(unittest.TestCase):
     def test_revoking_input_approval_invalidates_logical_ir(self):
         project = self.populated()
         elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
-        tests = project.current(ArtifactKind.TEST_SPEC)
-        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
-        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        project = self.reviewed(project)
         project = add_logical_ir(project, "logical")
         logical = project.current(ArtifactKind.LOGICAL_IR)
         changed = decide(project, elaborated.ref, ApprovalDecision.CHANGES_REQUESTED, "ben", "revise")
         self.assertIsNone(changed.current(ArtifactKind.LOGICAL_IR))
         self.assertEqual(ArtifactState.INVALIDATED, changed.artifact(logical.artifact_id).state)
 
-    def test_deserialization_rejects_logical_ir_without_approvals(self):
+    def test_deserialization_rejects_logical_ir_without_review_approvals(self):
         project = self.populated()
-        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
-        tests = project.current(ArtifactKind.TEST_SPEC)
-        project = decide(project, elaborated.ref, ApprovalDecision.APPROVED, "ben")
-        project = decide(project, tests.ref, ApprovalDecision.APPROVED, "ben")
+        project = self.reviewed(project)
         payload = project_to_dict(add_logical_ir(project, "logical"))
         payload["approvals"] = []
-        with self.assertRaisesRegex(ValueError, "lacks exact input approvals"):
+        with self.assertRaisesRegex(ValueError, "reviewed snapshots"):
+            project_from_dict(payload)
+
+    def test_deserialization_rejects_logical_ir_bound_to_phase2_inputs(self):
+        project = self.reviewed(self.populated())
+        payload = project_to_dict(add_logical_ir(project, "logical"))
+        logical = next(item for item in payload["artifacts"] if item["kind"] == "logical-ir")
+        elaborated = project.current(ArtifactKind.ELABORATED_SPEC)
+        tests = project.current(ArtifactKind.TEST_SPEC)
+        logical["upstream"] = [
+            {"artifact_id": elaborated.artifact_id, "content_hash": elaborated.content_hash},
+            {"artifact_id": tests.artifact_id, "content_hash": tests.content_hash},
+        ]
+        with self.assertRaisesRegex(ValueError, "invalid reviewed inputs"):
             project_from_dict(payload)
 
     def test_deserialization_rejects_mutated_content(self):

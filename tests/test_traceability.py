@@ -12,7 +12,8 @@ from specatom_hs.traceability import (
 class TraceabilityReportTests(unittest.TestCase):
     def provenance(self):
         phases = (
-            "original-spec", "elaborated-spec", "test-spec", "logical-ir",
+            "original-spec", "elaborated-spec", "test-spec",
+            "reviewed-elaborated-spec", "reviewed-test-spec", "logical-ir",
             "compiler-output", "sandbox-handoff", "test-result",
         )
         return tuple(ProvenanceLink(phase, f"artifact-{index}", "sha256:" + f"{index:x}" * 64) for index, phase in enumerate(phases))
