@@ -12,6 +12,17 @@ from specatom_hs.evaluation import evaluate_plain
 app = Flask(__name__)
 
 
+@app.get("/api/health")
+def health():
+    """Cheap readiness probe that does not execute generated code."""
+    return jsonify(
+        status="ready",
+        service="plain2metta-v2-evaluation",
+        generator="deterministic-reference:v1",
+        sandbox="bounded-local-python:v1",
+    )
+
+
 @app.get("/")
 def index():
     return render_template("index.html")
