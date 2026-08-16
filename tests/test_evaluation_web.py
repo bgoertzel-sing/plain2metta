@@ -5,7 +5,10 @@ from webapp.app import app
 class EvaluationWebTests(unittest.TestCase):
     def setUp(self): self.client = app.test_client()
     def test_browser_and_api_smoke(self):
-        self.assertEqual(200, self.client.get("/").status_code)
+        browser = self.client.get("/")
+        self.assertEqual(200, browser.status_code)
+        self.assertIn(b'type="file"', browser.data)
+        self.assertIn(b'accept=".plain,text/plain"', browser.data)
         health = self.client.get("/api/health")
         self.assertEqual(200, health.status_code)
         self.assertEqual("ready", health.get_json()["status"])
