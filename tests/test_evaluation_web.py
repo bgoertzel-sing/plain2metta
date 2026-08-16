@@ -12,5 +12,7 @@ class EvaluationWebTests(unittest.TestCase):
         response = self.client.post("/api/evaluate", json={"text": "***requirements***\n- [id:REQ-1] Reply.\n"})
         self.assertEqual(200, response.status_code)
         self.assertEqual(0, response.get_json()["sandbox"]["exit_code"])
+        self.assertFalse(response.get_json()["claim_evidence"]["metta"]["executed"])
+        self.assertTrue(response.get_json()["claim_evidence"]["python"]["tested"])
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)

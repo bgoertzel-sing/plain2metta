@@ -9,6 +9,10 @@ class EvaluationTests(unittest.TestCase):
         self.assertEqual("passing", result["traceability"]["entries"][0]["status"])
         self.assertIn("not runtime-validated", result["labels"]["metta"])
         self.assertTrue(result["outputs"]["metta_balanced"])
+        self.assertFalse(result["claim_evidence"]["metta"]["executed"])
+        self.assertFalse(result["claim_evidence"]["metta"]["runtime_validated"])
+        self.assertTrue(result["claim_evidence"]["python"]["executed"])
+        self.assertTrue(result["claim_evidence"]["python"]["tested"])
         self.assertEqual("traceability-report", result["artifacts"][-1]["kind"])
 
     def test_blank_and_oversize_inputs_fail_closed(self):
