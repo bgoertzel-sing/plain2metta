@@ -58,6 +58,19 @@ bundled.
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
+## Private evaluation UI
+
+The evaluation UI runs the immutable v2 review/IR chain, a deterministic
+reference generator, and generated Python in a resource-bounded subprocess.
+MeTTa is syntax-checked but is not claimed runtime-validated. Bind only to
+localhost or an exact Tailnet address:
+
+```bash
+python3 -m venv .venv
+.venv/bin/pip install -r webapp/requirements.txt
+.venv/bin/python webapp/app.py --host 127.0.0.1 --port 8080
+```
+
 ## Minimal scaffold API
 
 ```python

@@ -1,0 +1,13 @@
+import unittest
+from webapp.app import app
+
+
+class EvaluationWebTests(unittest.TestCase):
+    def setUp(self): self.client = app.test_client()
+    def test_browser_and_api_smoke(self):
+        self.assertEqual(200, self.client.get("/").status_code)
+        response = self.client.post("/api/evaluate", json={"text": "***requirements***\n- [id:REQ-1] Reply.\n"})
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(0, response.get_json()["sandbox"]["exit_code"])
+    def test_api_schema_fails_closed(self):
+        self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
