@@ -130,7 +130,7 @@ def evaluate_plain(source: str, reviewer: str = "evaluation-reviewer") -> dict:
     return {
         "labels": {
             "metta": "generated / syntax-checked; not runtime-validated",
-            "python": "generated / sandbox-executed" if status == "passed" else "generated / sandbox-failed",
+            "python": "generated / sandbox-executed / self-tests passed; not independently validated" if status == "passed" else "generated / sandbox-failed; not validated",
             "generator": "deterministic reference generator; no LLM/provider",
         },
         "claim_evidence": {
@@ -147,8 +147,8 @@ def evaluate_plain(source: str, reviewer: str = "evaluation-reviewer") -> dict:
                 "syntax_checked": True,
                 "executed": True,
                 "tested": status == "passed",
-                "runtime_validated": status == "passed",
-                "evidence": "bounded subprocess exit and per-requirement acceptance-test records",
+                "runtime_validated": False,
+                "evidence": "bounded subprocess exit and generated per-requirement self-test records; no independent oracle or production runtime validation",
             },
         },
         "input": source,

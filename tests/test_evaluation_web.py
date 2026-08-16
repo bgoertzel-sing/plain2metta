@@ -14,5 +14,7 @@ class EvaluationWebTests(unittest.TestCase):
         self.assertEqual(0, response.get_json()["sandbox"]["exit_code"])
         self.assertFalse(response.get_json()["claim_evidence"]["metta"]["executed"])
         self.assertTrue(response.get_json()["claim_evidence"]["python"]["tested"])
+        self.assertFalse(response.get_json()["claim_evidence"]["python"]["runtime_validated"])
+        self.assertIn("not independently validated", response.get_json()["labels"]["python"])
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
