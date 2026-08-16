@@ -22,7 +22,8 @@ def health():
         status="ready",
         service="plain2metta-v2-evaluation",
         generator="deterministic-reference:v1",
-        sandbox="bounded-local-python:v1",
+        sandbox="bounded-local-dual-runtime:v1",
+        metta_runtime="hyperon-cli:0.2.10",
     )
 
 

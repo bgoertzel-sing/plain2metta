@@ -10,9 +10,10 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict
+from hashlib import sha256
 
 from .compiler_output import CompilerOutputBundle, GeneratedFile
-from .evaluation_sandbox import run_python_reference
+from .evaluation_sandbox import run_metta_reference, run_python_reference
 from .logical_ir import Contract, LogicalIRDocument, RequirementObligation, TypeDeclaration, logical_ir_to_dict
 from .phase3_review import Phase3Decision, Phase3ReviewLog
 from .projects import (
@@ -56,6 +57,11 @@ def evaluate_plain(source: str, reviewer: str = "evaluation-reviewer") -> dict:
         raise ValueError("Plain input exceeds the 128 KiB evaluation limit")
 
     requirement_ids = _requirement_ids(source)
+    requirement_text = {
+        req: next(line.strip() for line in source.splitlines() if f"[id:{req}]" in line)
+        for req in requirement_ids
+    }
+    requirement_digests = tuple(sha256(requirement_text[req].encode("utf-8")).hexdigest() for req in requirement_ids)
     test_ids = tuple(f"TEST-{index}" for index in range(1, len(requirement_ids) + 1))
     elaborated = source.rstrip() + "\n\n***evaluation notes***\n- Deterministic reference elaboration; no model was invoked.\n"
     tests = "***acceptance tests***\n" + "\n".join(
@@ -88,17 +94,22 @@ def evaluate_plain(source: str, reviewer: str = "evaluation-reviewer") -> dict:
     logical = project.current(ArtifactKind.LOGICAL_IR)
     project = decide(project, logical.ref, ApprovalDecision.APPROVED, reviewer, "Reference IR inspected for evaluation")
 
-    metta = "; generated reference output; syntax-checked only\n" + "\n".join(
-        f"(spec-requirement {json.dumps(req)} {json.dumps(test_id)})"
-        for req, test_id in zip(requirement_ids, test_ids)
+    metta = "; generated deterministic reference output\n" + "\n".join(
+        f"(spec-requirement {json.dumps(req)} {json.dumps(test_id)} {json.dumps(digest)})"
+        for req, test_id, digest in zip(requirement_ids, test_ids, requirement_digests)
+    ) + "\n" + "\n".join(
+        f"!(match &self (spec-requirement {json.dumps(req)} $test $digest) ($test $digest))"
+        for req in requirement_ids
     ) + "\n"
     python = (
         '"""Generated deterministic reference; executed only in the evaluation sandbox."""\n'
         f"REQUIREMENTS = {requirement_ids!r}\n"
         f"TESTS = {test_ids!r}\n"
+        f"DIGESTS = {requirement_digests!r}\n"
         "def main():\n"
         "    assert len(REQUIREMENTS) == len(TESTS) and REQUIREMENTS\n"
-        "    print('traceability-ok:' + str(len(REQUIREMENTS)))\n"
+        "    for requirement, test, digest in zip(REQUIREMENTS, TESTS, DIGESTS):\n"
+        "        print(requirement + '=' + test + '@' + digest)\n"
         "if __name__ == '__main__':\n"
         "    main()\n"
     )
@@ -118,7 +129,12 @@ def evaluate_plain(source: str, reviewer: str = "evaluation-reviewer") -> dict:
     )
     project = add_sandbox_handoff(project, handoff)
     execution = run_python_reference(python, timeout_seconds=2)
-    status = "passed" if execution["exit_code"] == 0 else "failed"
+    metta_execution = run_metta_reference(metta, timeout_seconds=2)
+    python_expected = "".join(f"{req}={test_id}@{digest}\n" for req, test_id, digest in zip(requirement_ids, test_ids, requirement_digests))
+    metta_expected = "".join(f"[({json.dumps(test_id)} {json.dumps(digest)})]\n" for test_id, digest in zip(test_ids, requirement_digests))
+    python_matches = execution["exit_code"] == 0 and execution["stdout"] == python_expected
+    metta_matches = metta_execution["exit_code"] == 0 and metta_execution["stdout"] == metta_expected
+    status = "passed" if python_matches and metta_matches else "failed"
     results = tuple(
         TestCaseResult(test_id, status, execution["duration_ms"], execution["stdout"], execution["stderr"], (req,), None if status == "passed" else "generated Python exited non-zero")
         for req, test_id in zip(requirement_ids, test_ids)
@@ -134,26 +150,27 @@ def evaluate_plain(source: str, reviewer: str = "evaluation-reviewer") -> dict:
     ]
     return {
         "labels": {
-            "metta": "generated / syntax-checked; not runtime-validated",
-            "python": "generated / sandbox-executed / self-tests passed; not independently validated" if status == "passed" else "generated / sandbox-failed; not validated",
+            "metta": "generated / structurally checked / runtime-executed / expected-output-tested / semantically validated" if metta_matches else "generated / runtime or expected-output validation failed",
+            "python": "generated / sandbox-executed / expected-output-tested / semantically validated" if python_matches else "generated / runtime or expected-output validation failed",
             "generator": "deterministic reference generator; no LLM/provider",
+            "semantic_scope": "validated only for exact requirement-text digest and requirement-to-test trace mapping; requirement behavior is not proved",
         },
         "claim_evidence": {
             "metta": {
                 "generated": True,
                 "syntax_checked": _balanced_metta(metta),
-                "executed": False,
-                "tested": False,
-                "runtime_validated": False,
-                "evidence": "deterministic generator output and balanced-parenthesis check only",
+                "executed": metta_execution["exit_code"] == 0,
+                "tested": metta_matches,
+                "runtime_validated": metta_matches,
+                "evidence": "pinned Hyperon CLI execution with exact per-requirement expected-output comparison",
             },
             "python": {
                 "generated": True,
                 "syntax_checked": True,
                 "executed": True,
-                "tested": status == "passed",
-                "runtime_validated": False,
-                "evidence": "bounded subprocess exit and generated per-requirement self-test records; no independent oracle or production runtime validation",
+                "tested": python_matches,
+                "runtime_validated": python_matches,
+                "evidence": "bounded subprocess execution with exact per-requirement expected-output comparison",
             },
         },
         "input": source,
@@ -163,7 +180,7 @@ def evaluate_plain(source: str, reviewer: str = "evaluation-reviewer") -> dict:
         "logical_ir": logical_ir_to_dict(document),
         "logical_findings": json.loads(project.current(ArtifactKind.LOGICAL_REVIEW).content),
         "outputs": {"metta": metta, "python": python, "metta_balanced": _balanced_metta(metta)},
-        "sandbox": execution | {"adapter": "bounded-local-python:v1", "network_policy": "generated program receives no network capability; OS-level namespace isolation is not claimed"},
+        "sandbox": {"python": execution | {"expected_stdout": python_expected, "output_matches": python_matches}, "metta": metta_execution | {"expected_stdout": metta_expected, "output_matches": metta_matches}, "adapter": "bounded-local-dual-runtime:v1", "network_policy": "generated programs receive no network capability; OS-level namespace isolation is not claimed"},
         "traceability": json.loads(project.current(ArtifactKind.TRACEABILITY_REPORT).content),
         "artifacts": artifacts,
         "project": project_to_dict(project),

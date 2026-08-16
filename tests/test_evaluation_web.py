@@ -1,5 +1,7 @@
 import unittest
+from unittest.mock import patch
 from webapp.app import app
+from specatom_hs.evaluation import evaluate_plain
 
 
 class EvaluationWebTests(unittest.TestCase):
@@ -20,11 +22,14 @@ class EvaluationWebTests(unittest.TestCase):
         self.assertEqual("ready", health.get_json()["status"])
         response = self.client.post("/api/evaluate", json={"text": "***requirements***\n- [id:REQ-1] Reply.\n"})
         self.assertEqual(200, response.status_code)
-        self.assertEqual(0, response.get_json()["sandbox"]["exit_code"])
-        self.assertFalse(response.get_json()["claim_evidence"]["metta"]["executed"])
+        self.assertEqual(0, response.get_json()["sandbox"]["python"]["exit_code"])
+        self.assertEqual(0, response.get_json()["sandbox"]["metta"]["exit_code"])
+        self.assertTrue(response.get_json()["claim_evidence"]["metta"]["executed"])
+        self.assertTrue(response.get_json()["claim_evidence"]["metta"]["runtime_validated"])
         self.assertTrue(response.get_json()["claim_evidence"]["python"]["tested"])
-        self.assertFalse(response.get_json()["claim_evidence"]["python"]["runtime_validated"])
-        self.assertIn("not independently validated", response.get_json()["labels"]["python"])
+        self.assertTrue(response.get_json()["claim_evidence"]["python"]["runtime_validated"])
+        self.assertTrue(response.get_json()["sandbox"]["metta"]["output_matches"])
+        self.assertTrue(response.get_json()["sandbox"]["python"]["output_matches"])
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text": 3}).status_code)
@@ -33,6 +38,17 @@ class EvaluationWebTests(unittest.TestCase):
         response = self.client.post("/api/evaluate", json={"text": "x" * 128_001})
         self.assertEqual(413, response.status_code)
         self.assertIn("128 KiB", response.get_json()["error"])
+
+    def test_metta_expected_output_mismatch_fails_validation(self):
+        mismatched = {"exit_code": 0, "stdout": '["WRONG"]\n', "stderr": "", "duration_ms": 1,
+                      "runtime": "hyperon-cli", "runtime_version": "0.2.10",
+                      "runtime_path": "metta", "limits": {}}
+        with patch("specatom_hs.evaluation.run_metta_reference", return_value=mismatched):
+            result = evaluate_plain("***requirements***\n- [id:REQ-1] Reply.\n")
+        self.assertTrue(result["claim_evidence"]["metta"]["executed"])
+        self.assertFalse(result["claim_evidence"]["metta"]["tested"])
+        self.assertFalse(result["claim_evidence"]["metta"]["runtime_validated"])
+        self.assertFalse(result["sandbox"]["metta"]["output_matches"])
 
     def test_examples_are_all_accepted_without_invented_requirement_ids(self):
         examples = self.client.get("/api/examples").get_json()

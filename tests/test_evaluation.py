@@ -5,12 +5,13 @@ from specatom_hs.evaluation import evaluate_plain
 class EvaluationTests(unittest.TestCase):
     def test_full_reference_chain_is_traceable_and_truthfully_labeled(self):
         result = evaluate_plain("***requirements***\n- [id:REQ-1] Reply.\n")
-        self.assertEqual(0, result["sandbox"]["exit_code"])
+        self.assertEqual(0, result["sandbox"]["python"]["exit_code"])
+        self.assertEqual(0, result["sandbox"]["metta"]["exit_code"])
         self.assertEqual("passing", result["traceability"]["entries"][0]["status"])
-        self.assertIn("not runtime-validated", result["labels"]["metta"])
+        self.assertIn("semantically validated", result["labels"]["metta"])
         self.assertTrue(result["outputs"]["metta_balanced"])
-        self.assertFalse(result["claim_evidence"]["metta"]["executed"])
-        self.assertFalse(result["claim_evidence"]["metta"]["runtime_validated"])
+        self.assertTrue(result["claim_evidence"]["metta"]["executed"])
+        self.assertTrue(result["claim_evidence"]["metta"]["runtime_validated"])
         self.assertTrue(result["claim_evidence"]["python"]["executed"])
         self.assertTrue(result["claim_evidence"]["python"]["tested"])
         self.assertEqual("traceability-report", result["artifacts"][-1]["kind"])
