@@ -17,8 +17,10 @@ The Plain2MeTTa v2 seams are `specatom_hs.projects` and
 artifact versions, SHA-256 content provenance, approvals bound to exact
 artifact versions, transitive invalidation after an upstream change, and a
 strict versioned dictionary representation, plus a non-executable logical-IR
-schema and hash-bound machine-readable review findings. It does not yet perform
-LLM elaboration, executable compilation, or execution.
+schema and hash-bound machine-readable review findings. Provider-neutral,
+explicitly injected single-call seams exist for elaboration and inert compiler
+output, but no concrete provider, production compiler, or host executor is
+bundled.
 
 ## What is intentionally supported
 
