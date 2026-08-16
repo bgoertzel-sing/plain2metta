@@ -60,10 +60,14 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 ## Private evaluation UI
 
-The evaluation UI runs the immutable v2 review/IR chain, a deterministic
-reference generator, and generated Python in a resource-bounded subprocess.
-MeTTa is syntax-checked but is not claimed runtime-validated. Bind only to
-localhost or an exact Tailnet address:
+The evaluation UI runs the immutable v2 review/IR chain and a deterministic
+reference generator. Generated MeTTa runs under pinned Hyperon CLI 0.2.10 and
+generated Python runs in a resource-bounded subprocess. The three bundled
+graduated examples have exact, example-specific expected-output assertions;
+reworded or arbitrary specifications still run but fail closed as not
+semantically validated. Passing assertions are test evidence, not proof of
+arbitrary natural-language behavior. Bind only to localhost or an exact
+Tailnet address:
 
 ```bash
 python3 -m venv .venv

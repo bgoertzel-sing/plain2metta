@@ -1,4 +1,5 @@
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 from webapp.app import app
 from specatom_hs.evaluation import evaluate_plain
@@ -20,7 +21,8 @@ class EvaluationWebTests(unittest.TestCase):
         health = self.client.get("/api/health")
         self.assertEqual(200, health.status_code)
         self.assertEqual("ready", health.get_json()["status"])
-        response = self.client.post("/api/evaluate", json={"text": "***requirements***\n- [id:REQ-1] Reply.\n"})
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+        response = self.client.post("/api/evaluate", json={"text": source})
         self.assertEqual(200, response.status_code)
         self.assertEqual(0, response.get_json()["sandbox"]["python"]["exit_code"])
         self.assertEqual(0, response.get_json()["sandbox"]["metta"]["exit_code"])
@@ -44,11 +46,24 @@ class EvaluationWebTests(unittest.TestCase):
                       "runtime": "hyperon-cli", "runtime_version": "0.2.10",
                       "runtime_path": "metta", "limits": {}}
         with patch("specatom_hs.evaluation.run_metta_reference", return_value=mismatched):
-            result = evaluate_plain("***requirements***\n- [id:REQ-1] Reply.\n")
+            source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+            result = evaluate_plain(source)
         self.assertTrue(result["claim_evidence"]["metta"]["executed"])
         self.assertFalse(result["claim_evidence"]["metta"]["tested"])
         self.assertFalse(result["claim_evidence"]["metta"]["runtime_validated"])
         self.assertFalse(result["sandbox"]["metta"]["output_matches"])
+        self.assertFalse(result["semantic_validation"]["passed"])
+
+    def test_python_exit_zero_output_mismatch_fails_validation(self):
+        mismatched = {"exit_code": 0, "stdout": "plausible-but-wrong\n", "stderr": "", "duration_ms": 1,
+                      "limits": {}}
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/02_task_list.plain").read_text()
+        with patch("specatom_hs.evaluation.run_python_reference", return_value=mismatched):
+            result = evaluate_plain(source)
+        self.assertTrue(result["claim_evidence"]["python"]["executed"])
+        self.assertFalse(result["claim_evidence"]["python"]["expected_output_tested"])
+        self.assertFalse(result["claim_evidence"]["python"]["semantically_validated"])
+        self.assertFalse(result["semantic_validation"]["passed"])
 
     def test_examples_are_all_accepted_without_invented_requirement_ids(self):
         examples = self.client.get("/api/examples").get_json()
