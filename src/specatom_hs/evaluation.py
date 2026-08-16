@@ -257,6 +257,9 @@ def evaluate_plain(source: str, reviewer: str = "evaluation-reviewer") -> dict:
             "semantic_scope": "example-specific executable assertions validate the named supported profile; this is test evidence, not a proof of arbitrary natural-language behavior",
         },
         "claim_evidence": {
+            "behavior_profile": behavior.name if behavior else None,
+            "behavior_assertions": list(behavior.assertions) if behavior else [],
+            "semantic_validation_passed": behavior_validated,
             "metta": {
                 "generated": True,
                 "syntax_checked": _balanced_metta(metta),

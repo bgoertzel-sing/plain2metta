@@ -32,6 +32,8 @@ class EvaluationTests(unittest.TestCase):
                 self.assertEqual(profile, validation["profile"])
                 self.assertTrue(validation["passed"])
                 self.assertEqual(count, len(validation["assertions"]))
+                self.assertEqual(profile, result["claim_evidence"]["behavior_profile"])
+                self.assertEqual(count, len(result["claim_evidence"]["behavior_assertions"]))
                 self.assertIn(output_marker, result["sandbox"]["python"]["stdout"])
                 self.assertTrue(result["sandbox"]["metta"]["output_matches"])
 
