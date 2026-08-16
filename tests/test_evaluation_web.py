@@ -21,6 +21,12 @@ class EvaluationWebTests(unittest.TestCase):
         self.assertIn("not independently validated", response.get_json()["labels"]["python"])
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
+        self.assertEqual(400, self.client.post("/api/evaluate", json={"text": 3}).status_code)
+
+    def test_api_spec_size_fails_closed(self):
+        response = self.client.post("/api/evaluate", json={"text": "x" * 128_001})
+        self.assertEqual(413, response.status_code)
+        self.assertIn("128 KiB", response.get_json()["error"])
 
     def test_examples_are_all_accepted_without_invented_requirement_ids(self):
         examples = self.client.get("/api/examples").get_json()

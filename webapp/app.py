@@ -10,6 +10,9 @@ from flask import Flask, jsonify, render_template, request
 from specatom_hs.evaluation import evaluate_plain
 
 app = Flask(__name__)
+MAX_SPEC_BYTES = 128_000
+# Bound the complete JSON request as well as the decoded specification below.
+app.config["MAX_CONTENT_LENGTH"] = MAX_SPEC_BYTES + 4_096
 
 
 @app.get("/api/health")
@@ -39,8 +42,13 @@ def evaluate():
     body = request.get_json(silent=True)
     if not isinstance(body, dict) or set(body) != {"text"}:
         return jsonify(error="body must be exactly {text: string}"), 400
+    text = body["text"]
+    if not isinstance(text, str):
+        return jsonify(error="text must be a string"), 400
+    if len(text.encode("utf-8")) > MAX_SPEC_BYTES:
+        return jsonify(error="text exceeds the 128 KiB evaluation limit"), 413
     try:
-        return jsonify(evaluate_plain(body["text"]))
+        return jsonify(evaluate_plain(text))
     except (TypeError, ValueError) as error:
         return jsonify(error=str(error)), 422
 
