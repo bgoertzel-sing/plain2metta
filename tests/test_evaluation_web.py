@@ -9,6 +9,8 @@ class EvaluationWebTests(unittest.TestCase):
         self.assertEqual(200, browser.status_code)
         self.assertIn(b'type="file"', browser.data)
         self.assertIn(b'accept=".plain,text/plain"', browser.data)
+        self.assertIn(b'id="download"', browser.data)
+        self.assertIn(b'plain2metta-evaluation-evidence.json', browser.data)
         health = self.client.get("/api/health")
         self.assertEqual(200, health.status_code)
         self.assertEqual("ready", health.get_json()["status"])
