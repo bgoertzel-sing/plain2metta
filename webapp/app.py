@@ -30,7 +30,7 @@ def index():
 
 @app.get("/api/examples")
 def examples():
-    root = Path(__file__).resolve().parents[1] / "examples"
+    root = Path(__file__).resolve().parents[1] / "examples" / "evaluation"
     return jsonify({path.stem: path.read_text(encoding="utf-8") for path in sorted(root.glob("*.plain"))})
 
 

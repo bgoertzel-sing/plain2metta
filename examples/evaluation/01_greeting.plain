@@ -1,0 +1,6 @@
+***definitions***
+- :Greeting: is a text response associated with a request trace.
+
+***requirements***
+- [id:GREET-1] The service shall return a :Greeting: for each request.
+- [id:GREET-2] The :Greeting: shall retain the request trace identifier.

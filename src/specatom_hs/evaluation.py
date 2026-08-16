@@ -28,8 +28,13 @@ _ID = re.compile(r"\[id:([A-Za-z][A-Za-z0-9_.-]{0,63})\]")
 
 
 def _requirement_ids(source: str) -> tuple[str, ...]:
-    found = tuple(dict.fromkeys(_ID.findall(source)))
-    return found or ("REQ-1",)
+    found = _ID.findall(source)
+    if not found:
+        raise ValueError("Plain input must declare at least one explicit [id:...] requirement")
+    duplicates = sorted({value for value in found if found.count(value) > 1})
+    if duplicates:
+        raise ValueError("Plain input contains duplicate requirement IDs: " + ", ".join(duplicates))
+    return tuple(found)
 
 
 def _balanced_metta(text: str) -> bool:

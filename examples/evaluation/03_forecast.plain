@@ -1,0 +1,9 @@
+***definitions***
+- :Observation: is a timestamped numeric measurement.
+- :Forecast: is a prediction for a declared future horizon.
+
+***requirements***
+- [id:FORECAST-1] The pipeline shall train only on :Observation: records earlier than the evaluation window.
+- [id:FORECAST-2] The pipeline shall emit one :Forecast: for the declared horizon.
+- [id:FORECAST-3] The evaluation shall compare each :Forecast: with a named baseline.
+- [id:FORECAST-4] The evaluation shall report the split timestamps used for each result.

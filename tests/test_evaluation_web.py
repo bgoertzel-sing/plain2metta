@@ -18,3 +18,14 @@ class EvaluationWebTests(unittest.TestCase):
         self.assertIn("not independently validated", response.get_json()["labels"]["python"])
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
+
+    def test_examples_are_all_accepted_without_invented_requirement_ids(self):
+        examples = self.client.get("/api/examples").get_json()
+        self.assertGreaterEqual(len(examples), 3)
+        for name, source in examples.items():
+            with self.subTest(name=name):
+                response = self.client.post("/api/evaluate", json={"text": source})
+                self.assertEqual(200, response.status_code, response.get_json())
+                requirement_ids = [item["requirement_id"] for item in response.get_json()["logical_ir"]["obligations"]]
+                self.assertTrue(requirement_ids)
+                self.assertTrue(all(f"[id:{item}]" in source for item in requirement_ids))

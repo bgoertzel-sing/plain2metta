@@ -19,3 +19,12 @@ class EvaluationTests(unittest.TestCase):
         for source in ("", "x" * 128001):
             with self.subTest(size=len(source)), self.assertRaises(ValueError):
                 evaluate_plain(source)
+
+    def test_missing_and_duplicate_requirement_ids_fail_closed(self):
+        invalid = (
+            "***requirements***\n- Reply.\n",
+            "***requirements***\n- [id:REQ-1] Reply.\n- [id:REQ-1] Log.\n",
+        )
+        for source in invalid:
+            with self.subTest(source=source), self.assertRaises(ValueError):
+                evaluate_plain(source)

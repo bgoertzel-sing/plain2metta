@@ -1,0 +1,7 @@
+***definitions***
+- :Task: is a named unit of work owned by a :User:.
+
+***requirements***
+- [id:TASK-1] A :User: shall add a valid :Task: to the task list.
+- [id:TASK-2] The service shall reject a :Task: without a name.
+- [id:TASK-3] The service shall preserve the owner of every stored :Task:.
