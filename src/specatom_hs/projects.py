@@ -29,6 +29,14 @@ class ArtifactKind(str, Enum):
     SANDBOX_HANDOFF = "sandbox-handoff"
     TEST_RESULT = "test-result"
     TRACEABILITY_REPORT = "traceability-report"
+    SEMANTIC_CONTRACT = "semantic-contract"
+    VALIDATION_OBLIGATION = "validation-obligation"
+    VALIDATION_PLAN = "validation-plan"
+    INPUT_GENERATOR = "input-generator"
+    VALIDATION_ORACLE = "validation-oracle"
+    RUNTIME_EVIDENCE = "runtime-evidence"
+    COUNTEREXAMPLE = "counterexample"
+    VALIDATION_VERDICT = "validation-verdict"
 
 
 class ArtifactState(str, Enum):
@@ -149,7 +157,29 @@ def add_artifact(
         raise ValueError("use the phase-specific add_test_result transition API")
     if kind is ArtifactKind.TRACEABILITY_REPORT:
         raise ValueError("use the phase-specific add_traceability_report transition API")
+    if kind in {
+        ArtifactKind.SEMANTIC_CONTRACT, ArtifactKind.VALIDATION_OBLIGATION,
+        ArtifactKind.VALIDATION_PLAN, ArtifactKind.INPUT_GENERATOR,
+        ArtifactKind.VALIDATION_ORACLE, ArtifactKind.RUNTIME_EVIDENCE,
+        ArtifactKind.COUNTEREXAMPLE, ArtifactKind.VALIDATION_VERDICT,
+    }:
+        raise ValueError("use add_semantic_artifact to enforce semantic ancestry")
     return _add_derived_artifact(project, kind, content, upstream)
+
+
+def add_semantic_artifact(project: Project, document: object) -> Project:
+    """Persist one strict Stage-1 semantic document with exact ancestry."""
+    from .semantic_artifacts import canonical_semantic_artifact, validate_semantic_artifact
+
+    kind, refs = validate_semantic_artifact(document)
+    reviewed = project.current(ArtifactKind.REVIEWED_ELABORATED_SPEC)
+    if reviewed is None or reviewed.ref not in refs:
+        raise ValueError("semantic artifact must bind the exact current reviewed source")
+    for ref in refs:
+        target = project.artifact(ref.artifact_id)
+        if target.ref != ref or target.state is not ArtifactState.CURRENT:
+            raise ValueError("semantic artifact reference is stale or hash-mismatched")
+    return _add_derived_artifact(project, kind, canonical_semantic_artifact(document), refs)
 
 
 def add_admitted_elaboration(project: Project, request: object, response: object, admission: object) -> Project:
@@ -698,6 +728,24 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             raise ValueError("malformed project state: approved artifact lacks reviewer")
         if target.state is ArtifactState.INVALIDATED and approval.decision is not ApprovalDecision.INVALIDATED:
             raise ValueError("malformed project state: stale artifact has active approval")
+    semantic_kinds = {
+        ArtifactKind.SEMANTIC_CONTRACT, ArtifactKind.VALIDATION_OBLIGATION,
+        ArtifactKind.VALIDATION_PLAN, ArtifactKind.INPUT_GENERATOR,
+        ArtifactKind.VALIDATION_ORACLE, ArtifactKind.RUNTIME_EVIDENCE,
+        ArtifactKind.COUNTEREXAMPLE, ArtifactKind.VALIDATION_VERDICT,
+    }
+    from .semantic_artifacts import semantic_artifact_from_dict, validate_semantic_artifact
+    import json
+    for artifact in artifacts:
+        if artifact.kind not in semantic_kinds:
+            continue
+        try:
+            document = semantic_artifact_from_dict(json.loads(artifact.content))
+            kind, refs = validate_semantic_artifact(document)
+        except (json.JSONDecodeError, ValueError) as exc:
+            raise ValueError(f"malformed project state: invalid semantic artifact: {exc}") from exc
+        if kind is not artifact.kind or refs != artifact.upstream:
+            raise ValueError("malformed project state: semantic artifact envelope does not match stored ancestry")
     elaboration_log = project.current(ArtifactKind.ELABORATION_LOG)
     if elaboration_log is not None:
         from .elaboration_protocol import (
