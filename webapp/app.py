@@ -2,17 +2,32 @@
 from __future__ import annotations
 
 import argparse
+import io
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request
 from specatom_hs.evaluation import evaluate_plain
 
 app = Flask(__name__)
 MAX_SPEC_BYTES = 128_000
 # Bound the complete JSON request as well as the decoded specification below.
 app.config["MAX_CONTENT_LENGTH"] = MAX_SPEC_BYTES + 4_096
+
+
+def _semantic_api_response():
+    """Delegate only configured semantic routes; production wiring stays injected."""
+    semantic = app.config.get("SEMANTIC_VALIDATION_APPLICATION")
+    if semantic is None:
+        return jsonify(error="semantic validation API is not configured"), 503
+    raw = request.get_data(cache=False)
+    environ = dict(request.environ)
+    environ["wsgi.input"] = io.BytesIO(raw)
+    environ["CONTENT_LENGTH"] = str(len(raw))
+    captured = {}
+    chunks = semantic(environ, lambda status, headers: captured.update(status=status, headers=headers))
+    return Response(b"".join(chunks), status=int(captured["status"].split()[0]), headers=dict(captured["headers"]))
 
 
 @app.get("/api/health")
@@ -52,6 +67,15 @@ def evaluate():
         return jsonify(evaluate_plain(text))
     except (TypeError, ValueError) as error:
         return jsonify(error=str(error)), 422
+
+
+@app.route("/api/validation-plan/<project_id>", methods=["GET", "POST"])
+@app.post("/api/validation-plan-review/<project_id>")
+@app.post("/api/semantic-test/<project_id>")
+@app.get("/api/semantic-results/<project_id>")
+@app.get("/api/semantic-trace/<project_id>")
+def semantic_validation_api(project_id):
+    return _semantic_api_response()
 
 
 if __name__ == "__main__":

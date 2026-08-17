@@ -75,6 +75,15 @@ python3 -m venv .venv
 .venv/bin/python webapp/app.py --host 127.0.0.1 --port 8080
 ```
 
+The optional Stage-9 semantic application is injected through
+`SEMANTIC_VALIDATION_APPLICATION`; it exposes only validation-plan GET/POST,
+plan-review POST, semantic-test POST, semantic-results GET, and semantic-trace
+GET. Metadata reads are body-free. Commands and exact-hash immutable artifact
+downloads require the embedding application's authorization policy. JSON is
+size-bounded and duplicate-key rejecting, and canonical project and obligation
+identities are required. The browser presents G0–G6 as separate evidence
+grades; unsupported input is never promoted to “semantically validated.”
+
 ## Finite semantic-contract calculus
 
 `specatom_hs.contract_calculus` provides provider-free reference semantics for
