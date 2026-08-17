@@ -208,6 +208,50 @@ class ValidationPlanTests(unittest.TestCase):
         self.assertIsNone(changed.current(ArtifactKind.RUNTIME_EVIDENCE))
         self.assertIsNone(changed.current(ArtifactKind.COUNTEREXAMPLE))
 
+    def test_tlc_lowering_requires_exact_approval_and_evidence_invalidates_transitively(self):
+        from specatom_hs.tlc_backend import TLCCoordinator, lower_tlc_request, run_tlc_request
+        tools = "/home/openclaw/research-agent/projects/specatom-hs/experiments/20260817T040300Z-plain2metta-stage0-tlc-lean/artifacts/tools"
+        def with_model(response):
+            response["plan_payload"]["state_models"] = [{"model_id":"auth-order", "source_clause_refs":["R-1"], "protocol":"authentication-ordering", "scope":{"max_steps":12,"actors":2}, "mutant":"ordering"}]
+            return response
+        project = ValidationPlanCoordinator(self.adapter(mutate=with_model)).synthesize(self.project)
+        with self.assertRaisesRegex(ValueError, "approved"):
+            lower_tlc_request(project)
+        plan = project.current(ArtifactKind.VALIDATION_PLAN)
+        project = submit_plan_review(project, PlanReview(plan.ref, ApprovalDecision.APPROVED, "reviewer", "approve finite model", "2026-08-17T08:46:00Z"))
+        result = TLCCoordinator(lambda request: run_tlc_request(request, tools + "/jdk-21.0.12+8-jre/bin/java", tools + "/tla2tools.jar")).run(project)
+        self.assertIsNotNone(result.current(ArtifactKind.RUNTIME_EVIDENCE))
+        self.assertIsNotNone(result.current(ArtifactKind.COUNTEREXAMPLE))
+        self.assertEqual(result, project_from_dict(project_to_dict(result)))
+        changed = replace_source(result, "[id:R-1] Return hello!\n")
+        self.assertIsNone(changed.current(ArtifactKind.RUNTIME_EVIDENCE))
+        self.assertIsNone(changed.current(ArtifactKind.COUNTEREXAMPLE))
+
+    def test_tlc_misattributed_duplicate_and_hash_confused_results_fail_without_write(self):
+        from specatom_hs.tlc_backend import TLCCoordinator, run_tlc_request
+        tools = "/home/openclaw/research-agent/projects/specatom-hs/experiments/20260817T040300Z-plain2metta-stage0-tlc-lean/artifacts/tools"
+        def with_models(response):
+            response["plan_payload"]["state_models"] = [
+                {"model_id":"auth", "source_clause_refs":["R-1"], "protocol":"authentication-ordering", "scope":{"max_steps":12,"actors":2}, "mutant":"none"},
+                {"model_id":"idem", "source_clause_refs":["R-1"], "protocol":"idempotency-recovery", "scope":{"max_steps":12,"actors":2}, "mutant":"none"},
+            ]
+            return response
+        project = ValidationPlanCoordinator(self.adapter(mutate=with_models)).synthesize(self.project)
+        plan = project.current(ArtifactKind.VALIDATION_PLAN)
+        project = submit_plan_review(project, PlanReview(plan.ref, ApprovalDecision.APPROVED, "reviewer", "approve finite models", "2026-08-17T08:46:00Z"))
+        def execute(request):
+            return run_tlc_request(request, tools + "/jdk-21.0.12+8-jre/bin/java", tools + "/tla2tools.jar")
+        valid = execute(__import__("specatom_hs.tlc_backend", fromlist=["lower_tlc_request"]).lower_tlc_request(project))
+        variants = []
+        item=copy.deepcopy(valid); item["request_hash"]="sha256:"+"0"*64; variants.append(item)
+        item=copy.deepcopy(valid); item["results"][0]["module_hash"]="sha256:"+"0"*64; variants.append(item)
+        item=copy.deepcopy(valid); item["results"][1]=copy.deepcopy(item["results"][0]); variants.append(item)
+        item=copy.deepcopy(valid); item["results"][0]["source_map"]["scope"]["actors"]=4; variants.append(item)
+        for bad in variants:
+            with self.assertRaises(ValueError):
+                TLCCoordinator(lambda request, bad=bad: bad).run(project)
+            self.assertIsNone(project.current(ArtifactKind.RUNTIME_EVIDENCE))
+
 
 def build_validation_plan_request_to_wire(project):
     from specatom_hs.validation_plan import validation_plan_request_to_dict
