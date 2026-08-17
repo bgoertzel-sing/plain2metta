@@ -166,11 +166,16 @@ class EvaluationWebTests(unittest.TestCase):
         self.assertEqual([], projection["unresolved_holes"])
         self.assertEqual(payload["verdicts"][0]["residual_risk"], projection["residual_risk"])
 
-    def test_reworded_input_is_rejected_before_stage_1_storage(self):
+    def test_source_byte_mutation_is_rejected_before_legacy_or_stage_4_execution(self):
         source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text() + "\n"
-        response = self.client.post("/api/evaluate", json={"text": source})
+        with patch("webapp.app.evaluate_plain") as legacy, patch(
+            "specatom_hs.evaluation_vertical.HypothesisCoordinator.run"
+        ) as stage4:
+            response = self.client.post("/api/evaluate", json={"text": source})
         self.assertEqual(422, response.status_code)
         self.assertIn("unsupported or reworded", response.get_json()["error"])
+        legacy.assert_not_called()
+        stage4.assert_not_called()
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text": 3}).status_code)

@@ -65,8 +65,11 @@ class SemanticApiTests(unittest.TestCase):
     def test_browser_exposes_honest_evidence_views(self):
         body = app.test_client().get("/").data
         for marker in (b'evidence_graph', b'grade_vector', b'tool_details', b'counterexamples',
-                       b'assumptions_and_holes', b'G6', b'not semantically validated'):
+                       b'assumptions_and_holes', b'G6', b'never labeled semantically validated'):
             self.assertIn(marker, body)
+        self.assertIn(b'r.evidence_projection', body)
+        self.assertNotIn(b'let vector={G0:true', body)
+        self.assertNotIn(b'G4:false,G5:false,G6:false', body)
 
 
 if __name__ == "__main__": unittest.main()
