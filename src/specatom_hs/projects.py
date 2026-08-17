@@ -32,6 +32,7 @@ class ArtifactKind(str, Enum):
     SEMANTIC_CONTRACT = "semantic-contract"
     VALIDATION_OBLIGATION = "validation-obligation"
     VALIDATION_PLAN = "validation-plan"
+    VALIDATION_PLAN_REVIEW = "validation-plan-review"
     INPUT_GENERATOR = "input-generator"
     VALIDATION_ORACLE = "validation-oracle"
     RUNTIME_EVIDENCE = "runtime-evidence"
@@ -157,6 +158,8 @@ def add_artifact(
         raise ValueError("use the phase-specific add_test_result transition API")
     if kind is ArtifactKind.TRACEABILITY_REPORT:
         raise ValueError("use the phase-specific add_traceability_report transition API")
+    if kind is ArtifactKind.VALIDATION_PLAN_REVIEW:
+        raise ValueError("use add_validation_plan_review to enforce exact plan review")
     if kind in {
         ArtifactKind.SEMANTIC_CONTRACT, ArtifactKind.VALIDATION_OBLIGATION,
         ArtifactKind.VALIDATION_PLAN, ArtifactKind.INPUT_GENERATOR,
@@ -180,6 +183,16 @@ def add_semantic_artifact(project: Project, document: object) -> Project:
         if target.ref != ref or target.state is not ArtifactState.CURRENT:
             raise ValueError("semantic artifact reference is stale or hash-mismatched")
     return _add_derived_artifact(project, kind, canonical_semantic_artifact(document), refs)
+
+
+def add_validation_plan_review(project: Project, content: str, plan_ref: ArtifactRef) -> Project:
+    """Persist a strict review record only for the exact current plan."""
+    plan = project.current(ArtifactKind.VALIDATION_PLAN)
+    if plan is None or plan.ref != plan_ref:
+        raise ValueError("validation-plan review requires the exact current plan")
+    return _add_derived_artifact(
+        project, ArtifactKind.VALIDATION_PLAN_REVIEW, content, (plan.ref,),
+    )
 
 
 def add_admitted_elaboration(project: Project, request: object, response: object, admission: object) -> Project:
@@ -746,6 +759,11 @@ def project_from_dict(payload: Mapping[str, Any]) -> Project:
             raise ValueError(f"malformed project state: invalid semantic artifact: {exc}") from exc
         if kind is not artifact.kind or refs != artifact.upstream:
             raise ValueError("malformed project state: semantic artifact envelope does not match stored ancestry")
+    try:
+        from .validation_plan import validate_plan_review_chain
+        validate_plan_review_chain(project)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"malformed project state: invalid validation-plan review: {exc}") from exc
     elaboration_log = project.current(ArtifactKind.ELABORATION_LOG)
     if elaboration_log is not None:
         from .elaboration_protocol import (

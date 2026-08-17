@@ -58,7 +58,7 @@ class SemanticArtifactTests(unittest.TestCase):
         contract = project.current(ArtifactKind.SEMANTIC_CONTRACT)
         cases = {
             "ValidationObligation": {"obligation_id":"obligation:R-1","contract_ref":{"artifact_id":contract.artifact_id,"content_hash":contract.content_hash},"source_clause_refs":["R-1"],"claim":{"op":"eq"},"required_grade":"G3","admissible_methods":["example"],"domain":{"kind":"finite"},"assumptions":[],"severity":"major","unresolved":False},
-            "ValidationPlan": {"plan_id":"plan:R-1","reviewed_contract_refs":[{"artifact_id":contract.artifact_id,"content_hash":contract.content_hash}],"author_provenance":{"role":"validation-author"},"examples":[],"generators":[],"properties":[],"metamorphic_relations":[],"state_models":[],"differential_oracles":[],"formal_tasks":[],"coverage_claims":[]},
+            "ValidationPlan": {"plan_id":"plan:R-1","reviewed_contract_refs":[{"artifact_id":contract.artifact_id,"content_hash":contract.content_hash}],"author_provenance":{"role":"validation-author","request_hash":"sha256:"+"2"*64,"backend":"fixture","model":"fixture","interaction_id":"fixture-1"},"examples":[],"generators":[],"properties":[],"metamorphic_relations":[],"state_models":[],"differential_oracles":[],"formal_tasks":[],"coverage_claims":[]},
             "InputGenerator": {"generator_id":"generator:R-1","domain":{"kind":"finite"},"budget":10,"distribution":"enumerated","shrinker":"none","seed":1},
             "ValidationOracle": {"oracle_id":"oracle:R-1","method":"example","obligation_refs":[],"semantics":{"op":"eq"},"ownership_locus":"reference-interpreter","bounds":{"cases":1},"expected_observations":["hello"]},
             "RuntimeEvidence": {"evidence_id":"evidence:R-1","runtime":"python","runtime_hash":"sha256:"+"1"*64,"resource_bounds":{"seconds":1},"case_id":"case-1","seed":None,"observations":["hello"],"exit_status":0,"artifact_hashes":[contract.content_hash],"started_at":"2026-08-17T00:00:00Z","finished_at":"2026-08-17T00:00:01Z"},
@@ -106,7 +106,7 @@ class SemanticArtifactTests(unittest.TestCase):
         plan = build_semantic_artifact(
             "ValidationPlan", self.source.ref, [contract.ref, obligation_artifact.ref],
             dict(self.provenance, operation="plan-author", input_hashes=[self.source.content_hash, contract.content_hash, obligation_artifact.content_hash]),
-            {"plan_id":"plan:R-1","reviewed_contract_refs":[{"artifact_id":contract.artifact_id,"content_hash":contract.content_hash}],"author_provenance":{"role":"validation-author"},"examples":[],"generators":[],"properties":[],"metamorphic_relations":[],"state_models":[],"differential_oracles":[],"formal_tasks":[],"coverage_claims":[]},
+            {"plan_id":"plan:R-1","reviewed_contract_refs":[{"artifact_id":contract.artifact_id,"content_hash":contract.content_hash}],"author_provenance":{"role":"validation-author","request_hash":"sha256:"+"2"*64,"backend":"fixture","model":"fixture","interaction_id":"fixture-1"},"examples":[],"generators":[],"properties":[],"metamorphic_relations":[],"state_models":[],"differential_oracles":[],"formal_tasks":[],"coverage_claims":[]},
         )
         project = add_semantic_artifact(project, plan)
         plan_artifact = project.current(ArtifactKind.VALIDATION_PLAN)

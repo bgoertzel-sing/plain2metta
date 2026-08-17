@@ -132,6 +132,17 @@ def validate_semantic_artifact(document: object) -> tuple[ArtifactKind, tuple[Ar
         raise ValueError("invalid verdict status")
     if artifact_type == "ValidationObligation" and payload["severity"] not in {"critical", "major", "minor"}:
         raise ValueError("invalid obligation severity")
+    if artifact_type == "ValidationPlan":
+        provenance = _exact(payload["author_provenance"], {"role", "request_hash", "backend", "model", "interaction_id"}, "validation-plan author provenance")
+        if provenance["role"] != "validation-author" or any(not isinstance(provenance[key], str) or not provenance[key].strip() for key in provenance):
+            raise ValueError("validation-plan author provenance is invalid")
+        if not isinstance(payload["reviewed_contract_refs"], list) or not payload["reviewed_contract_refs"]:
+            raise ValueError("validation plan requires reviewed contracts")
+        if len({_ref(item, "reviewed contract") for item in payload["reviewed_contract_refs"]}) != len(payload["reviewed_contract_refs"]):
+            raise ValueError("validation plan has duplicate reviewed contracts")
+        for field in ("examples", "generators", "properties", "metamorphic_relations", "state_models", "differential_oracles", "formal_tasks", "coverage_claims"):
+            if not isinstance(payload[field], list):
+                raise ValueError(f"validation-plan {field} must be a list")
     return TYPE_TO_KIND[artifact_type], refs
 
 
