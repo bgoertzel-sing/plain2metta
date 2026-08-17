@@ -60,7 +60,7 @@ class ValidationPlanTests(unittest.TestCase):
                 "plan_id":"plan:R-1",
                 "reviewed_contract_refs":[{"artifact_id":contract.artifact_id,"content_hash":contract.content_hash}],
                 "author_provenance":{"role":"validation-author","request_hash":validation_plan_request_hash(req),"backend":"fixture","model":"independent-v1","interaction_id":"call-1"},
-                "examples":[{"input":[],"expected":"hello"}],"generators":[],"properties":[],
+                "examples":[{"case_id":"example:greeting","input":[],"expected":"hello"}],"generators":[],"properties":[],
                 "metamorphic_relations":[],"state_models":[],"differential_oracles":[],
                 "formal_tasks":[],"coverage_claims":["R-1"],
             }
@@ -153,6 +153,60 @@ class ValidationPlanTests(unittest.TestCase):
         review["content"] = review["content"].replace("reviewer", "forger")
         with self.assertRaises(ValueError): project_from_dict(payload)
         with self.assertRaises(ValueError): add_artifact(project, ArtifactKind.VALIDATION_PLAN_REVIEW, "{}", (plan.ref,))
+
+    def test_hypothesis_lowering_requires_exact_approval_and_admits_matching_evidence(self):
+        from specatom_hs.hypothesis_backend import HypothesisCoordinator, RESULT_SCHEMA, lower_hypothesis_request, request_hash
+        project = ValidationPlanCoordinator(self.adapter()).synthesize(self.project)
+        with self.assertRaisesRegex(ValueError, "approved"):
+            lower_hypothesis_request(project, 17)
+        plan = project.current(ArtifactKind.VALIDATION_PLAN)
+        project = submit_plan_review(project, PlanReview(plan.ref, ApprovalDecision.APPROVED, "reviewer", "approve", "2026-08-17T08:20:00Z"))
+        calls=[]
+        def adapter(request):
+            calls.append(copy.deepcopy(request))
+            return {"schema":RESULT_SCHEMA,"request_hash":request_hash(request),"hypothesis_version":"6.138.15",
+                "profile":{"max_examples":100,"deadline_ms":1000,"derandomize":False},"seed":17,"cases":[{"case_id":"example:greeting"}],
+                "observations":[{"case_id":"example:greeting","actual":"hello","expected":"hello","matched":True}],
+                "shrinking":[],"minimal_counterexamples":[],"exit_status":0,"resource_bounds":{"seconds":2,"memory_mb":128},
+                "started_at":"2026-08-17T08:20:01Z","finished_at":"2026-08-17T08:20:02Z"}
+        result = HypothesisCoordinator(adapter).run(project,17)
+        self.assertEqual(1,len(calls))
+        self.assertIsNotNone(result.current(ArtifactKind.RUNTIME_EVIDENCE))
+
+    def test_hypothesis_wrong_observation_and_misattribution_fail_without_partial_write(self):
+        from specatom_hs.hypothesis_backend import HypothesisCoordinator, RESULT_SCHEMA, request_hash
+        project = ValidationPlanCoordinator(self.adapter()).synthesize(self.project)
+        plan = project.current(ArtifactKind.VALIDATION_PLAN)
+        project = submit_plan_review(project, PlanReview(plan.ref, ApprovalDecision.APPROVED, "reviewer", "approve", "2026-08-17T08:20:00Z"))
+        def bad(request, forged=False):
+            return {"schema":RESULT_SCHEMA,"request_hash":("sha256:"+"0"*64 if forged else request_hash(request)),"hypothesis_version":"6.138.15",
+                "profile":{"max_examples":100,"deadline_ms":1000,"derandomize":False},"seed":17,"cases":[],
+                "observations":[{"case_id":"example:greeting","actual":"bye","expected":"hello","matched":False}],
+                "shrinking":[{"from":"bye","to":"b"}],"minimal_counterexamples":[{"input":[],"actual":"bye"}],"exit_status":0,
+                "resource_bounds":{"seconds":2},"started_at":"2026-08-17T08:20:01Z","finished_at":"2026-08-17T08:20:02Z"}
+        for forged in (False,True):
+            with self.assertRaises(ValueError): HypothesisCoordinator(lambda req, f=forged: bad(req,f)).run(project,17)
+            self.assertIsNone(project.current(ArtifactKind.RUNTIME_EVIDENCE))
+
+    def test_hypothesis_failing_run_atomically_persists_replayable_counterexample(self):
+        from specatom_hs.hypothesis_backend import HypothesisCoordinator, RESULT_SCHEMA, request_hash
+        project = ValidationPlanCoordinator(self.adapter()).synthesize(self.project)
+        plan = project.current(ArtifactKind.VALIDATION_PLAN)
+        project = submit_plan_review(project, PlanReview(plan.ref, ApprovalDecision.APPROVED, "reviewer", "approve", "2026-08-17T08:20:00Z"))
+        def failing(request):
+            return {"schema":RESULT_SCHEMA,"request_hash":request_hash(request),"hypothesis_version":"6.138.15",
+                "profile":{"max_examples":100,"deadline_ms":1000,"derandomize":False},"seed":19,"cases":[{"case_id":"example:greeting"}],
+                "observations":[{"case_id":"example:greeting","actual":"bye","expected":"hello","matched":False}],
+                "shrinking":["Falsifying example: greeting"],"minimal_counterexamples":[{"case_id":"example:greeting","actual":"bye","expected":"hello","matched":False}],
+                "exit_status":1,"resource_bounds":{"seconds":2,"memory_mb":128},
+                "started_at":"2026-08-17T08:20:01Z","finished_at":"2026-08-17T08:20:02Z"}
+        result = HypothesisCoordinator(failing).run(project,19)
+        self.assertIsNotNone(result.current(ArtifactKind.RUNTIME_EVIDENCE))
+        self.assertIsNotNone(result.current(ArtifactKind.COUNTEREXAMPLE))
+        self.assertEqual(result, project_from_dict(project_to_dict(result)))
+        changed = replace_source(result, "[id:R-1] Return hello!\n")
+        self.assertIsNone(changed.current(ArtifactKind.RUNTIME_EVIDENCE))
+        self.assertIsNone(changed.current(ArtifactKind.COUNTEREXAMPLE))
 
 
 def build_validation_plan_request_to_wire(project):
