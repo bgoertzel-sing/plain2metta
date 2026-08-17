@@ -146,6 +146,26 @@ class EvaluationWebTests(unittest.TestCase):
         self.assertEqual("unknown", verdict["status"])
         self.assertIn("missing dual-runtime evidence", verdict["residual_risk"])
 
+    def test_supported_evaluation_projects_stage_9_server_evidence(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+        response = self.client.post("/api/evaluate", json={"text": source})
+        self.assertEqual(200, response.status_code, response.get_json())
+        payload = response.get_json()
+        projection = payload["evidence_projection"]
+
+        self.assertEqual("plain2metta-evaluation-evidence/v1", projection["schema"])
+        self.assertEqual(payload["ancestry"], projection["ancestry"])
+        self.assertEqual(payload["verdicts"], projection["verdicts"])
+        self.assertEqual("approved", projection["plan_review"]["decision"])
+        self.assertEqual(
+            {"hypothesis-backend", "tlc-backend", "z3-backend", "lean-backend"},
+            {backend["name"] for backend in projection["backends"]},
+        )
+        self.assertEqual([], projection["counterexamples"])
+        self.assertEqual([], projection["assumptions"])
+        self.assertEqual([], projection["unresolved_holes"])
+        self.assertEqual(payload["verdicts"][0]["residual_risk"], projection["residual_risk"])
+
     def test_reworded_input_is_rejected_before_stage_1_storage(self):
         source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text() + "\n"
         response = self.client.post("/api/evaluate", json={"text": source})

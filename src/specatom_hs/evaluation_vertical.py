@@ -151,8 +151,30 @@ def build_stage_1_through_8(source: str) -> dict:
                                    for item in smt_payload["observations"])},
     "stage7_backend":{"name":"lean-backend", "version":LEAN_VERSION,
         "kernel_checked":all(item["kernel_checked"] for item in lean_payload["observations"])}}
-    return {"ancestry": ancestry, "verdicts": [{
+    verdicts = [{
         "artifact_id": verdict.artifact_id,
         "content_hash": verdict.content_hash,
         **verdict_payload,
-    }]}
+    }]
+    evidence_projection = {
+        "schema": "plain2metta-evaluation-evidence/v1",
+        "ancestry": ancestry,
+        "plan_review": {
+            "plan": _ref(plan.ref),
+            "review": _ref(review.ref),
+            "decision": "approved",
+        },
+        "backends": [
+            ancestry["stage4_backend"],
+            ancestry["stage5_backend"],
+            ancestry["stage6_backend"],
+            ancestry["stage7_backend"],
+        ],
+        "verdicts": verdicts,
+        "counterexamples": verdict_payload["counterexample_refs"],
+        "assumptions": verdict_payload["assumptions_used"],
+        "unresolved_holes": contract_doc["payload"]["unresolved_holes"],
+        "residual_risk": verdict_payload["residual_risk"],
+    }
+    return {"ancestry": ancestry, "verdicts": verdicts,
+            "evidence_projection": evidence_projection}
