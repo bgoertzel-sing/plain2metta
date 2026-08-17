@@ -252,7 +252,10 @@ def _add_derived_artifact(
         if artifact.content_hash != ref.content_hash or artifact.state is not ArtifactState.CURRENT:
             raise ValueError(f"upstream artifact {ref.artifact_id!r} is stale or hash-mismatched")
     previous = project.current(kind)
-    if previous is not None:
+    # Evidence is an append-only set: independent runtimes and tools must be
+    # composable without one run invalidating an unrelated run.  Upstream
+    # invalidation still walks every evidence artifact transitively.
+    if previous is not None and kind is not ArtifactKind.RUNTIME_EVIDENCE:
         project = _invalidate_from(project, {previous.artifact_id})
     version = 1 + max((a.version for a in project.artifacts if a.kind is kind), default=0)
     digest = content_sha256(content)
