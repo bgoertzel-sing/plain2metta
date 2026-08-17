@@ -64,6 +64,7 @@ def _strict_task(value: object) -> dict[str, Any]:
     if value["fragment"] not in {"pure", "bounded-transition"}:
         raise ValueError("unsupported SMT fragment remains blocked")
     allowed = {
+        "exact-boolean-postcondition": ("pure", {"none"}),
         "contradictory-contract": ("pure", {"none", "consistent"}),
         "unreachable-state": ("bounded-transition", {"none", "reachable"}),
         "boundary-error": ("pure", {"none", "fixed"}),
@@ -94,7 +95,11 @@ def lower_smt_request(project: Project) -> dict[str, Any]:
 
 def _formula(task: Mapping[str, Any]) -> tuple[list[tuple[str, str]], list[tuple[str, str]], str]:
     problem, mutant = task["problem"], task["mutant"]
-    if problem == "contradictory-contract":
+    if problem == "exact-boolean-postcondition":
+        decl = [("result", "Bool")]
+        assertions = [("postcondition", "result"), ("property-negation", "(not result)")]
+        expected = "unsat"
+    elif problem == "contradictory-contract":
         decl = [("x", "Int")]
         assertions = [("lower", "(>= x 0)"), ("upper", "(<= x 10)" if mutant == "consistent" else "(< x 0)")]
         expected = "sat" if mutant == "consistent" else "unsat"

@@ -32,6 +32,125 @@ class EvaluationWebTests(unittest.TestCase):
         self.assertTrue(response.get_json()["claim_evidence"]["python"]["runtime_validated"])
         self.assertTrue(response.get_json()["sandbox"]["metta"]["output_matches"])
         self.assertTrue(response.get_json()["sandbox"]["python"]["output_matches"])
+
+    def test_supported_evaluation_returns_stage_1_through_8_ancestry_and_server_grades(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+        response = self.client.post("/api/evaluate", json={"text": source})
+        self.assertEqual(200, response.status_code, response.get_json())
+        payload = response.get_json()
+
+        self.assertEqual(list(range(1, 9)), payload["ancestry"]["stages"])
+        nodes = payload["ancestry"]["nodes"]
+        self.assertTrue(nodes)
+        self.assertEqual(set(range(1, 9)), {node["stage"] for node in nodes})
+        for node in nodes:
+            self.assertEqual(
+                {"stage", "kind", "artifact_id", "content_hash", "state", "upstream"},
+                set(node),
+            )
+            self.assertTrue(node["artifact_id"])
+            self.assertTrue(node["content_hash"].startswith("sha256:"))
+
+        self.assertTrue(payload["verdicts"])
+        for verdict in payload["verdicts"]:
+            self.assertEqual(
+                {f"G{index}" for index in range(7)},
+                set(verdict["grade_achieved"]["vector"]),
+            )
+            self.assertTrue(all(isinstance(value, bool) for value in verdict["grade_achieved"]["vector"].values()))
+            self.assertTrue(verdict["validation_plan_ref"])
+            self.assertTrue(verdict["runtime_evidence_refs"])
+
+        stage10 = payload["release_metadata"]["stage10"]
+        self.assertEqual("plain2metta-vertical-acceptance/v1", stage10["schema"])
+        self.assertTrue(stage10["content_hash"].startswith("sha256:"))
+        self.assertTrue(stage10["release_id"])
+
+    def test_supported_evaluation_builds_exact_approved_stage_1_through_3_slice(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+        response = self.client.post("/api/evaluate", json={"text": source})
+        self.assertEqual(200, response.status_code, response.get_json())
+        ancestry = response.get_json()["ancestry"]
+        self.assertEqual([1, 2, 3], ancestry["stages"][:3])
+        self.assertTrue({1, 2, 3}.issubset({node["stage"] for node in ancestry["nodes"]}))
+        self.assertEqual("approved", ancestry["plan_approval"])
+        self.assertIn("contract-calculus-interpretation", {node["kind"] for node in ancestry["nodes"]})
+
+    def test_supported_evaluation_runs_approved_stage_4_hypothesis_plan(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+        response = self.client.post("/api/evaluate", json={"text": source})
+        self.assertEqual(200, response.status_code, response.get_json())
+        ancestry = response.get_json()["ancestry"]
+        self.assertEqual([1, 2, 3, 4], ancestry["stages"][:4])
+        stage4 = [node for node in ancestry["nodes"] if node["stage"] == 4]
+        self.assertEqual(1, len(stage4))
+        self.assertEqual("runtime-evidence", stage4[0]["kind"])
+        self.assertEqual("hypothesis-backend", ancestry["stage4_backend"]["name"])
+        self.assertEqual("6.138.15", ancestry["stage4_backend"]["version"])
+        self.assertTrue(ancestry["stage4_backend"]["observations_passed"])
+
+    def test_supported_evaluation_runs_approved_stage_5_tlc_plan(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+        response = self.client.post("/api/evaluate", json={"text": source})
+        self.assertEqual(200, response.status_code, response.get_json())
+        ancestry = response.get_json()["ancestry"]
+        self.assertEqual([1, 2, 3, 4, 5], ancestry["stages"][:5])
+        stage5 = [node for node in ancestry["nodes"] if node["stage"] == 5]
+        self.assertEqual(1, len(stage5))
+        self.assertEqual("formal-evidence", stage5[0]["kind"])
+        self.assertEqual("tlc-backend", ancestry["stage5_backend"]["name"])
+        self.assertEqual("1.7.4", ancestry["stage5_backend"]["version"])
+        self.assertTrue(ancestry["stage5_backend"]["invariant_satisfied"])
+
+    def test_supported_evaluation_runs_approved_stage_6_z3_plan(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+        response = self.client.post("/api/evaluate", json={"text": source})
+        self.assertEqual(200, response.status_code, response.get_json())
+        ancestry = response.get_json()["ancestry"]
+        self.assertEqual([1, 2, 3, 4, 5, 6], ancestry["stages"][:6])
+        stage6 = [node for node in ancestry["nodes"] if node["stage"] == 6]
+        self.assertEqual(1, len(stage6))
+        self.assertEqual("formal-evidence", stage6[0]["kind"])
+        self.assertEqual("z3-backend", ancestry["stage6_backend"]["name"])
+        self.assertEqual("4.15.3", ancestry["stage6_backend"]["version"])
+        self.assertTrue(ancestry["stage6_backend"]["postcondition_proved"])
+
+    def test_supported_evaluation_runs_approved_stage_7_lean_plan(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+        response = self.client.post("/api/evaluate", json={"text": source})
+        self.assertEqual(200, response.status_code, response.get_json())
+        ancestry = response.get_json()["ancestry"]
+        self.assertEqual([1, 2, 3, 4, 5, 6, 7], ancestry["stages"][:7])
+        stage7 = [node for node in ancestry["nodes"] if node["stage"] == 7]
+        self.assertEqual(1, len(stage7))
+        self.assertEqual("formal-evidence", stage7[0]["kind"])
+        self.assertEqual("lean-backend", ancestry["stage7_backend"]["name"])
+        self.assertEqual("4.33.0", ancestry["stage7_backend"]["version"])
+        self.assertTrue(ancestry["stage7_backend"]["kernel_checked"])
+
+    def test_supported_evaluation_composes_stage_8_verdict(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+        response = self.client.post("/api/evaluate", json={"text": source})
+        self.assertEqual(200, response.status_code, response.get_json())
+        payload = response.get_json()
+        ancestry = payload["ancestry"]
+        self.assertEqual(list(range(1, 9)), ancestry["stages"])
+        stage8 = [node for node in ancestry["nodes"] if node["stage"] == 8]
+        self.assertEqual(1, len(stage8))
+        self.assertEqual("validation-verdict", stage8[0]["kind"])
+        self.assertEqual(1, len(payload["verdicts"]))
+        verdict = payload["verdicts"][0]
+        self.assertEqual(stage8[0]["artifact_id"], verdict["artifact_id"])
+        self.assertEqual(stage8[0]["content_hash"], verdict["content_hash"])
+        self.assertEqual({f"G{index}" for index in range(7)}, set(verdict["grade_achieved"]["vector"]))
+        self.assertEqual("unknown", verdict["status"])
+        self.assertIn("missing dual-runtime evidence", verdict["residual_risk"])
+
+    def test_reworded_input_is_rejected_before_stage_1_storage(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text() + "\n"
+        response = self.client.post("/api/evaluate", json={"text": source})
+        self.assertEqual(422, response.status_code)
+        self.assertIn("unsupported or reworded", response.get_json()["error"])
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text": 3}).status_code)

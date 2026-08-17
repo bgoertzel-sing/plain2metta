@@ -31,6 +31,11 @@ class TLCBackendTests(unittest.TestCase):
         self.assertIn("AtMostOneDebit",render_tlc_bundle(value)[1]["module"])
         self.assertEqual(request_hash(value),request_hash(copy.deepcopy(value)))
 
+    def test_exact_admission_stability_is_a_closed_finite_model(self):
+        bundle = render_tlc_bundle(request([model("admission", "exact-admission-stability")]))[0]
+        self.assertIn("AdmissionStable == admitted", bundle["module"])
+        self.assertEqual(["admitted"], bundle["source_map"]["variables"])
+
     def test_correct_models_pass_and_mutants_have_source_linked_traces(self):
         if not os.path.exists(JAVA): self.skipTest("pinned Stage-0 TLC unavailable")
         good=run_tlc_request(request([model("auth","authentication-ordering"),model("idem","idempotency-recovery")]),JAVA,JAR)

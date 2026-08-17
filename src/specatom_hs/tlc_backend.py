@@ -54,7 +54,7 @@ def _strict_model(value: object) -> dict[str, Any]:
         raise ValueError("state model source clauses are invalid")
     if len(set(value["source_clause_refs"])) != len(value["source_clause_refs"]):
         raise ValueError("state model source clauses are duplicated")
-    if value["protocol"] not in {"authentication-ordering", "idempotency-recovery"}:
+    if value["protocol"] not in {"authentication-ordering", "idempotency-recovery", "exact-admission-stability"}:
         raise ValueError("unsupported state/temporal meaning remains blocked")
     if not isinstance(value["scope"], Mapping) or set(value["scope"]) != {"max_steps", "actors"}:
         raise ValueError("state model scope is malformed")
@@ -64,7 +64,8 @@ def _strict_model(value: object) -> dict[str, Any]:
         raise ValueError("state model actor bound is invalid")
     if value["mutant"] not in {"none", "ordering", "duplicate-debit", "recovery"}:
         raise ValueError("unknown state-model mutant")
-    allowed = {"authentication-ordering": {"none", "ordering"}, "idempotency-recovery": {"none", "duplicate-debit", "recovery"}}
+    allowed = {"authentication-ordering": {"none", "ordering"}, "idempotency-recovery": {"none", "duplicate-debit", "recovery"},
+        "exact-admission-stability": {"none"}}
     if value["mutant"] not in allowed[value["protocol"]]:
         raise ValueError("mutant does not belong to protocol")
     return dict(value)
@@ -133,6 +134,18 @@ RecoveryPreservesDebit == charged => balance = 1
     return module, "AtMostOneDebit" if mutant != "recovery" else "RecoveryPreservesDebit"
 
 
+def _exact_admission_module() -> tuple[str, str]:
+    return '''---- MODULE Model ----
+VARIABLE admitted
+vars == <<admitted>>
+Init == admitted = TRUE
+Next == UNCHANGED vars
+Spec == Init /\\ [][Next]_vars
+AdmissionStable == admitted
+====
+''', "AdmissionStable"
+
+
 def render_tlc_bundle(request: Mapping[str, Any]) -> list[dict[str, Any]]:
     if set(request) != {"schema", "tlc_version", "tlc_engine_version", "tlc_jar_hash", "java_hash", "profile", "plan", "review", "models", "ancestry"} or request.get("schema") != SCHEMA:
         raise ValueError("unsupported TLC request")
@@ -148,9 +161,16 @@ def render_tlc_bundle(request: Mapping[str, Any]) -> list[dict[str, Any]]:
         raise ValueError("state model ids are duplicated")
     for value in request["models"]:
         model = _strict_model(value)
-        module, invariant = _auth_module(model["mutant"]) if model["protocol"] == "authentication-ordering" else _idempotency_module(model["mutant"])
+        if model["protocol"] == "authentication-ordering":
+            module, invariant = _auth_module(model["mutant"])
+        elif model["protocol"] == "idempotency-recovery":
+            module, invariant = _idempotency_module(model["mutant"])
+        else:
+            module, invariant = _exact_admission_module()
         config = f"SPECIFICATION Spec\nINVARIANT {invariant}\nCHECK_DEADLOCK TRUE\n"
-        source_map = {"model_id": model["model_id"], "source_clause_refs": model["source_clause_refs"], "variables": (["phase", "challengeSeen"] if model["protocol"] == "authentication-ordering" else ["balance", "charged", "crashed"]), "invariants": {invariant: model["source_clause_refs"]}, "temporal_properties": {}, "scope": model["scope"], "fairness": PROFILE["fairness"], "deadlock_check": True, "symmetry_sets": [], "liveness_mode": "safety-only"}
+        variables = (["phase", "challengeSeen"] if model["protocol"] == "authentication-ordering" else
+            ["balance", "charged", "crashed"] if model["protocol"] == "idempotency-recovery" else ["admitted"])
+        source_map = {"model_id": model["model_id"], "source_clause_refs": model["source_clause_refs"], "variables": variables, "invariants": {invariant: model["source_clause_refs"]}, "temporal_properties": {}, "scope": model["scope"], "fairness": PROFILE["fairness"], "deadlock_check": True, "symmetry_sets": [], "liveness_mode": "safety-only"}
         canonical_map = json.dumps(source_map, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         replay_command = f"java -Xmx{SANDBOX_LIMITS['heap_mb']}m -XX:MaxMetaspaceSize={SANDBOX_LIMITS['metaspace_mb']}m -XX:CompressedClassSpaceSize={SANDBOX_LIMITS['class_space_mb']}m -XX:ReservedCodeCacheSize={SANDBOX_LIMITS['code_cache_mb']}m -cp tla2tools.jar tlc2.TLC -workers {PROFILE['workers']} -maxSetSize {PROFILE['max_set_size']} -depth {model['scope']['max_steps']} -config Model.cfg Model.tla"
         bundles.append({"model": model, "module": module, "config": config, "source_map": source_map, "replay_command": replay_command,

@@ -27,6 +27,13 @@ def request(tasks):
 
 
 class SMTBackendTests(unittest.TestCase):
+    def test_exact_boolean_postcondition_has_closed_unsat_encoding(self):
+        value = request([task("exact-postcondition", "exact-boolean-postcondition")])
+        bundle = render_smt_bundle(value)[0]
+        self.assertIn("(declare-const result Bool)", bundle["formula"])
+        self.assertIn("(assert (! (not result) :named property-negation))", bundle["formula"])
+        self.assertEqual("unsat", bundle["expected_result"])
+
     def test_encoder_is_canonical_reviewable_and_source_mapped(self):
         value = request([task("contradiction", "contradictory-contract"), task("boundary", "boundary-error")])
         self.assertEqual(render_smt_bundle(value), render_smt_bundle(copy.deepcopy(value)))

@@ -76,5 +76,12 @@ class HypothesisBackendGoldTests(unittest.TestCase):
         bad = copy.deepcopy(good); bad["examples"][0]["expected"] = 1.0
         with self.assertRaises(ValueError): render_hypothesis_module(bad)
 
+    def test_exact_equality_is_a_closed_non_code_operation(self):
+        exact = request([{"case_id": "source-bytes", "input": {
+            "operation": "exact-equality", "args": ["sha256:abc", "sha256:abc"]},
+            "expected": True}])
+        module = render_hypothesis_module(exact)
+        self.assertIn('if op == "exact-equality"', module)
+
 
 if __name__ == "__main__": unittest.main()

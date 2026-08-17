@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from flask import Flask, Response, jsonify, render_template, request
 from specatom_hs.evaluation import evaluate_plain
+from specatom_hs.evaluation_vertical import build_stage_1_through_8
 
 app = Flask(__name__)
 MAX_SPEC_BYTES = 128_000
@@ -64,7 +65,10 @@ def evaluate():
     if len(text.encode("utf-8")) > MAX_SPEC_BYTES:
         return jsonify(error="text exceeds the 128 KiB evaluation limit"), 413
     try:
-        return jsonify(evaluate_plain(text))
+        vertical = build_stage_1_through_8(text)
+        payload = evaluate_plain(text)
+        payload.update(vertical)
+        return jsonify(payload)
     except (TypeError, ValueError) as error:
         return jsonify(error=str(error)), 422
 

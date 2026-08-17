@@ -61,7 +61,13 @@ def lower_hypothesis_request(project: Project, seed: int) -> dict[str, Any]:
     examples = [_strict_case(x, "example") for x in payload["examples"]]
     properties = [_strict_case(x, "property") for x in payload["properties"]]
     metamorphic = [_strict_case(x, "metamorphic relation") for x in payload["metamorphic_relations"]]
-    states = [_strict_case(x, "state-machine step") for x in payload["state_models"]]
+    # TLC-owned finite models remain in the shared approved plan but are not
+    # executable Hypothesis cases. Unknown shapes still fail closed.
+    states = []
+    for value in payload["state_models"]:
+        if isinstance(value, Mapping) and set(value) == {"model_id", "source_clause_refs", "protocol", "scope", "mutant"}:
+            continue
+        states.append(_strict_case(value, "state-machine step"))
     if not any((examples, properties, metamorphic, states)):
         raise ValueError("approved plan has no supported executable Hypothesis meaning")
     request = {
@@ -99,7 +105,7 @@ def render_hypothesis_module(request: Mapping[str, Any]) -> str:
             spec = case["input"]
             if not isinstance(spec, Mapping) or set(spec) != {"operation", "args"}:
                 raise ValueError("unsupported executable meaning remains blocked")
-            if spec["operation"] not in {"numeric-add", "authenticate", "idempotent-append"}:
+            if spec["operation"] not in {"numeric-add", "authenticate", "idempotent-append", "exact-equality"}:
                 raise ValueError("unknown Hypothesis gold operation")
             if not isinstance(spec["args"], list):
                 raise ValueError("gold operation args must be a list")
@@ -119,6 +125,7 @@ def apply(spec):
     if op == "numeric-add": return sum(args)
     if op == "authenticate": return len(args) == 2 and args[0] == "alice" and args[1] == "correct-horse"
     if op == "idempotent-append": return list(dict.fromkeys(args))
+    if op == "exact-equality": return len(args) == 2 and args[0] == args[1]
     raise AssertionError("unknown operation")
 @seed({seed})
 @settings(max_examples={PROFILE['max_examples']}, deadline={PROFILE['deadline_ms']})
