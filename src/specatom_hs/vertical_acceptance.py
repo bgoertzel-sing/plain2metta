@@ -3,15 +3,22 @@ from __future__ import annotations
 from functools import lru_cache
 import json
 from pathlib import Path
+from hashlib import sha256
 from typing import Any
 
 SCHEMA = "plain2metta-vertical-acceptance/v1"
 ALLOWED_STATUS = {"executable", "blocked"}
 ALLOWED_OUTCOME = {"killed", "survived-reviewed"}
+CORPUS_CONTENT_HASH = "sha256:d1a795ad448a3aa0433b2c995b918c43d5e3ba90440ab302b656f14b6b72a8ee"
+CALIBRATION_RELEASE_ID = "plain2metta-r02-stage10-20260817"
+_CORPUS_PATH = Path(__file__).with_name("vertical_acceptance.json")
 
 @lru_cache(maxsize=1)
 def load_vertical_acceptance() -> dict[str, Any]:
-    raw = json.loads(Path(__file__).with_name("vertical_acceptance.json").read_text())
+    corpus_bytes = _CORPUS_PATH.read_bytes()
+    if "sha256:" + sha256(corpus_bytes).hexdigest() != CORPUS_CONTENT_HASH:
+        raise ValueError("vertical acceptance artifact hash does not match the calibrated release")
+    raw = json.loads(corpus_bytes)
     if not isinstance(raw, dict) or set(raw) != {"schema","examples","mutants","threshold"} or raw["schema"] != SCHEMA:
         raise ValueError("unsupported vertical acceptance artifact")
     examples = raw["examples"]
@@ -59,3 +66,10 @@ def mutation_report() -> dict[str, Any]:
     survivors = [x for x in corpus["mutants"] if x["expected"] == "survived-reviewed"]
     return {"schema":SCHEMA,"relevant":len(relevant),"killed":len(killed),
             "kill_ratio":f"{len(killed)}/{len(relevant)}","survivors":survivors}
+
+def release_metadata() -> dict[str, Any]:
+    corpus = load_vertical_acceptance()
+    return {"schema":SCHEMA, "content_hash":CORPUS_CONTENT_HASH,
+            "release_id":CALIBRATION_RELEASE_ID,
+            "mutation_threshold":corpus["threshold"],
+            "mutation_result":mutation_report()}

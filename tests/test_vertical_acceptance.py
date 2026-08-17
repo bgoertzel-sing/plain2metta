@@ -2,7 +2,7 @@ import copy
 import unittest
 from unittest.mock import patch
 
-from specatom_hs.vertical_acceptance import load_vertical_acceptance, mutation_report
+from specatom_hs.vertical_acceptance import load_vertical_acceptance, mutation_report, release_metadata
 
 class VerticalAcceptanceTests(unittest.TestCase):
     def setUp(self):
@@ -24,6 +24,20 @@ class VerticalAcceptanceTests(unittest.TestCase):
         report = mutation_report()
         self.assertEqual("8/8", report["kill_ratio"])
         self.assertEqual(["M-A-MESSAGE"], [x["id"] for x in report["survivors"]])
+
+    def test_release_metadata_binds_the_validated_corpus_and_calibration(self):
+        metadata = release_metadata()
+        self.assertEqual("plain2metta-vertical-acceptance/v1", metadata["schema"])
+        self.assertEqual("sha256:d1a795ad448a3aa0433b2c995b918c43d5e3ba90440ab302b656f14b6b72a8ee", metadata["content_hash"])
+        self.assertEqual("plain2metta-r02-stage10-20260817", metadata["release_id"])
+        self.assertEqual("8/8", metadata["mutation_result"]["kill_ratio"])
+        self.assertEqual("1", metadata["mutation_threshold"]["relevant_kill_ratio"])
+
+    def test_valid_but_uncalibrated_corpus_bytes_fail_closed(self):
+        with patch("pathlib.Path.read_bytes", return_value=b'{}'):
+            load_vertical_acceptance.cache_clear()
+            with self.assertRaisesRegex(ValueError, "hash does not match"):
+                load_vertical_acceptance()
 
     def test_malformed_duplicate_unknown_and_unresolved_execution_fail_closed(self):
         original = load_vertical_acceptance()

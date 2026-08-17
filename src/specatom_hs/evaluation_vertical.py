@@ -15,6 +15,7 @@ from .smt_backend import SMTCoordinator, Z3_VERSION, run_smt_request
 from .tlc_backend import TLC_VERSION, TLCCoordinator, run_tlc_request
 from .validation_plan import PlanReview, RESPONSE_SCHEMA, ValidationPlanCoordinator, build_validation_plan_request, submit_plan_review, validation_plan_request_hash
 from .verdict_composition import compose_validation_verdict
+from .vertical_acceptance import release_metadata
 
 _STAMP = "2026-08-17T18:00:00Z"
 _HYPOTHESIS_PYTHON = "/home/openclaw/research-agent/projects/specatom-hs/experiments/20260817T035226Z-plain2metta-general-semantic-validation-stage0/tools-venv/bin/python"
@@ -175,6 +176,8 @@ def build_stage_1_through_8(source: str) -> dict:
         "assumptions": verdict_payload["assumptions_used"],
         "unresolved_holes": contract_doc["payload"]["unresolved_holes"],
         "residual_risk": verdict_payload["residual_risk"],
+        "release_metadata": {"stage10": release_metadata()},
     }
     return {"ancestry": ancestry, "verdicts": verdicts,
-            "evidence_projection": evidence_projection}
+            "evidence_projection": evidence_projection,
+            "release_metadata": evidence_projection["release_metadata"]}
