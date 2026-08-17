@@ -75,6 +75,21 @@ python3 -m venv .venv
 .venv/bin/python webapp/app.py --host 127.0.0.1 --port 8080
 ```
 
+## Finite semantic-contract calculus
+
+`specatom_hs.contract_calculus` provides provider-free reference semantics for
+versioned `SemanticContract` artifacts. Its JSON predicate core is finite,
+typed, and closed: literals, variables, state reads, Boolean and numeric
+operators, bounded quantifiers, trace predicates, explicit UTC time,
+approximation, and approved assumption references are supported. Effects and
+the execution-ownership locus are declared explicitly.
+
+The interpreter and canonical MeTTa projection validate the complete immutable
+artifact and bind output to its exact artifact ID and content hash. Unknown
+operations, free prose, malformed types, unapproved assumptions, and typed
+holes fail closed. A typed hole records unresolved meaning for review; it is
+never executable code.
+
 ## Minimal scaffold API
 
 ```python
