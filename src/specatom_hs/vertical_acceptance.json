@@ -1,0 +1,22 @@
+{
+  "schema":"plain2metta-vertical-acceptance/v1",
+  "examples":[
+    {"id":"A","shape":"pure-numerical","source_ids":["A-1","A-2"],"source":"Given finite real x and bounds a < b, return (x-a)/(b-a) clipped to [0,1]; the result is monotone in x.","contract":"Finite inputs; a < b; output in [0,1]; monotonicity; f(a,a,b)=0 and f(b,a,b)=1.","validation":"Boundary examples, finite triples, monotone pairs, translation metamorphism, dual-runtime comparison, and exact-rational SMT checking.","status":"executable","obligations":["normalized output is clipped to the closed unit interval","normalization is monotone in x and maps both bounds exactly"]},
+    {"id":"B","shape":"state-machine-authentication","source_ids":["B-1","B-2","B-3"],"source":"Password reset revokes sessions before success; bad credentials and lockout are publicly indistinguishable; credentials never appear in logs.","contract":"Reset success follows revocation in the trace; public failures are equal; emitted logs satisfy credential secrecy.","validation":"Model-based commands, ordering and secrecy trace checks, invalid-password metamorphism, and reset fault injection.","status":"executable","obligations":["reset revokes prior sessions before success","bad credentials and lockout have equal public failure","logs contain no credentials"]},
+    {"id":"C","shape":"temporal-data-lineage","source_ids":["C-1","C-2","C-3","C-4"],"source":"Features use no future observations; normalization is training-only; hyperparameters never use test data; test evaluation occurs exactly once.","contract":"Feature lineage is bounded by prediction time; scaler lineage is training-only; selection excludes test IDs; one test event follows frozen selection.","validation":"Future sentinels, future perturbation, test-label metamorphism, lineage inspection, and leakage mutants.","status":"executable","obligations":["feature lineage does not exceed prediction time","scaler lineage is training-only","selection excludes test identifiers","test evaluation occurs exactly once after selection"]},
+    {"id":"D","shape":"distributed-idempotency","source_ids":["D-1","D-2","D-3"],"source":"Transfer request IDs are idempotent, distinct IDs may denote distinct transfers, and crash-after-debit remains recoverable.","contract":"At most one debit per request ID and payload; changed-payload reuse is rejected; crash replay converges observationally.","validation":"Retry, reorder, duplicate, and named-crash state machines; duplicate-message metamorphism; bounded model checking; dual-runtime fault injection.","status":"executable","obligations":["one request id commits at most one debit","id reuse with changed payload is rejected","crash replay converges observationally"]},
+    {"id":"E","shape":"unresolved-policy","source_ids":["E-1"],"source":"Support staff may export retained audit events only when authorized by the current policy.","contract":"No export occurs without an authorization decision; policy, retention, staff identity, authorization source, and fields remain unresolved.","validation":"Validate authorization gating mechanics only; block compilation and strong verdicts until typed holes are resolved and approved.","status":"blocked","holes":["current policy","retention","staff identity","authorization source","permitted fields"],"obligations":["no export occurs without an authorization decision"]}
+  ],
+  "mutants":[
+    {"id":"M-A-ROUND","category":"boundary","example":"A","expected":"killed"},
+    {"id":"M-B-ORDER","category":"ordering","example":"B","expected":"killed"},
+    {"id":"M-B-LEAK","category":"secrecy","example":"B","expected":"killed"},
+    {"id":"M-C-FUTURE","category":"lineage","example":"C","expected":"killed"},
+    {"id":"M-C-TEST-TWICE","category":"cardinality","example":"C","expected":"killed"},
+    {"id":"M-D-DEBIT-FIRST","category":"crash-recovery","example":"D","expected":"killed"},
+    {"id":"M-D-PAYLOAD-KEY","category":"identity","example":"D","expected":"killed"},
+    {"id":"M-E-INVENT-POLICY","category":"unsupported-meaning","example":"E","expected":"killed"},
+    {"id":"M-A-MESSAGE","category":"cosmetic","example":"A","expected":"survived-reviewed"}
+  ],
+  "threshold":{"relevant_kill_ratio":"1","survivor_policy":"every survivor requires an explicit non-semantic rationale"}
+}

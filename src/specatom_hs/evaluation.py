@@ -10,7 +10,9 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import asdict, dataclass
+from functools import lru_cache
 from hashlib import sha256
+from pathlib import Path
 
 from .compiler_output import CompilerOutputBundle, GeneratedFile
 from .evaluation_sandbox import run_metta_reference, run_python_reference
@@ -37,83 +39,38 @@ class _BehaviorProfile:
     python: str
     python_expected: str
     assertions: tuple[dict[str, str], ...]
+    shape: str
+
+
+@lru_cache(maxsize=1)
+def _profiles() -> tuple[_BehaviorProfile, ...]:
+    raw = json.loads(Path(__file__).with_name("evaluation_profiles.json").read_text())
+    if set(raw) != {"schema", "profiles"} or raw["schema"] != "plain2metta-evaluation-profiles/v1":
+        raise ValueError("unsupported evaluation profile artifact")
+    profiles = []
+    for item in raw["profiles"]:
+        required = {"name","requirements","shape","metta","metta_expected","python","python_expected","assertions"}
+        if not isinstance(item, dict) or set(item) != required:
+            raise ValueError("malformed evaluation profile artifact")
+        requirements = item["requirements"]
+        if not isinstance(requirements, dict) or not requirements or len(requirements) != len(set(requirements)):
+            raise ValueError("invalid evaluation profile requirements")
+        profiles.append(_BehaviorProfile(item["name"], tuple(requirements), item["metta"],
+            item["metta_expected"], item["python"], item["python_expected"],
+            tuple(item["assertions"]), item["shape"]))
+    if len({profile.name for profile in profiles}) != len(profiles):
+        raise ValueError("duplicate evaluation profile identity")
+    return tuple(profiles)
 
 
 def _behavior_profile(requirement_text: dict[str, str]) -> _BehaviorProfile | None:
-    """Return a reviewed behavioral oracle only for an exact graduated example.
-
-    Matching the complete source requirement lines prevents a caller from reusing
-    a known ID with different prose and inheriting an unrelated validation claim.
-    """
+    """Resolve only an exact reviewed data artifact; never branch on source text."""
     signature = tuple(requirement_text.items())
-    greeting = (
-        ("GREET-1", "- [id:GREET-1] The service shall return a :Greeting: for each request."),
-        ("GREET-2", "- [id:GREET-2] The :Greeting: shall retain the request trace identifier."),
-    )
-    tasks = (
-        ("TASK-1", "- [id:TASK-1] A :User: shall add a valid :Task: to the task list."),
-        ("TASK-2", "- [id:TASK-2] The service shall reject a :Task: without a name."),
-        ("TASK-3", "- [id:TASK-3] The service shall preserve the owner of every stored :Task:."),
-    )
-    forecast = (
-        ("FORECAST-1", "- [id:FORECAST-1] The pipeline shall train only on :Observation: records earlier than the evaluation window."),
-        ("FORECAST-2", "- [id:FORECAST-2] The pipeline shall emit one :Forecast: for the declared horizon."),
-        ("FORECAST-3", "- [id:FORECAST-3] The evaluation shall compare each :Forecast: with a named baseline."),
-        ("FORECAST-4", "- [id:FORECAST-4] The evaluation shall report the split timestamps used for each result."),
-    )
-    if signature == greeting:
-        return _BehaviorProfile(
-            "greeting-trace-v1", tuple(dict(greeting)),
-            '(= (make-greeting $text $trace) (Greeting $text $trace))\n!(make-greeting "hello" "trace-123")\n',
-            '[(Greeting "hello" "trace-123")]\n',
-            "def make_greeting(text, trace):\n    return {'text': text, 'trace': trace}\n"
-            "def main():\n    value = make_greeting('hello', 'trace-123')\n    print(f\"Greeting(text={value['text']},trace={value['trace']})\")\n",
-            "Greeting(text=hello,trace=trace-123)\n",
-            (
-                {"requirement_id": "GREET-1", "assertion": "response text equals hello"},
-                {"requirement_id": "GREET-2", "assertion": "response retains trace-123"},
-            ),
-        )
-    if signature == tasks:
-        return _BehaviorProfile(
-            "task-validation-owner-v1", tuple(dict(tasks)),
-            '(= (add-task $name $owner) (if (== $name "") (Rejected "missing-name") (StoredTask $name $owner)))\n'
-            '!(add-task "Write report" "alice")\n!(add-task "" "alice")\n',
-            '[(StoredTask "Write report" "alice")]\n[(Rejected "missing-name")]\n',
-            "def add_task(name, owner):\n    return {'status': 'rejected', 'reason': 'missing-name'} if not name else {'status': 'stored', 'name': name, 'owner': owner}\n"
-            "def main():\n    valid = add_task('Write report', 'alice')\n    invalid = add_task('', 'alice')\n    print(f\"stored={valid['name']} owner={valid['owner']}\")\n    print(f\"rejected={invalid['reason']}\")\n",
-            "stored=Write report owner=alice\nrejected=missing-name\n",
-            (
-                {"requirement_id": "TASK-1", "assertion": "valid named task is stored"},
-                {"requirement_id": "TASK-2", "assertion": "blank task name is rejected"},
-                {"requirement_id": "TASK-3", "assertion": "stored task owner equals alice"},
-            ),
-        )
-    if signature == forecast:
-        return _BehaviorProfile(
-            "forecast-split-horizon-baseline-v1", tuple(dict(forecast)),
-            '(= (eligible-train $time $window-start) (< $time $window-start))\n'
-            '(= (forecast $horizon $value) (Forecast $horizon $value))\n'
-            '(= (baseline-delta $forecast $baseline) (- $forecast $baseline))\n'
-            '(= (split-report $train-end $evaluation-start) (Split $train-end $evaluation-start))\n'
-            '! (eligible-train 10 20)\n! (eligible-train 30 20)\n'
-            '! (forecast "24h" 42)\n! (baseline-delta 42 40)\n! (split-report 19 20)\n',
-            '[True]\n[False]\n[(Forecast "24h" 42)]\n[2]\n[(Split 19 20)]\n',
-            "def evaluate_forecast(observation_times, evaluation_start, horizon, value, baseline_name, baseline_value):\n"
-            "    train = [time for time in observation_times if time < evaluation_start]\n"
-            "    return {'train': train, 'evaluation_start': evaluation_start, 'horizon': horizon, 'forecast': value, 'baseline': baseline_name, 'delta': value - baseline_value}\n"
-            "def main():\n    result = evaluate_forecast([10, 19, 30], 20, '24h', 42, 'seasonal-naive', 40)\n"
-            "    print(f\"train={result['train']} evaluation_start={result['evaluation_start']}\")\n"
-            "    print(f\"forecast={result['forecast']} horizon={result['horizon']}\")\n"
-            "    print(f\"baseline={result['baseline']} delta={result['delta']}\")\n",
-            "train=[10, 19] evaluation_start=20\nforecast=42 horizon=24h\nbaseline=seasonal-naive delta=2\n",
-            (
-                {"requirement_id": "FORECAST-1", "assertion": "only timestamps 10 and 19 precede evaluation start 20"},
-                {"requirement_id": "FORECAST-2", "assertion": "exactly one forecast has horizon 24h"},
-                {"requirement_id": "FORECAST-3", "assertion": "forecast 42 is compared with named seasonal-naive baseline 40"},
-                {"requirement_id": "FORECAST-4", "assertion": "split timestamps train-end 19 and evaluation-start 20 are reported"},
-            ),
-        )
+    raw = json.loads(Path(__file__).with_name("evaluation_profiles.json").read_text())
+    by_name = {profile.name: profile for profile in _profiles()}
+    for item in raw["profiles"]:
+        if signature == tuple(item["requirements"].items()):
+            return by_name[item["name"]]
     return None
 
 
