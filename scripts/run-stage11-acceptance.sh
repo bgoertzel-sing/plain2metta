@@ -26,6 +26,7 @@ python3 -m unittest \
   tests.test_lean_backend \
   tests.test_verdict_composition \
   tests.test_semantic_api \
+  tests.test_evaluation_web \
   tests.test_vertical_acceptance
 
 python3 -m unittest discover -s tests -p 'test_*.py'
