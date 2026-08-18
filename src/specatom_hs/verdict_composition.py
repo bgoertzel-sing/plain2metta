@@ -157,7 +157,8 @@ def compose_validation_verdict(
     formal_runtime = {"tlc": "tla-tlc", "smt": "z3-smtlib", "lean": "lean4-kernel"}
     required_formal = {runtime for method, runtime in formal_runtime.items() if method in required_methods}
     present_formal = required_formal & by_runtime.keys()
-    formal_results = {name: _formal_result(name, by_runtime[name]) for name in present_formal}
+    admitted_formal = set(formal_runtime.values()) & by_runtime.keys()
+    formal_results = {name: _formal_result(name, by_runtime[name]) for name in admitted_formal}
     bad_formal = [name for name, result in formal_results.items() if result == "fail"]
     unknown_formal = [name for name, result in formal_results.items() if result == "unknown"]
     if bad_formal:

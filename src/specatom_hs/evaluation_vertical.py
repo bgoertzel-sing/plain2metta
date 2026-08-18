@@ -163,6 +163,7 @@ def build_stage_1_through_8(source: str) -> dict:
         "observations_passed":all(item["matched"] for item in evidence_payload["observations"]),
     }, "stage5_backend":({"name":"tlc-backend", "version":TLC_VERSION,
         "applicable": True,
+        "status":"pass" if all(item["invariant_satisfied"] for item in tlc_payload["observations"]) else "fail",
         "invariant_satisfied":all(item["invariant_satisfied"] for item in tlc_payload["observations"])}
         if tlc_applicable else {"name":"tlc-backend", "version":TLC_VERSION,
             "applicable": False, "status":"unknown", "justification":tlc_justification}),

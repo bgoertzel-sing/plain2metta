@@ -365,6 +365,41 @@ class EvaluationWebTests(unittest.TestCase):
         self.assertFalse(payload["verdicts"][0]["grade_achieved"]["vector"]["G5"])
         self.assertIn("tla-tlc", payload["verdicts"][0]["residual_risk"])
 
+    def test_failing_stage_5_model_projects_conservative_counterexample(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+
+        from specatom_hs.tlc_backend import run_tlc_request
+
+        def fail_model(request, java, jar):
+            result = run_tlc_request(request, java, jar)
+            observation = dict(result["results"][0])
+            observation["exit_status"] = 12
+            observation["invariant_satisfied"] = False
+            observation["counterexample_trace"] = [
+                {"index": 1, "values": {"admitted": "FALSE"}},
+            ]
+            result["results"] = [observation]
+            return result
+
+        with patch(
+            "specatom_hs.evaluation_vertical.run_tlc_request",
+            side_effect=fail_model,
+        ) as stage5:
+            response = self.client.post("/api/evaluate", json={"text": source})
+
+        self.assertEqual(200, response.status_code, response.get_json())
+        stage5.assert_called_once()
+        payload = response.get_json()
+        backend = payload["ancestry"]["stage5_backend"]
+        self.assertEqual("fail", backend["status"])
+        self.assertFalse(backend["invariant_satisfied"])
+        verdict = payload["verdicts"][0]
+        self.assertEqual("fail", verdict["status"])
+        self.assertFalse(verdict["grade_achieved"]["vector"]["G5"])
+        self.assertIn("tla-tlc", verdict["residual_risk"])
+        self.assertEqual(1, len(verdict["counterexample_refs"]))
+        self.assertEqual(verdict["counterexample_refs"], payload["evidence_projection"]["counterexamples"])
+
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text": 3}).status_code)
