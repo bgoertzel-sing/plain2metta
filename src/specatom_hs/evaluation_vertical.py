@@ -34,6 +34,14 @@ def _ref(ref):
     return {"artifact_id": ref.artifact_id, "content_hash": ref.content_hash}
 
 
+def _backend_applicability(plan_payload, backend):
+    if backend != "tla-tlc":
+        raise ValueError("unknown backend applicability query")
+    if plan_payload["state_models"]:
+        return True, "approved plan contains a supported finite state/temporal model"
+    return False, "approved plan contains no finite state or temporal model"
+
+
 def _node(stage, kind, artifact_id, content_hash, state, upstream):
     return {"stage": stage, "kind": kind, "artifact_id": artifact_id,
             "content_hash": content_hash, "state": state,
@@ -106,16 +114,21 @@ def build_stage_1_through_8(source: str) -> dict:
                 "interaction_id":"vertical-stage3-call-1","input_tokens":0,"output_tokens":0,"timestamp":_STAMP}}
     project = ValidationPlanCoordinator(author).synthesize(project)
     plan = project.current(ArtifactKind.VALIDATION_PLAN)
+    plan_payload = json.loads(plan.content)["payload"]
     project = submit_plan_review(project, PlanReview(plan.ref, ApprovalDecision.APPROVED,
         "independent-plan-reviewer", "Exact bounded plan accepted", _STAMP))
     review = project.current(ArtifactKind.VALIDATION_PLAN_REVIEW)
     project = HypothesisCoordinator(lambda request: execute_hypothesis_request(request, _HYPOTHESIS_PYTHON)).run(project, 417)
     evidence = project.current(ArtifactKind.RUNTIME_EVIDENCE)
     evidence_payload = json.loads(evidence.content)["payload"]
-    project = TLCCoordinator(lambda request: run_tlc_request(
-        request, _TLC_TOOLS + "/jdk-21.0.12+8-jre/bin/java", _TLC_TOOLS + "/tla2tools.jar")).run(project)
-    tlc_evidence = project.current(ArtifactKind.RUNTIME_EVIDENCE)
-    tlc_payload = json.loads(tlc_evidence.content)["payload"]
+    tlc_applicable, tlc_justification = _backend_applicability(plan_payload, "tla-tlc")
+    tlc_evidence = None
+    tlc_payload = None
+    if tlc_applicable:
+        project = TLCCoordinator(lambda request: run_tlc_request(
+            request, _TLC_TOOLS + "/jdk-21.0.12+8-jre/bin/java", _TLC_TOOLS + "/tla2tools.jar")).run(project)
+        tlc_evidence = project.current(ArtifactKind.RUNTIME_EVIDENCE)
+        tlc_payload = json.loads(tlc_evidence.content)["payload"]
     project = SMTCoordinator(lambda request: run_smt_request(request, _Z3)).run(project)
     smt_evidence = project.current(ArtifactKind.RUNTIME_EVIDENCE)
     smt_payload = json.loads(smt_evidence.content)["payload"]
@@ -126,8 +139,11 @@ def build_stage_1_through_8(source: str) -> dict:
     lean_payload = json.loads(lean_evidence.content)["payload"]
     project = compose_validation_verdict(
         project, _ref(obligation.ref), _ref(contract.ref),
-        [_ref(item.ref) for item in (evidence, tlc_evidence, smt_evidence, lean_evidence)],
+        [_ref(item.ref) for item in (evidence, tlc_evidence, smt_evidence, lean_evidence) if item is not None],
         timestamp=_STAMP,
+        inapplicable_backends=(() if tlc_applicable else ({
+            "runtime": "tla-tlc", "justification": tlc_justification,
+        },)),
     )
     verdict = project.current(ArtifactKind.VALIDATION_VERDICT)
     verdict_payload = json.loads(verdict.content)["payload"]
@@ -138,15 +154,18 @@ def build_stage_1_through_8(source: str) -> dict:
         _node(3, plan.kind.value, plan.artifact_id, plan.content_hash, plan.state.value, plan.upstream),
         _node(3, review.kind.value, review.artifact_id, review.content_hash, review.state.value, review.upstream),
         _node(4, evidence.kind.value, evidence.artifact_id, evidence.content_hash, evidence.state.value, evidence.upstream),
-        _node(5, "formal-evidence", tlc_evidence.artifact_id, tlc_evidence.content_hash, tlc_evidence.state.value, tlc_evidence.upstream),
+        *([] if tlc_evidence is None else [_node(5, "formal-evidence", tlc_evidence.artifact_id, tlc_evidence.content_hash, tlc_evidence.state.value, tlc_evidence.upstream)]),
         _node(6, "formal-evidence", smt_evidence.artifact_id, smt_evidence.content_hash, smt_evidence.state.value, smt_evidence.upstream),
         _node(7, "formal-evidence", lean_evidence.artifact_id, lean_evidence.content_hash, lean_evidence.state.value, lean_evidence.upstream),
         _node(8, verdict.kind.value, verdict.artifact_id, verdict.content_hash, verdict.state.value, verdict.upstream),
     ], "plan_approval":"approved", "stage4_backend":{
         "name":"hypothesis-backend", "version":HYPOTHESIS_VERSION,
         "observations_passed":all(item["matched"] for item in evidence_payload["observations"]),
-    }, "stage5_backend":{"name":"tlc-backend", "version":TLC_VERSION,
-        "invariant_satisfied":all(item["invariant_satisfied"] for item in tlc_payload["observations"])},
+    }, "stage5_backend":({"name":"tlc-backend", "version":TLC_VERSION,
+        "applicable": True,
+        "invariant_satisfied":all(item["invariant_satisfied"] for item in tlc_payload["observations"])}
+        if tlc_applicable else {"name":"tlc-backend", "version":TLC_VERSION,
+            "applicable": False, "status":"unknown", "justification":tlc_justification}),
     "stage6_backend":{"name":"z3-backend", "version":Z3_VERSION,
         "postcondition_proved":all(item["result"] == "unsat" and bool(item["proof"])
                                    for item in smt_payload["observations"])},

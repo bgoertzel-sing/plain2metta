@@ -342,6 +342,29 @@ class EvaluationWebTests(unittest.TestCase):
         self.assertEqual(1, len(verdict["counterexample_refs"]))
         self.assertEqual(verdict["counterexample_refs"], payload["evidence_projection"]["counterexamples"])
 
+    def test_inapplicable_stage_5_backend_is_explicit_justified_unknown(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+
+        with patch(
+            "specatom_hs.evaluation_vertical._backend_applicability",
+            return_value=(False, "no concurrent or temporal claim in the exact obligation"),
+        ), patch("specatom_hs.evaluation_vertical.run_tlc_request") as stage5:
+            response = self.client.post("/api/evaluate", json={"text": source})
+
+        self.assertEqual(200, response.status_code, response.get_json())
+        stage5.assert_not_called()
+        payload = response.get_json()
+        backend = payload["ancestry"]["stage5_backend"]
+        self.assertEqual("tlc-backend", backend["name"])
+        self.assertFalse(backend["applicable"])
+        self.assertEqual("unknown", backend["status"])
+        self.assertEqual(
+            "no concurrent or temporal claim in the exact obligation",
+            backend["justification"],
+        )
+        self.assertFalse(payload["verdicts"][0]["grade_achieved"]["vector"]["G5"])
+        self.assertIn("tla-tlc", payload["verdicts"][0]["residual_risk"])
+
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text": 3}).status_code)

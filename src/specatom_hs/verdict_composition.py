@@ -84,6 +84,7 @@ def compose_validation_verdict(
     evidence_refs: Sequence[Mapping[str, str]],
     *,
     timestamp: str,
+    inapplicable_backends: Sequence[Mapping[str, str]] = (),
 ) -> Project:
     """Atomically join exact evidence without allowing one tool to over-promote."""
     validate_plan_review_chain(project)
@@ -167,6 +168,15 @@ def compose_validation_verdict(
         grades["G5"] = True
     elif payload["required_grade"] == "G5" and status == "pass":
         status, reasons = "blocked", ["missing required formal proof/check evidence"]
+
+    for backend in inapplicable_backends:
+        if (not isinstance(backend, Mapping)
+                or set(backend) != {"runtime", "justification"}
+                or backend["runtime"] not in RUNTIME_TO_GRADE
+                or not isinstance(backend["justification"], str)
+                or not backend["justification"].strip()):
+            raise ValueError("inapplicable backend attribution is malformed")
+        reasons.append(f'{backend["runtime"]} inapplicable: {backend["justification"]}')
 
     if status == "pass" and not grades[payload["required_grade"]]:
         status, reasons = "unknown", ["required evidence grade not achieved"]
