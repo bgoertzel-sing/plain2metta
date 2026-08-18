@@ -593,6 +593,40 @@ class EvaluationWebTests(unittest.TestCase):
         stage7.assert_not_called()
         legacy.assert_not_called()
 
+    def test_immutable_review_change_after_plan_approval_invalidates_downstream_atomically(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+
+        from specatom_hs.projects import ArtifactKind, add_validation_plan_review
+        from specatom_hs.validation_plan import submit_plan_review
+
+        def change_review_after_approval(project, review):
+            approved = submit_plan_review(project, review)
+            plan = approved.current(ArtifactKind.VALIDATION_PLAN)
+            current_review = approved.current(ArtifactKind.VALIDATION_PLAN_REVIEW)
+            record = json.loads(current_review.content)
+            record["rationale"] = "unapproved immutable review replacement"
+            content = json.dumps(record, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+            return add_validation_plan_review(approved, content, plan.ref)
+
+        with patch(
+            "specatom_hs.evaluation_vertical.submit_plan_review",
+            side_effect=change_review_after_approval,
+        ), patch("specatom_hs.evaluation_vertical.execute_hypothesis_request") as stage4, \
+             patch("specatom_hs.evaluation_vertical.TLCCoordinator.run") as stage5, \
+             patch("specatom_hs.evaluation_vertical.SMTCoordinator.run") as stage6, \
+             patch("specatom_hs.evaluation_vertical.LeanCoordinator.run") as stage7, \
+             patch("webapp.app.evaluate_plain") as legacy:
+            response = self.client.post("/api/evaluate", json={"text": source})
+
+        self.assertEqual(422, response.status_code)
+        self.assertEqual({"error"}, set(response.get_json()))
+        self.assertIn("approval does not match immutable review", response.get_json()["error"].lower())
+        stage4.assert_not_called()
+        stage5.assert_not_called()
+        stage6.assert_not_called()
+        stage7.assert_not_called()
+        legacy.assert_not_called()
+
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text": 3}).status_code)
