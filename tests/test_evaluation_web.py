@@ -280,6 +280,37 @@ class EvaluationWebTests(unittest.TestCase):
         stage7.assert_not_called()
         legacy.assert_not_called()
 
+    def test_cross_runtime_disagreement_is_not_promoted_into_vertical_evidence(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+        mismatched = {
+            "exit_code": 0,
+            "stdout": '["WRONG"]\n',
+            "stderr": "",
+            "duration_ms": 1,
+            "runtime": "hyperon-cli",
+            "runtime_version": "0.2.10",
+            "runtime_path": "metta",
+            "limits": {},
+        }
+
+        with patch("specatom_hs.evaluation.run_metta_reference", return_value=mismatched):
+            response = self.client.post("/api/evaluate", json={"text": source})
+
+        self.assertEqual(200, response.status_code, response.get_json())
+        payload = response.get_json()
+        self.assertFalse(payload["semantic_validation"]["passed"])
+        self.assertFalse(payload["sandbox"]["metta"]["output_matches"])
+        self.assertEqual("unknown", payload["verdicts"][0]["status"])
+        self.assertEqual("missing dual-runtime evidence", payload["verdicts"][0]["residual_risk"])
+        self.assertFalse(payload["verdicts"][0]["grade_achieved"]["vector"]["G2"])
+        self.assertFalse(payload["verdicts"][0]["grade_achieved"]["vector"]["G3"])
+        self.assertEqual(payload["verdicts"], payload["evidence_projection"]["verdicts"])
+        self.assertEqual(
+            4,
+            len(payload["verdicts"][0]["runtime_evidence_refs"]),
+            "legacy dual-runtime output must not be fabricated into canonical evidence",
+        )
+
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text": 3}).status_code)
