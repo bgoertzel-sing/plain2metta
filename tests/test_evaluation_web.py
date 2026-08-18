@@ -400,6 +400,30 @@ class EvaluationWebTests(unittest.TestCase):
         self.assertEqual(1, len(verdict["counterexample_refs"]))
         self.assertEqual(verdict["counterexample_refs"], payload["evidence_projection"]["counterexamples"])
 
+    def test_failing_stage_7_proof_fails_atomically_before_legacy_evaluation(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+
+        from specatom_hs.lean_backend import run_lean_request
+
+        def fail_proof(request, package, lean, lake):
+            result = run_lean_request(request, package, lean, lake)
+            result["exit_status"] = 1
+            result["kernel_checked"] = False
+            result["stderr"] = "error: exact approved theorem was rejected\n"
+            return result
+
+        with patch(
+            "specatom_hs.evaluation_vertical.run_lean_request",
+            side_effect=fail_proof,
+        ) as stage7, patch("webapp.app.evaluate_plain") as legacy:
+            response = self.client.post("/api/evaluate", json={"text": source})
+
+        self.assertEqual(422, response.status_code)
+        self.assertEqual({"error"}, set(response.get_json()))
+        self.assertIn("lean kernel check failed", response.get_json()["error"].lower())
+        stage7.assert_called_once()
+        legacy.assert_not_called()
+
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text": 3}).status_code)
