@@ -1,3 +1,4 @@
+import json
 import subprocess
 import unittest
 from pathlib import Path
@@ -473,6 +474,61 @@ class EvaluationWebTests(unittest.TestCase):
         with patch(
             "specatom_hs.evaluation_vertical.submit_plan_review",
             side_effect=revoke_after_approval,
+        ), patch("specatom_hs.evaluation_vertical.execute_hypothesis_request") as stage4, \
+             patch("specatom_hs.evaluation_vertical.TLCCoordinator.run") as stage5, \
+             patch("specatom_hs.evaluation_vertical.SMTCoordinator.run") as stage6, \
+             patch("specatom_hs.evaluation_vertical.LeanCoordinator.run") as stage7, \
+             patch("webapp.app.evaluate_plain") as legacy:
+            response = self.client.post("/api/evaluate", json={"text": source})
+
+        self.assertEqual(422, response.status_code)
+        self.assertEqual({"error"}, set(response.get_json()))
+        self.assertIn("requires an approved reviewed plan", response.get_json()["error"].lower())
+        stage4.assert_not_called()
+        stage5.assert_not_called()
+        stage6.assert_not_called()
+        stage7.assert_not_called()
+        legacy.assert_not_called()
+
+    def test_plan_byte_change_after_review_invalidates_downstream_atomically(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+
+        from specatom_hs.projects import ArtifactKind, add_semantic_artifact
+        from specatom_hs.semantic_artifacts import build_semantic_artifact
+        from specatom_hs.validation_plan import submit_plan_review
+
+        def change_plan_after_review(project, review):
+            approved = submit_plan_review(project, review)
+            plan = approved.current(ArtifactKind.VALIDATION_PLAN)
+            document = json.loads(plan.content)
+            payload = document["payload"]
+            payload["coverage_claims"] = [*payload["coverage_claims"], "unreviewed-plan-byte-change"]
+            reviewed = approved.current(ArtifactKind.REVIEWED_ELABORATED_SPEC)
+            contract = approved.current(ArtifactKind.SEMANTIC_CONTRACT)
+            obligation = approved.current(ArtifactKind.VALIDATION_OBLIGATION)
+            changed = build_semantic_artifact(
+                "ValidationPlan",
+                reviewed.ref,
+                [contract.ref, obligation.ref, plan.ref],
+                {
+                    "producer": "regression-test",
+                    "version": "1",
+                    "operation": "unreviewed-plan-byte-change",
+                    "timestamp": "2026-08-18T04:53:00Z",
+                    "input_hashes": [
+                        reviewed.content_hash,
+                        contract.content_hash,
+                        obligation.content_hash,
+                        plan.content_hash,
+                    ],
+                },
+                payload,
+            )
+            return add_semantic_artifact(approved, changed)
+
+        with patch(
+            "specatom_hs.evaluation_vertical.submit_plan_review",
+            side_effect=change_plan_after_review,
         ), patch("specatom_hs.evaluation_vertical.execute_hypothesis_request") as stage4, \
              patch("specatom_hs.evaluation_vertical.TLCCoordinator.run") as stage5, \
              patch("specatom_hs.evaluation_vertical.SMTCoordinator.run") as stage6, \
