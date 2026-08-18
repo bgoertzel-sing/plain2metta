@@ -171,9 +171,23 @@ def compose_validation_verdict(
     if status == "pass" and not grades[payload["required_grade"]]:
         status, reasons = "unknown", ["required evidence grade not achieved"]
     achieved = [key for key in GRADE_KEYS if grades[key]]
+    evidence_ref_values = {_ref(artifact.ref)["artifact_id"]: _ref(artifact.ref)
+                           for artifact, _ in records}
+    counterexamples = []
+    for artifact in project.artifacts:
+        if artifact.kind is not ArtifactKind.COUNTEREXAMPLE or artifact.state is not ArtifactState.CURRENT:
+            continue
+        document = json.loads(artifact.content)
+        validate_semantic_artifact(document)
+        counterexample = document["payload"]
+        if (counterexample["obligation_ref"] == _ref(obligation.ref)
+                and counterexample["evidence_ref"].get("artifact_id") in evidence_ref_values
+                and counterexample["evidence_ref"] == evidence_ref_values[counterexample["evidence_ref"]["artifact_id"]]):
+            counterexamples.append(artifact)
     ancestry = []
     for ref in [*plan.upstream, plan.ref, review.ref, implementation.ref,
-                *(artifact.ref for artifact, _ in records)]:
+                *(artifact.ref for artifact, _ in records),
+                *(artifact.ref for artifact in counterexamples)]:
         if ref not in ancestry:
             ancestry.append(ref)
     provenance = {"producer":"cross-tool-verdict-composer","version":"1","operation":"compose-grade-vector",
@@ -183,7 +197,7 @@ def compose_validation_verdict(
         "obligation_ref":_ref(obligation.ref), "implementation_ref":_ref(implementation.ref),
         "validation_plan_ref":_ref(plan.ref), "runtime_evidence_refs":[_ref(x.ref) for x, _ in records],
         "grade_achieved":{"vector":grades,"achieved":achieved,"required":payload["required_grade"]},
-        "status":status, "counterexample_refs":[],
+        "status":status, "counterexample_refs":[_ref(artifact.ref) for artifact in counterexamples],
         "residual_risk":"; ".join(reasons) if reasons else "bounded evidence only; assumptions and domains remain explicit",
         "assumptions_used":assumptions,
     }

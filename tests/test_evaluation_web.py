@@ -311,6 +311,37 @@ class EvaluationWebTests(unittest.TestCase):
             "legacy dual-runtime output must not be fabricated into canonical evidence",
         )
 
+    def test_failing_stage_4_property_projects_conservative_counterexample(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+
+        from specatom_hs.hypothesis_backend import execute_hypothesis_request
+
+        def fail_property(request, python_executable):
+            result = execute_hypothesis_request(request, python_executable)
+            counterexample = dict(result["observations"][0])
+            counterexample["matched"] = False
+            result["observations"] = [counterexample]
+            result["minimal_counterexamples"] = [counterexample]
+            result["shrinking"] = ["Falsifying example: exact supported bytes"]
+            result["exit_status"] = 1
+            return result
+
+        with patch(
+            "specatom_hs.evaluation_vertical.execute_hypothesis_request",
+            side_effect=fail_property,
+        ) as stage4:
+            response = self.client.post("/api/evaluate", json={"text": source})
+
+        self.assertEqual(200, response.status_code, response.get_json())
+        stage4.assert_called_once()
+        payload = response.get_json()
+        verdict = payload["verdicts"][0]
+        self.assertEqual("fail", verdict["status"])
+        self.assertFalse(verdict["grade_achieved"]["vector"]["G4"])
+        self.assertIn("property evidence contains a counterexample", verdict["residual_risk"])
+        self.assertEqual(1, len(verdict["counterexample_refs"]))
+        self.assertEqual(verdict["counterexample_refs"], payload["evidence_projection"]["counterexamples"])
+
     def test_api_schema_fails_closed(self):
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text":"x", "extra":1}).status_code)
         self.assertEqual(400, self.client.post("/api/evaluate", json={"text": 3}).status_code)
