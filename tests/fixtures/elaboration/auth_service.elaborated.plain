@@ -1,0 +1,15 @@
+***definitions***
+- :User: is a person or service account with a unique email identity.
+- :Session: is a server-side authentication record bound to one :User:.
+- :AuthToken: is a signed bearer credential bound to one current :Session:.
+- :PasswordHasher: is the [external:argon2id] verifier used for password checks.
+- :AuditSink: is the configured destination for authentication risk events.
+- LoginPolicy defines the configured failed-attempt limit, lockout interval, and identity providers.
+
+***functional specifications***
+- [id:AUTH-1] Given a registered :User: and a password, the service shall verify the password with :PasswordHasher:. On success it shall create exactly one :Session: and return an :AuthToken: bound to that session. It shall not log the password or token.
+- [id:AUTH-2] The service shall reject a password login when verification fails or LoginPolicy says the account is locked. A rejected login shall create no :Session: or :AuthToken: and shall return the same public error for both causes.
+- [id:AUTH-3] The service shall refresh an :AuthToken: only while its referenced :Session: exists, is unexpired, and is not revoked. Otherwise it shall require reauthentication.
+- [id:AUTH-4] After a password reset succeeds, the service shall revoke every current :Session: belonging to that :User: before reporting success.
+- [id:AUTH-5] After a suspicious login attempt, the service shall send one risk event to :AuditSink: containing the :User: identity, event time, and reason but no password or bearer credential.
+- [id:AUTH-6] Question: define the retention period and authorization policy for support-operator authentication-event exports before implementing that operation.

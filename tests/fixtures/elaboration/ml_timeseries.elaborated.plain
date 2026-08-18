@@ -1,0 +1,11 @@
+***definitions***
+- :PriceObservation: is a price paired with an event timestamp.
+- :ReturnLabel24h: is the return over the 24 hours strictly after a prediction timestamp.
+- :TrainingRows: is the chronologically earliest partition used to fit model and preprocessing parameters.
+
+***functional specifications***
+- [id:ML-1] The experiment shall construct one feature row per :PriceObservation: using only values available at or before that row's prediction timestamp and shall associate it with :ReturnLabel24h:.
+- [id:ML-2] The experiment shall split rows chronologically into non-overlapping train, validation, and test partitions before fitting preprocessing. All normalization parameters shall be fit only on :TrainingRows: and then applied unchanged to later partitions.
+- [id:ML-3] The experiment shall choose hyperparameters using only validation-partition results. It shall not use test-partition inputs or labels for selection.
+- [id:ML-4] The experiment shall evaluate the selected model exactly once on the test partition and report finite mean squared error, directional accuracy, partition time bounds, row counts, and the chosen hyperparameters.
+- [id:ML-5] Question: name the model family and baseline comparator before executable compilation; no library is assumed.

@@ -14,13 +14,26 @@ from .schema import PlainFile, PlainItem, Section, SourceSpan, SpecDocument, sta
 
 HEADER_RE = re.compile(r"^(?P<indent>\s*)\*\*\*(?P<title>.+?)\*\*\*\s*$")
 BULLET_RE = re.compile(r"^(?P<indent>\s*)-\s+(?P<text>.*)$")
+PHYSICAL_LINE_RE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$")
 
 
 def _line_starts(text: str) -> tuple[int, ...]:
     starts = [0]
-    for i, ch in enumerate(text):
-        if ch == "\n":
-            starts.append(i + 1)
+    byte_offset = 0
+    previous_was_cr = False
+    for ch in text:
+        byte_offset += len(ch.encode("utf-8"))
+        if ch == "\r":
+            starts.append(byte_offset)
+            previous_was_cr = True
+        elif ch == "\n":
+            if previous_was_cr:
+                starts[-1] = byte_offset
+            else:
+                starts.append(byte_offset)
+            previous_was_cr = False
+        else:
+            previous_was_cr = False
     return tuple(starts)
 
 
@@ -31,6 +44,11 @@ def _line_for_offset(starts: tuple[int, ...], offset: int) -> int:
             break
         line = idx
     return line
+
+
+def line_for_byte_offset(text: str, offset: int) -> int:
+    """Return the physical CR/LF/CRLF line containing a UTF-8 byte offset."""
+    return _line_for_offset(_line_starts(text), offset)
 
 
 def section_kind(title: str) -> str:
@@ -58,9 +76,13 @@ def index_source(text: str, path: str = "inline.plain", file_ordinal: int = 1) -
 
     lines: list[tuple[str, int, int]] = []
     offset = 0
-    for raw_line in text.splitlines(keepends=True):
+    # Plain source lines are delimited only by CR, LF, or CRLF.  Python's
+    # str.splitlines() also splits on Unicode separators (for example U+2028),
+    # which would disagree with _line_starts() and create phantom line numbers.
+    for line_match in PHYSICAL_LINE_RE.finditer(text):
+        raw_line = line_match.group(0)
         line_start = offset
-        line_end = offset + len(raw_line)
+        line_end = offset + len(raw_line.encode("utf-8"))
         lines.append((raw_line, line_start, line_end))
         offset = line_end
 
@@ -68,8 +90,9 @@ def index_source(text: str, path: str = "inline.plain", file_ordinal: int = 1) -
     while i < len(lines):
         raw_line, line_start, line_end = lines[i]
         line = raw_line.rstrip("\n")
+        match_line = line.removeprefix("\ufeff") if line_start == 0 else line
 
-        header = HEADER_RE.match(line)
+        header = HEADER_RE.match(match_line)
         if header:
             title = header.group("title").strip()
             kind = section_kind(title)
@@ -99,7 +122,7 @@ def index_source(text: str, path: str = "inline.plain", file_ordinal: int = 1) -
             key = (current.id, parent)
             item_ordinals[key] = item_ordinals.get(key, 0) + 1
             ordinal = item_ordinals[key]
-            text_start = line_start + len(bullet.group("indent"))
+            text_start = line_start + len(bullet.group("indent").encode("utf-8"))
             span_end = line_end
             raw_parts = [bullet.group("text").strip()]
 

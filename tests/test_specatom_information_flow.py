@@ -224,12 +224,18 @@ class InformationFlowValidationTests(unittest.TestCase):
             "- The pipeline reads from the upstream source.\n"
             "- The pipeline writes to the downstream sink.\n"
             "- The service consumes input from the message queue.\n"
+            "- The worker receives events from the task queue.\n"
+            "- The parser feeds into the validator.\n"
+            "- The worker pulls events from the backlog.\n"
+            "- The publisher pushes events to the bus.\n"
+            "- The collector ingests records from the archive.\n"
+            "- The scheduler emits jobs to the queue.\n"
             "- Component A depends on component B.\n",
             "data-path-edges.plain",
         )
 
         edge_atoms = [obj for obj in doc.objects if any(f[0] == "DataFlowEdge" for f in obj.facts)]
-        self.assertGreaterEqual(len(edge_atoms), 4, f"expected at least 4 edges, got {len(edge_atoms)}")
+        self.assertGreaterEqual(len(edge_atoms), 10, f"expected at least 10 edges, got {len(edge_atoms)}")
 
         # Verify edge contents match ground truth.
         edges = []
@@ -241,6 +247,12 @@ class InformationFlowValidationTests(unittest.TestCase):
         self.assertIn(("pipeline", "upstream source", "reads-from"), edges)
         self.assertIn(("pipeline", "downstream sink", "writes-to"), edges)
         self.assertIn(("service", "message queue", "consumes-from"), edges)
+        self.assertIn(("worker", "task queue", "receives-from"), edges)
+        self.assertIn(("parser", "validator", "feeds-into"), edges)
+        self.assertIn(("worker", "backlog", "pulls-from"), edges)
+        self.assertIn(("publisher", "bus", "pushes-to"), edges)
+        self.assertIn(("collector", "archive", "ingests-from"), edges)
+        self.assertIn(("scheduler", "queue", "emits-to"), edges)
         self.assertIn(("component a", "component b", "depends-on"), edges)
 
     def test_data_path_check_passes_with_explicit_edges(self):
@@ -1004,7 +1016,7 @@ class InformationFlowValidationTests(unittest.TestCase):
         doc = compile_source(
             "***functional specifications***\n"
             "- The pipeline reads from the upstream source.\n"
-            "- The monitor receives data from the alert system.\n",
+            "- The monitor flows to alerting.\n",
             "isolated-component.plain",
         )
 
@@ -1014,7 +1026,7 @@ class InformationFlowValidationTests(unittest.TestCase):
         )
 
         # 'pipeline' appears in an explicit edge (pipeline reads-from upstream source)
-        # but 'monitor' uses 'receives data from' which is a broader data-flow verb
+        # but 'monitor' uses 'flows to', which is a broader data-flow verb
         # that does not produce a DataFlowEdge.  So 'monitor' is isolated.
         isolated_checks = [c for c in doc.checks if c.property == "information-flow-isolated-component-reviewed"]
         self.assertTrue(len(isolated_checks) >= 1, "isolated component check should exist when edges are present")
@@ -1060,7 +1072,7 @@ class InformationFlowValidationTests(unittest.TestCase):
         doc = compile_source(
             "***functional specifications***\n"
             "- The pipeline reads from the upstream source.\n"
-            "- The monitor receives data from the alert system.\n",
+            "- The monitor flows to alerting.\n",
             "isolated-export.plain",
         )
 
@@ -1542,7 +1554,13 @@ class InformationFlowValidationTests(unittest.TestCase):
         doc = compile_source(
             "***functional specifications***\n"
             "- Intro text. The pipeline reads from the source, then validates it.\n"
-            "- The service writes to the database.\n",
+            "- The service writes to the database.\n"
+            "- Background: the worker receives events from the task queue before processing.\n"
+            "- Routing note: the parser feeds into the validator during checks.\n"
+            "- Pull note: the worker pulls events from the backlog after startup.\n"
+            "- Push note: the publisher pushes events to the bus during flush.\n"
+            "- Ingest note: the collector ingests records from the archive after sync.\n"
+            "- Emit note: the scheduler emits jobs to the queue before workers poll.\n",
             "edge-provenance.plain",
         )
         text_by_file = {plain_file.id: plain_file.text for plain_file in doc.files}
@@ -1552,7 +1570,7 @@ class InformationFlowValidationTests(unittest.TestCase):
             obj for obj in doc.objects
             if any(fact and str(fact[0]) == "DataFlowEdge" for fact in obj.facts)
         ]
-        self.assertEqual(len(edge_objects), 2)
+        self.assertEqual(len(edge_objects), 8)
 
         for edge_obj in edge_objects:
             provenance_checks = [
@@ -1564,13 +1582,19 @@ class InformationFlowValidationTests(unittest.TestCase):
 
         # Verify each edge's source span slices the exact matched edge phrase,
         # not the whole Plain item.
-        edge_by_source = {}
+        edge_by_fact = {}
         for edge_obj in edge_objects:
             edge_fact = next(f for f in edge_obj.facts if str(f[0]) == "DataFlowEdge")
-            edge_by_source[edge_fact[2]] = edge_obj
+            edge_by_fact[(edge_fact[2], edge_fact[3], edge_fact[4])] = edge_obj
 
-        pipeline_span = span_by_id[edge_by_source["pipeline"].source_span_id]
-        service_span = span_by_id[edge_by_source["service"].source_span_id]
+        pipeline_span = span_by_id[edge_by_fact[("pipeline", "source", "reads-from")].source_span_id]
+        service_span = span_by_id[edge_by_fact[("service", "database", "writes-to")].source_span_id]
+        worker_span = span_by_id[edge_by_fact[("worker", "task queue", "receives-from")].source_span_id]
+        parser_span = span_by_id[edge_by_fact[("parser", "validator", "feeds-into")].source_span_id]
+        worker_pull_span = span_by_id[edge_by_fact[("worker", "backlog", "pulls-from")].source_span_id]
+        publisher_span = span_by_id[edge_by_fact[("publisher", "bus", "pushes-to")].source_span_id]
+        collector_span = span_by_id[edge_by_fact[("collector", "archive", "ingests-from")].source_span_id]
+        scheduler_span = span_by_id[edge_by_fact[("scheduler", "queue", "emits-to")].source_span_id]
         self.assertEqual(
             text_by_file[pipeline_span.file_id][pipeline_span.start_byte:pipeline_span.end_byte],
             "The pipeline reads from the source",
@@ -1579,18 +1603,44 @@ class InformationFlowValidationTests(unittest.TestCase):
             text_by_file[service_span.file_id][service_span.start_byte:service_span.end_byte],
             "The service writes to the database",
         )
+        self.assertEqual(
+            text_by_file[worker_span.file_id][worker_span.start_byte:worker_span.end_byte],
+            "the worker receives events from the task queue",
+        )
+        self.assertEqual(
+            text_by_file[parser_span.file_id][parser_span.start_byte:parser_span.end_byte],
+            "the parser feeds into the validator",
+        )
+        self.assertEqual(
+            text_by_file[worker_pull_span.file_id][worker_pull_span.start_byte:worker_pull_span.end_byte],
+            "the worker pulls events from the backlog",
+        )
+        self.assertEqual(
+            text_by_file[publisher_span.file_id][publisher_span.start_byte:publisher_span.end_byte],
+            "the publisher pushes events to the bus",
+        )
+        self.assertEqual(
+            text_by_file[collector_span.file_id][collector_span.start_byte:collector_span.end_byte],
+            "the collector ingests records from the archive",
+        )
+        self.assertEqual(
+            text_by_file[scheduler_span.file_id][scheduler_span.start_byte:scheduler_span.end_byte],
+            "the scheduler emits jobs to the queue",
+        )
 
-    def test_temporal_order_edge_has_item_level_source_provenance(self):
-        """Each TemporalOrderEdge object should cite the source span of the specific item where the edge was found."""
+    def test_temporal_order_edge_has_exact_source_provenance(self):
+        """Each TemporalOrderEdge object should cite the exact matched ordering phrase where possible."""
         doc = compile_source(
             "***functional specifications***\n"
             "- The pipeline reads from the source.\n"
-            "- The service runs before the database.\n",
+            "- Note: the service runs before the database, then records metrics.\n",
             "temporal-provenance.plain",
         )
         item_by_text = {item.raw_text: item for item in doc.items}
         pipeline_item = item_by_text["The pipeline reads from the source."]
-        service_item = item_by_text["The service runs before the database."]
+        temporal_item = item_by_text["Note: the service runs before the database, then records metrics."]
+        span_by_id = {span.id: span for span in doc.spans}
+        text_by_file = {plain_file.id: plain_file.text for plain_file in doc.files}
 
         temporal_edges = [
             obj for obj in doc.objects
@@ -1606,10 +1656,14 @@ class InformationFlowValidationTests(unittest.TestCase):
             self.assertEqual(len(provenance_checks), 1)
             self.assertEqual(provenance_checks[0].status, CheckStatus.PASS)
 
-        # Verify per-item span assignment.
-        # "service runs before database" -> service before database
+        # Verify exact phrase span assignment, not merely whole-item provenance.
         edge_obj = temporal_edges[0]
-        self.assertEqual(edge_obj.source_span_id, service_item.span.id)
+        self.assertNotEqual(edge_obj.source_span_id, temporal_item.span.id)
+        temporal_span = span_by_id[edge_obj.source_span_id]
+        self.assertEqual(
+            text_by_file[temporal_span.file_id][temporal_span.start_byte:temporal_span.end_byte],
+            "the service runs before the database",
+        )
 
         # Also verify the DataFlowEdge has exact, item-contained provenance.
         data_edges = [

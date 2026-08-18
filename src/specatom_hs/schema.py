@@ -31,11 +31,21 @@ class Role(str, Enum):
     CONCEPT_OBJECT = "ConceptObject"
     CONCEPT_REFERENCE_OBJECT = "ConceptReferenceObject"
     PROPOSITION_OBJECT = "PropositionObject"
+    ACTION_TEMPLATE = "ActionTemplate"
     REQUIREMENT_OBJECT = "RequirementObject"
     OBLIGATION_OBJECT = "ObligationObject"
     VALIDATION_OBJECT = "ValidationObject"
     BACKEND_ARTIFACT = "BackendArtifact"
     QUESTION_OBJECT = "QuestionObject"
+    SCOPE_OBJECT = "ScopeObject"
+    EPISTEMIC_STATUS_OBJECT = "EpistemicStatusObject"
+    EVIDENCE_OBJECT = "EvidenceObject"
+    INTERPRETATION_OBJECT = "InterpretationObject"
+    BRIDGE_OBJECT = "BridgeObject"
+    REVISION_OBJECT = "RevisionObject"
+    PROCESS_OBJECT = "ProcessObject"
+    RESOURCE_OBJECT = "ResourceObject"
+    ASSUMPTION_OBJECT = "AssumptionObject"
 
 
 class CheckStatus(str, Enum):
@@ -165,7 +175,7 @@ class SpecDocument:
 def stable_id(prefix: str, *parts: object, length: int = 10) -> str:
     h = sha256()
     for part in parts:
-        h.update(str(part).encode("utf-8"))
+        h.update(str(part).encode("utf-8", errors="surrogatepass"))
         h.update(b"\0")
     return f"{prefix}-{h.hexdigest()[:length]}"
 

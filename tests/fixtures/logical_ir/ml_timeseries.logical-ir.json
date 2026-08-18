@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "artifact_type": "literate-logical-ir-verification-skeleton",
+  "executable": false,
+  "module_id": "MLTimeSeriesExperiment",
+  "types": [
+    {"declaration_id": "type.PriceObservation", "name": "PriceObservation", "source_clause_ids": ["ML-1"]},
+    {"declaration_id": "type.FeatureRow", "name": "FeatureRow", "source_clause_ids": ["ML-1", "ML-2"]},
+    {"declaration_id": "type.ReturnLabel24h", "name": "ReturnLabel24h", "source_clause_ids": ["ML-1"]},
+    {"declaration_id": "type.TrainingRows", "name": "TrainingRows", "source_clause_ids": ["ML-2"]},
+    {"declaration_id": "type.Partitions", "name": "Partitions", "source_clause_ids": ["ML-2", "ML-3", "ML-4"]},
+    {"declaration_id": "type.Model", "name": "Model", "source_clause_ids": ["ML-3", "ML-4", "ML-5"]},
+    {"declaration_id": "type.Hyperparameters", "name": "Hyperparameters", "source_clause_ids": ["ML-3", "ML-4"]},
+    {"declaration_id": "type.EvaluationReport", "name": "EvaluationReport", "source_clause_ids": ["ML-4"]}
+  ],
+  "contracts": [
+    {"contract_id": "contract.construct_features", "name": "construct_features", "inputs": ["PriceObservation"], "output": "FeatureRow", "preconditions": ["observations have event timestamps"], "postconditions": ["one row and one 24-hour return label are produced per prediction timestamp"], "invariants": ["features use no value after the prediction timestamp"], "source_clause_ids": ["ML-1"], "requires_grounding": true},
+    {"contract_id": "contract.split_and_normalize", "name": "split_and_normalize", "inputs": ["FeatureRow"], "output": "Partitions", "preconditions": ["feature rows are chronologically ordered"], "postconditions": ["train, validation, and test partitions are non-overlapping"], "invariants": ["normalization is fit only on TrainingRows and applied unchanged later"], "source_clause_ids": ["ML-2"], "requires_grounding": true},
+    {"contract_id": "contract.select_hyperparameters", "name": "select_hyperparameters", "inputs": ["Partitions", "ModelFamily"], "output": "Hyperparameters", "preconditions": ["training and validation partitions exist"], "postconditions": ["selection uses validation results only"], "invariants": ["test inputs and labels are never read for selection"], "source_clause_ids": ["ML-3", "ML-5"], "requires_grounding": true},
+    {"contract_id": "contract.evaluate_once", "name": "evaluate_once", "inputs": ["Model", "Hyperparameters", "Partitions"], "output": "EvaluationReport", "preconditions": ["hyperparameters were selected without test data"], "postconditions": ["the selected model is evaluated exactly once on test data"], "invariants": ["MSE and directional accuracy are finite and partition bounds, counts, and hyperparameters are reported"], "source_clause_ids": ["ML-4"], "requires_grounding": true},
+    {"contract_id": "contract.choose_model_family", "name": "choose_model_family", "inputs": ["BaselineComparator"], "output": "Model", "preconditions": ["model family and baseline comparator are named"], "postconditions": ["the chosen family and baseline are reviewable"], "invariants": ["no library is assumed by the logical IR"], "source_clause_ids": ["ML-5"], "requires_grounding": true}
+  ],
+  "obligations": [
+    {"requirement_id": "ML-1", "planned_test_ids": ["ML-TEST-1"], "source_clause_ids": ["ML-1"]},
+    {"requirement_id": "ML-2", "planned_test_ids": ["ML-TEST-2"], "source_clause_ids": ["ML-2"]},
+    {"requirement_id": "ML-3", "planned_test_ids": ["ML-TEST-3"], "source_clause_ids": ["ML-3"]},
+    {"requirement_id": "ML-4", "planned_test_ids": ["ML-TEST-4"], "source_clause_ids": ["ML-4"]},
+    {"requirement_id": "ML-5", "planned_test_ids": ["ML-TEST-5"], "source_clause_ids": ["ML-5"]}
+  ],
+  "dependencies": [
+    {"dependency_id": "dependency.features_before_split", "before": "construct_features", "after": "split_and_normalize", "relation": "precedes", "source_clause_ids": ["ML-1", "ML-2"]},
+    {"dependency_id": "dependency.split_before_selection", "before": "split_and_normalize", "after": "select_hyperparameters", "relation": "precedes", "source_clause_ids": ["ML-2", "ML-3"]},
+    {"dependency_id": "dependency.selection_before_test", "before": "select_hyperparameters", "after": "evaluate_once", "relation": "precedes", "source_clause_ids": ["ML-3", "ML-4"]}
+  ],
+  "operational_holes": [
+    {"hole_id": "hole.construct_features", "contract_id": "contract.construct_features", "expected_type": "FeatureRow", "rationale": "feature extraction and label construction require grounded data adapters", "source_clause_ids": ["ML-1"]},
+    {"hole_id": "hole.split_and_normalize", "contract_id": "contract.split_and_normalize", "expected_type": "Partitions", "rationale": "partitioning and scaler fitting require grounded implementations", "source_clause_ids": ["ML-2"]},
+    {"hole_id": "hole.select_hyperparameters", "contract_id": "contract.select_hyperparameters", "expected_type": "Hyperparameters", "rationale": "training and validation selection require a grounded model adapter", "source_clause_ids": ["ML-3", "ML-5"]},
+    {"hole_id": "hole.evaluate_once", "contract_id": "contract.evaluate_once", "expected_type": "EvaluationReport", "rationale": "metric computation requires grounded execution", "source_clause_ids": ["ML-4"]},
+    {"hole_id": "hole.choose_model_family", "contract_id": "contract.choose_model_family", "expected_type": "Model", "rationale": "model family and baseline comparator remain unresolved", "source_clause_ids": ["ML-5"]}
+  ]
+}

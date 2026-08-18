@@ -8,7 +8,7 @@ import re
 from typing import Callable
 
 from .schema import CheckStatus, Role, SemanticLevel, SourceSpan, SpecDocument, SpecObject, stable_id
-from .source_indexer import index_path, index_source
+from .source_indexer import index_path, index_source, line_for_byte_offset
 from .validators import add_check, add_validation_obligation, validate_document
 
 
@@ -78,9 +78,12 @@ def build_concept_table(doc: SpecDocument) -> SpecDocument:
         This small alignment routine keeps occurrence spans exact without
         assuming a fixed bullet-prefix length.
         """
-        segment = file_text[item.file_id][item.span.start_byte:item.span.end_byte]
+        segment = file_text[item.file_id].encode("utf-8")[
+            item.span.start_byte:item.span.end_byte
+        ].decode("utf-8")
         cursor = 0
         at_line_start = True
+        previous_was_cr = False
         for offset, ch in enumerate(segment):
             if at_line_start:
                 if ch.isspace() and ch != "\n":
@@ -91,18 +94,28 @@ def build_concept_table(doc: SpecDocument) -> SpecDocument:
                     continue
                 at_line_start = False
             if cursor == raw_index:
-                return item.span.start_byte + offset
+                return item.span.start_byte + len(segment[:offset].encode("utf-8"))
             if cursor < len(item.raw_text) and ch == item.raw_text[cursor]:
                 cursor += 1
-            if ch == "\n":
+            if ch == "\r":
+                if cursor < len(item.raw_text) and item.raw_text[cursor] == "\n":
+                    cursor += 1
                 at_line_start = True
+                previous_was_cr = True
+            elif ch == "\n":
+                if not previous_was_cr and cursor < len(item.raw_text) and item.raw_text[cursor] == "\n":
+                    cursor += 1
+                at_line_start = True
+                previous_was_cr = False
+            else:
+                previous_was_cr = False
         if cursor == raw_index:
             return item.span.end_byte
         raise ValueError(f"could not align raw index {raw_index} for item {item.id}")
 
     def line_for_offset(file_id: str, byte_offset: int) -> int:
         """Return a 1-based line number for a byte offset in the source text."""
-        return file_text[file_id].count("\n", 0, byte_offset) + 1
+        return line_for_byte_offset(file_text[file_id], byte_offset)
 
     def add_occurrence(item, name: str, kind: str, match_start: int, match_end: int) -> str:
         """Preserve an exact source span for one explicit concept marker."""
@@ -419,24 +432,25 @@ DESTRUCTIVE_SAFETY_RE = re.compile(r"\b(confirm(?:ation)?|dry[- ]run|backup|roll
 # --- Information-flow validation patterns ---
 INFO_FLOW_SIGNAL_RE = re.compile(
     r"\b(input|output|consume|produce|read(?:s| from)?|write(?:s| to)?|receive(?:s| from)?|send(?:s| to)?|"
+    r"pull(?:s| from)?|push(?:es| to)?|"
     r"depend(?:s|ency|encies)?(?:\s+on)?|source(?:s| from)?|sink|feed(?:s| into)?|flow(?:s| from| to)?|"
-    r"upstream|downstream|pipeline|data flow|data dependency|ingest|emit|"
+    r"upstream|downstream|pipeline|data flow|data dependency|ingest(?:s)?|emit(?:s)?|"
     r"circular|cycle|mutual(?:ly)? depend|feedback loop|recursive(?:ly)? depend|bidirectional)\b",
     re.IGNORECASE,
 )
 INPUT_DECLARATION_RE = re.compile(
-    r"\b(input(?:s)?|consume(?:s)?|read(?:s)? from|receive(?:s)? from|ingest(?:s)?|"
+    r"\b(input(?:s)?|consume(?:s)?|read(?:s)? from|receive(?:s)? from|pull(?:s)? from|ingest(?:s)?|ingest(?:s)?\s+\w+\s+from|"
     r"upstream(?:\s+input|\s+source|\s+data))\b[^.;\n]{0,120}",
     re.IGNORECASE,
 )
 OUTPUT_DECLARATION_RE = re.compile(
-    r"\b(output(?:s)?|produce(?:s)?|write(?:s)? to|send(?:s)? to|sink(?:s)?|emit(?:s)?|"
+    r"\b(output(?:s)?|produce(?:s)?|write(?:s)? to|send(?:s)? to|push(?:es)? to|sink(?:s)?|emit(?:s)?|emit(?:s)?\s+\w+\s+to|"
     r"downstream(?:\s+output|\s+target|\s+data)?|feed(?:s)? into)\b[^.;\n]{0,120}",
     re.IGNORECASE,
 )
 DEPENDENCY_DIRECTION_RE = re.compile(
     r"\b(depend(?:s|ency|encies)?(?:\s+on)?|read(?:s| from)?|write(?:s| to)?|consume(?:s| from)?|"
-    r"produce(?:s| for)?|receive(?:s| from)?|send(?:s| to)?|feed(?:s| into)?|"
+    r"produce(?:s| for)?|receive(?:s| from)?|send(?:s| to)?|pull(?:s| from)?|push(?:es| to)?|ingest(?:s| from)?|emit(?:s| to)?|feed(?:s| into)?|"
     r"source(?:s| from)?|sink(?:s| to)?|upstream|downstream)\b",
     re.IGNORECASE,
 )
@@ -466,6 +480,12 @@ CIRCULAR_DEPENDENCY_EVIDENCE_RE = re.compile(
 # Detect explicit component-level data-path edges like:
 #   "The pipeline reads from the upstream source"
 #   "The service consumes input from the message queue"
+#   "The worker receives events from the queue"
+#   "The source feeds into the pipeline"
+#   "The worker pulls events from the queue"
+#   "The publisher pushes events to the bus"
+#   "The collector ingests records from the archive"
+#   "The scheduler emits jobs to the queue"
 #   "Component A depends on component B"
 # The source and target are simple noun phrases (1–2 alphabetic words).
 # Stop words are filtered so conjunctions/articles are not treated as sources.
@@ -473,8 +493,9 @@ DATA_PATH_EDGE_RE = re.compile(
     r"(?:(?:The|the|A|a|An|an)\s+)?"
     r"(?P<source>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)"
     r"\s+"
-    r"(?P<verb>reads?\s+from|writes?\s+to|sends?\s+to|depends?\s+on"
-    r"|consumes?\s+\w+\s+from|produces?\s+\w+\s+to)"
+    r"(?P<verb>reads?\s+from|writes?\s+to|sends?\s+to|depends?\s+on|feeds?\s+into"
+    r"|consumes?\s+\w+\s+from|receives?\s+\w+\s+from|pulls?\s+\w+\s+from|ingests?\s+\w+\s+from"
+    r"|produces?\s+\w+\s+to|pushes?\s+\w+\s+to|emits?\s+\w+\s+to)"
     r"\s+"
     r"(?:(?:the|a|an)\s+)?"
     r"(?P<target>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)",
@@ -493,7 +514,7 @@ _EDGE_STOP_WORDS = frozenset({
 def _normalize_direction(verb: str) -> str:
     """Normalize a matched verb phrase to a direction string.
 
-    'reads from' -> 'reads-from', 'consumes input from' -> 'consumes-from', etc.
+    'reads from' -> 'reads-from', 'receives events from' -> 'receives-from', etc.
     """
     parts = verb.lower().split()
     return f"{parts[0]}-{parts[-1]}"
@@ -696,6 +717,1515 @@ def build_requirement_test_coverage(doc: SpecDocument) -> SpecDocument:
                 existing_ids.add(qid)
     return doc
 
+
+
+# --- Phase 2 semantic-object slice ---
+SEMANTIC_MARKER_LOOKAHEAD = r"(?:\s+\b(?:scope|context|epistemic(?: status)?|status|confidence|evidence|proof|rationale|interpretation|bridge|revision|decision|outcome|observation|counterexample|example|citation|reference|metric|validation|verification|check|witness|backend artifact|artifact|process|resources?|dependenc(?:y|ies)|risk|mitigation|priority|deadline|due|owner|assignee|limitation|non-?goal|deprecated|deprecation|replacement|acceptance criteri(?:on|a)|criterion|todo|to-do|open issue|issue|question|assumption|invariant|constraint|claim|axiom|hypothesis|precondition|postcondition)\s*:)|[;\n]|$"
+SCOPE_RE = re.compile(
+    r"\b(?:scope|context)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+EPISTEMIC_RE = re.compile(
+    r"\b(?:epistemic(?: status)?|status)\s*:\s*(?P<status>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+SUPPORTED_EPISTEMIC_STATUSES = {"observed", "assumed", "hypothesis", "derived", "verified", "rejected", "unknown"}
+CONFIDENCE_RE = re.compile(
+    r"\bconfidence\s*:\s*(?P<value>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+EVIDENCE_RE = re.compile(
+    r"\bevidence\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+PROOF_RE = re.compile(
+    r"\bproof\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+RATIONALE_RE = re.compile(
+    r"\brationale\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+INTERPRETATION_RE = re.compile(
+    r"\binterpretation\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+BRIDGE_RE = re.compile(
+    r"\bbridge\s*:\s*(?P<ontology>[A-Za-z][A-Za-z0-9_-]*)\s*[:.]\s*(?P<target>[A-Za-z0-9_.-]+)(?:\s+(?:as|via|relation)\s+(?P<relation>[A-Za-z0-9_-]+))?",
+    re.IGNORECASE,
+)
+REVISION_RE = re.compile(
+    r"\brevision\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+WITNESS_RE = re.compile(
+    r"\b(?:witness|backend artifact|artifact)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+WITNESS_CONCRETE_RE = re.compile(r"\b(?:commit|sha256|hash|log|report|test|fixture|script|path|file|example|artifact|dataset|snapshot|https?://|Dockerfile|Containerfile|Makefile|[\w./-]+\.(?:py|metta|json|md|txt|plain|log|csv|yaml|yml|sh))\b", re.IGNORECASE)
+WITNESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate code later)\b", re.IGNORECASE)
+PROCESS_RE = re.compile(
+    r"\bprocess\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+RESOURCE_RE = re.compile(
+    r"\bresource(?:s)?\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+DEPENDENCY_RE = re.compile(
+    r"\bdependenc(?:y|ies)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+DECISION_RE = re.compile(
+    r"\bdecision\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+OUTCOME_RE = re.compile(
+    r"\boutcome\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+OBSERVATION_RE = re.compile(
+    r"\bobservation\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+COUNTEREXAMPLE_RE = re.compile(
+    r"\bcounterexample\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+EXAMPLE_RE = re.compile(
+    r"\bexample\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+CITATION_RE = re.compile(
+    r"\b(?:citation|reference)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+METRIC_RE = re.compile(
+    r"\bmetric\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+VALIDATION_RE = re.compile(
+    r"\b(?:validation|verification|check)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+INVARIANT_RE = re.compile(
+    r"\binvariant\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+ASSUMPTION_RE = re.compile(
+    r"\bassumption\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+CONSTRAINT_RE = re.compile(
+    r"\bconstraint\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+HYPOTHESIS_RE = re.compile(
+    r"\bhypothesis\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+CLAIM_RE = re.compile(
+    r"\bclaim\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+AXIOM_RE = re.compile(
+    r"\baxiom\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+PRECONDITION_RE = re.compile(
+    r"\bprecondition\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+POSTCONDITION_RE = re.compile(
+    r"\bpostcondition\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+QUESTION_RE = re.compile(
+    r"\bquestion\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+OPEN_ISSUE_RE = re.compile(
+    r"\b(?:open issue|issue)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+TODO_RE = re.compile(
+    r"\b(?:todo|to-do)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+RISK_RE = re.compile(
+    r"\brisk\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+MITIGATION_RE = re.compile(
+    r"\bmitigation\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+PRIORITY_RE = re.compile(
+    r"\bpriority\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+DEADLINE_RE = re.compile(
+    r"\b(?:deadline|due)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+OWNER_RE = re.compile(
+    r"\b(?:owner|assignee)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+LIMITATION_RE = re.compile(
+    r"\blimitation\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+NON_GOAL_RE = re.compile(
+    r"\bnon-?goal\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+DEPRECATED_RE = re.compile(
+    r"\b(?:deprecated|deprecation)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+REPLACEMENT_RE = re.compile(
+    r"\breplacement\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+ACCEPTANCE_CRITERION_RE = re.compile(
+    r"\b(?:acceptance criteri(?:on|a)|criterion)\s*:\s*(?P<text>.*?)(?=" + SEMANTIC_MARKER_LOOKAHEAD + r")",
+    re.IGNORECASE,
+)
+RISK_MITIGATION_TEXT_RE = re.compile(r"\b(?:mitigation|mitigated by|control|guardrail|fallback|rollback|monitor|alert|rate limit|backpressure|review|approval|audit|isolate|sandbox)\b", re.IGNORECASE)
+SUPPORTED_PRIORITY_VALUES = {"blocker", "critical", "high", "medium", "low", "p0", "p1", "p2", "p3"}
+PRIORITY_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|unclear|raw text only|raw-text-only)\b", re.IGNORECASE)
+DEADLINE_CONCRETE_RE = re.compile(r"\b(?:\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}/\d{2,4}|\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\s+\d{4}|(?:by|before|after|within)\s+\d+\s+(?:hour|hours|day|days|week|weeks|month|months)|(?:q[1-4]|h[12])\s*\d{4})\b", re.IGNORECASE)
+DEADLINE_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|unclear|someday|eventually|asap|raw text only|raw-text-only)\b", re.IGNORECASE)
+LIMITATION_DISPOSITION_RE = re.compile(r"\b(?:accepted limitation|known limitation|out of scope|defer(?:red)?|future work|documented|mitigation|mitigated by|workaround|fallback|manual review|reviewed)\b", re.IGNORECASE)
+DEPRECATION_DISPOSITION_RE = re.compile(r"\b(?:replacement|replace(?:d|ment)?|migration|migrate|sunset|remove(?:d)?|removal|defer(?:red)?|future work|documented|supported until|end-of-life|eol)\b", re.IGNORECASE)
+ACCEPTANCE_CRITERION_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|unclear|raw text only|raw-text-only|placeholder|decide later)\b", re.IGNORECASE)
+EXAMPLE_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|unclear|raw text only|raw-text-only|placeholder|example later|decide later)\b", re.IGNORECASE)
+CITATION_CONCRETE_RE = re.compile(r"(?:doi:\s*10\.\S+|arxiv:\s*\d|https?://|isbn[:\s]|pmid[:\s]|[\w./-]+\.(?:pdf|bib|md|txt|html))", re.IGNORECASE)
+CITATION_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|unclear|raw text only|raw-text-only|placeholder|citation needed|reference needed|decide later)\b", re.IGNORECASE)
+METRIC_CONCRETE_RE = re.compile(r"(?:\b(?:accuracy|precision|recall|f1|auc|rmse|mae|latency|throughput|error rate|success rate|coverage|p\d{2}|percentile|slo|sla)\b|[<>]=?\s*\d|\d+(?:\.\d+)?\s*(?:%|ms|s|sec|seconds|requests/s|rps|items|cases|tests))", re.IGNORECASE)
+METRIC_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|unclear|raw text only|raw-text-only|placeholder|metric later|decide later)\b", re.IGNORECASE)
+VALIDATION_CONCRETE_RE = re.compile(r"(?:\b(?:test|tests|unit test|integration test|property test|golden|fixture|assert|assertion|diagnostic|validator|schema|lint|typecheck|benchmark|review|audit|reproduce|compare|expected|ground truth)\b|[\w./:-]+\.(?:py|metta|json|md|txt|plain|log|csv|yaml|yml|toml))", re.IGNORECASE)
+VALIDATION_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|unclear|raw text only|raw-text-only|placeholder|validate later|check later|decide later)\b", re.IGNORECASE)
+PROOF_CONCRETE_RE = re.compile(r"(?:\b(?:proof|proved|lemma|theorem|derivation|deduction|certificate|verified|model check|model-check|coq|lean|isabelle|agda|metamath|pln|golden|fixture|test|audit|review)\b|[\w./:-]+\.(?:lean|v|thy|agda|mm|metta|json|md|txt|proof|cert|log))", re.IGNORECASE)
+PROOF_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|unclear|raw text only|raw-text-only|placeholder|prove later|proof later|decide later)\b", re.IGNORECASE)
+OWNER_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|unassigned|no owner|raw text only|raw-text-only)\b", re.IGNORECASE)
+OWNER_CONCRETE_RE = re.compile(r"(?:@?[A-Za-z][A-Za-z0-9_.-]{1,}|[A-Za-z0-9_.+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|team|group|committee|review board|operator|maintainer|admin)", re.IGNORECASE)
+PROCESS_UNSUPPORTED_RE = re.compile(r"\b(?:todo|tbd|unknown|none|raw text only|raw-text-only|invent|generate later|placeholder)\b", re.IGNORECASE)
+PROCESS_CONCRETE_RE = re.compile(r"\b(?:run|runs|execute|executes|validate|validates|review|reviews|compile|compiles|build|builds|deploy|deploys|schedule|scheduled|cron|batch|pipeline|workflow|operator|approval|rollback|manual|automated|Dockerfile|Containerfile|Makefile|[\w./-]+\.(?:py|metta|json|md|txt|plain|log|csv|yaml|yml|sh|toml|lock))\b", re.IGNORECASE)
+RESOURCE_UNSUPPORTED_RE = PROCESS_UNSUPPORTED_RE
+RESOURCE_CONCRETE_RE = re.compile(r"\b(?:\d+(?:\.\d+)?\s*(?:cpu|cpus|core|cores|gb|mb|tb|kb|hour|hours|minute|minutes|day|days|worker|workers|node|nodes|replica|replicas|request|requests|slot|slots)|budget|quota|capacity|memory|storage|disk|gpu|database|queue|cluster|service account|credential|secret|dataset|artifact|file|path|Dockerfile|Containerfile|Makefile|[\w./-]+\.(?:py|metta|json|md|txt|plain|log|csv|yaml|yml|sh|toml|lock))\b", re.IGNORECASE)
+DEPENDENCY_UNSUPPORTED_RE = PROCESS_UNSUPPORTED_RE
+DEPENDENCY_CONCRETE_RE = re.compile(r"\b(?:api|endpoint|service|database|db|queue|topic|bucket|cache|redis|postgres|mysql|s3|kafka|webhook|file|path|dataset|artifact|library|package|version|container|image|cluster|service account|credential|secret|commit|hash|https?://|Dockerfile|Containerfile|Makefile|[\w./-]+\.(?:py|metta|json|md|txt|plain|log|csv|yaml|yml|sh|toml|lock))\b", re.IGNORECASE)
+SUPPORTED_BRIDGE_ONTOLOGIES = {"sumo", "expo", "hyperseed"}
+SUPPORTED_BRIDGE_RELATIONS = {"corresponds-to", "related", "analogy", "refines", "approximates", "contextual"}
+
+
+def _line_for_source_offset(doc: SpecDocument, file_id: str, byte_offset: int) -> int:
+    text = next(plain_file.text for plain_file in doc.files if plain_file.id == file_id)
+    return line_for_byte_offset(text, byte_offset)
+
+
+def _trim_marker_text_and_end(raw: str, match, group_name: str) -> tuple[str, int]:
+    text = re.sub(r"\s+", " ", match.group(group_name)).strip().rstrip(".")
+    effective_end = match.end(group_name)
+    while effective_end > match.start(group_name) and raw[effective_end - 1].isspace():
+        effective_end -= 1
+    if effective_end > match.start(group_name) and raw[effective_end - 1] == ".":
+        effective_end -= 1
+    return text, effective_end
+
+
+def _raw_match_span(doc: SpecDocument, item, match_start: int, match_end: int) -> str:
+    """Create/reuse an exact SourceSpan for a regex match in item.raw_text.
+
+    ``PlainItem.raw_text`` omits bullet markers and normalizes continuation
+    indentation, so source spans must be aligned by raw-text indices rather than
+    by searching for the matched string.  Searching is ambiguous when an item has
+    repeated markers such as two ``Evidence: ...`` clauses.
+    """
+    file_text = next(plain_file.text for plain_file in doc.files if plain_file.id == item.file_id)
+    segment = file_text.encode("utf-8")[
+        item.span.start_byte:item.span.end_byte
+    ].decode("utf-8")
+
+    def raw_index_to_source_offset(raw_index: int) -> int:
+        cursor = 0
+        at_line_start = True
+        previous_was_cr = False
+        for offset, ch in enumerate(segment):
+            if at_line_start:
+                if ch.isspace() and ch != "\n":
+                    continue
+                if ch == "-":
+                    continue
+                if ch == " ":
+                    continue
+                at_line_start = False
+            if cursor == raw_index:
+                return item.span.start_byte + len(segment[:offset].encode("utf-8"))
+            if cursor < len(item.raw_text) and ch == item.raw_text[cursor]:
+                cursor += 1
+            if ch == "\r":
+                if cursor < len(item.raw_text) and item.raw_text[cursor] == "\n":
+                    cursor += 1
+                at_line_start = True
+                previous_was_cr = True
+            elif ch == "\n":
+                if not previous_was_cr and cursor < len(item.raw_text) and item.raw_text[cursor] == "\n":
+                    cursor += 1
+                at_line_start = True
+                previous_was_cr = False
+            else:
+                previous_was_cr = False
+        if cursor == raw_index:
+            return item.span.end_byte
+        raise ValueError(f"could not align raw index {raw_index} for item {item.id}")
+
+    start = raw_index_to_source_offset(match_start)
+    end = raw_index_to_source_offset(match_end)
+    span_id = stable_id("span", item.file_id, start, end)
+    if span_id not in {span.id for span in doc.spans}:
+        doc.spans.append(
+            SourceSpan(
+                span_id,
+                item.file_id,
+                start,
+                end,
+                _line_for_source_offset(doc, item.file_id, start),
+                _line_for_source_offset(doc, item.file_id, max(start, end - 1)),
+            )
+        )
+    return span_id
+
+
+def _nearest_semantic_target(doc: SpecDocument, item_id: str) -> str | None:
+    candidates = [
+        stable_id("req", item_id),
+        stable_id("test", item_id),
+        stable_id("iflow-review", "document"),
+        stable_id("ml-methodology-review", "document"),
+        stable_id("security-privacy-review", "document"),
+        stable_id("obj", item_id),
+    ]
+    object_ids = {obj.id for obj in doc.objects}
+    return next((candidate for candidate in candidates if candidate in object_ids), None)
+
+
+def build_semantic_objects(doc: SpecDocument) -> SpecDocument:
+    """Extract a conservative first slice of Phase 2 semantic objects.
+
+    Only explicit markers create semantic objects. Incomplete support remains
+    Unknown/question-bearing; no executable behavior or ontology identity is
+    inferred from ordinary prose.
+    """
+    existing_ids = {obj.id for obj in doc.objects}
+    evidence_by_item: dict[str, list[str]] = {}
+    proof_by_item: dict[str, list[str]] = {}
+    interpretation_by_item: dict[str, list[str]] = {}
+
+    for item in doc.items:
+        target_id = _nearest_semantic_target(doc, item.id)
+        if not target_id:
+            continue
+        raw = item.raw_text
+
+        for match in SCOPE_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("scope", item.id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.SCOPE_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Scope", oid, target_id), ("ScopeText", oid, text), ("ScopedObject", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "scope-has-source-provenance", oid, "Every explicit Scope object must preserve exact source provenance and name its scoped target.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"scope applies to {target_id}")
+
+        for match in EPISTEMIC_RE.finditer(raw):
+            raw_status, effective_end = _trim_marker_text_and_end(raw, match, "status")
+            if not raw_status:
+                continue
+            status = re.sub(r"\s+", "-", raw_status.lower())
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("epistemic", item.id, target_id, status)
+            if oid not in existing_ids:
+                doc.objects.append(SpecObject(oid, Role.EPISTEMIC_STATUS_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("EpistemicStatus", oid, status), ("GeneratedFrom", oid, target_id), ("SourceItem", oid, item.id)]))
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "epistemic-status-supported", oid, "Epistemic status labels must remain within the current conservative scaffold vocabulary.", span_id)
+            if status in SUPPORTED_EPISTEMIC_STATUSES:
+                add_check(doc, obligation, CheckStatus.PASS, status)
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"unsupported epistemic status: {status}")
+                qid = stable_id("question", "unsupported-epistemic-status", oid, status)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("UnsupportedEpistemicStatus", qid, status), ("QuestionText", qid, f"Map epistemic status '{status}' to the conservative scaffold vocabulary or keep it as a profile gap."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in CONFIDENCE_RE.finditer(raw):
+            raw_value, effective_end = _trim_marker_text_and_end(raw, match, "value")
+            if not raw_value:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            numeric_value = None
+            if re.fullmatch(r"\d+(?:\.\d+)?%?", raw_value):
+                if raw_value.endswith("%"):
+                    numeric_value = float(raw_value[:-1]) / 100.0
+                else:
+                    numeric_value = float(raw_value)
+            normalized_value = f"{numeric_value:.6g}" if numeric_value is not None else None
+            oid = stable_id("confidence", item.id, target_id, raw_value)
+            if oid not in existing_ids:
+                facts = [
+                    ("Confidence", oid, target_id),
+                    ("GeneratedFrom", oid, target_id),
+                    ("SourceItem", oid, item.id),
+                ]
+                if normalized_value is not None:
+                    facts.insert(1, ("ConfidenceValue", oid, normalized_value))
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.EPISTEMIC_STATUS_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=facts,
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "confidence-value-in-unit-interval", oid, "Explicit confidence annotations must normalize to a numeric value in [0,1]; unsupported scales stay reviewable instead of being treated as truth values.", span_id)
+            if numeric_value is not None and 0.0 <= numeric_value <= 1.0:
+                add_check(doc, obligation, CheckStatus.PASS, normalized_value or raw_value)
+            else:
+                evidence = f"confidence outside [0,1]: {raw_value}" if numeric_value is not None else f"non-numeric confidence scale: {raw_value}"
+                add_check(doc, obligation, CheckStatus.UNKNOWN, evidence)
+                qid = stable_id("question", "unsupported-confidence-value", oid, raw_value)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("UnsupportedConfidenceValue", qid, raw_value), ("QuestionText", qid, f"Normalize confidence '{raw_value}' to [0,1] or keep it as unsupported epistemic metadata."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in EVIDENCE_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("evidence", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(SpecObject(oid, Role.EVIDENCE_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("Evidence", oid, target_id), ("EvidenceText", oid, text), ("EvidenceSupports", oid, target_id), ("SourceItem", oid, item.id)]))
+                existing_ids.add(oid)
+            evidence_by_item.setdefault(item.id, []).append(oid)
+            obligation = add_validation_obligation(doc, "evidence-has-source-provenance", oid, "Evidence objects must cite explicit source text and the object they support.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"evidence supports {target_id}")
+
+        for match in PROOF_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("proof", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.EVIDENCE_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Proof", oid, target_id), ("ProofText", oid, text), ("ProofFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "proof-marker-reviewable", oid, "Explicit Proof markers must point to reviewable proof artifacts/procedures or remain blocking questions rather than being treated as verified semantics.", span_id)
+            if PROOF_CONCRETE_RE.search(text) and not PROOF_UNSUPPORTED_RE.search(text):
+                proof_by_item.setdefault(item.id, []).append(oid)
+                add_check(doc, obligation, CheckStatus.PASS, text)
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"proof marker lacks concrete proof artifact/procedure: {text}")
+                qid = stable_id("question", "missing-proof-detail", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(
+                        SpecObject(
+                            qid,
+                            Role.QUESTION_OBJECT,
+                            SemanticLevel.TEMPLATE_PARSED,
+                            span_id,
+                            facts=[
+                                ("MissingProofDetail", qid, oid),
+                                ("QuestionText", qid, "What concrete proof artifact, theorem/proof script, model check, or review procedure supports this proof marker?"),
+                                ("Blocks", qid, obligation.id),
+                            ],
+                        )
+                    )
+                    existing_ids.add(qid)
+
+        for match in RATIONALE_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("rationale", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.EVIDENCE_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Rationale", oid, target_id), ("RationaleText", oid, text), ("RationaleFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "rationale-has-source-provenance", oid, "Explicit rationales must remain source-provenance-backed explanations rather than inferred semantics.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"rationale applies to {target_id}")
+
+        for match in ASSUMPTION_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("assumption", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.ASSUMPTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Assumption", oid, target_id), ("AssumptionText", oid, text), ("AssumptionFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "assumption-has-explicit-evidence", oid, "Explicit assumptions must be preserved as reviewable claims and cite same-item evidence before being treated as supported.", span_id)
+            evidence_ids = evidence_by_item.get(item.id, [])
+            if evidence_ids:
+                assumption = next(obj for obj in doc.objects if obj.id == oid)
+                for evidence_id in evidence_ids:
+                    fact = ("AssumptionEvidence", oid, evidence_id)
+                    if fact not in assumption.facts:
+                        assumption.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, f"linked evidence: {', '.join(evidence_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit evidence marker on the same Plain item")
+                qid = stable_id("question", "missing-assumption-evidence", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingAssumptionEvidence", qid, oid), ("QuestionText", qid, "What explicit evidence supports this assumption, or should it remain an unresolved assumption?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in INVARIANT_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("invariant", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.PROPOSITION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Invariant", oid, target_id), ("InvariantText", oid, text), ("InvariantFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "invariant-has-explicit-evidence", oid, "Explicit invariants must be preserved as reviewable propositions and cite same-item evidence before being treated as supported.", span_id)
+            evidence_ids = evidence_by_item.get(item.id, [])
+            if evidence_ids:
+                invariant = next(obj for obj in doc.objects if obj.id == oid)
+                for evidence_id in evidence_ids:
+                    fact = ("InvariantEvidence", oid, evidence_id)
+                    if fact not in invariant.facts:
+                        invariant.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, f"linked evidence: {', '.join(evidence_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit evidence marker on the same Plain item")
+                qid = stable_id("question", "missing-invariant-evidence", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingInvariantEvidence", qid, oid), ("QuestionText", qid, "What explicit evidence supports this invariant, or should it remain an unresolved invariant?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in CONSTRAINT_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("constraint", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.OBLIGATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Constraint", oid, target_id), ("ConstraintText", oid, text), ("ConstraintFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "constraint-has-explicit-evidence", oid, "Explicit constraints must be preserved as reviewable obligations and cite same-item evidence before being treated as supported.", span_id)
+            evidence_ids = evidence_by_item.get(item.id, [])
+            if evidence_ids:
+                constraint = next(obj for obj in doc.objects if obj.id == oid)
+                for evidence_id in evidence_ids:
+                    fact = ("ConstraintEvidence", oid, evidence_id)
+                    if fact not in constraint.facts:
+                        constraint.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, f"linked evidence: {', '.join(evidence_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit evidence marker on the same Plain item")
+                qid = stable_id("question", "missing-constraint-evidence", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingConstraintEvidence", qid, oid), ("QuestionText", qid, "What explicit evidence supports this constraint, or should it remain an unresolved obligation?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in HYPOTHESIS_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("hypothesis", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.PROPOSITION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Hypothesis", oid, target_id), ("HypothesisText", oid, text), ("HypothesisFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "hypothesis-has-explicit-evidence", oid, "Explicit hypotheses must be preserved as reviewable propositions and cite same-item evidence before being treated as supported.", span_id)
+            evidence_ids = evidence_by_item.get(item.id, [])
+            if evidence_ids:
+                hypothesis = next(obj for obj in doc.objects if obj.id == oid)
+                for evidence_id in evidence_ids:
+                    fact = ("HypothesisEvidence", oid, evidence_id)
+                    if fact not in hypothesis.facts:
+                        hypothesis.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, f"linked evidence: {', '.join(evidence_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit evidence marker on the same Plain item")
+                qid = stable_id("question", "missing-hypothesis-evidence", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingHypothesisEvidence", qid, oid), ("QuestionText", qid, "What explicit evidence supports this hypothesis, or should it remain an unresolved proposition?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in CLAIM_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("claim", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.PROPOSITION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Claim", oid, target_id), ("ClaimText", oid, text), ("ClaimFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "claim-has-explicit-evidence", oid, "Explicit claims must be preserved as reviewable propositions and cite same-item evidence before being treated as supported.", span_id)
+            evidence_ids = evidence_by_item.get(item.id, [])
+            if evidence_ids:
+                claim = next(obj for obj in doc.objects if obj.id == oid)
+                for evidence_id in evidence_ids:
+                    fact = ("ClaimEvidence", oid, evidence_id)
+                    if fact not in claim.facts:
+                        claim.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, f"linked evidence: {', '.join(evidence_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit evidence marker on the same Plain item")
+                qid = stable_id("question", "missing-claim-evidence", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingClaimEvidence", qid, oid), ("QuestionText", qid, "What explicit evidence supports this claim, or should it remain an unresolved proposition?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in AXIOM_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("axiom", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.PROPOSITION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Axiom", oid, target_id), ("AxiomText", oid, text), ("AxiomFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "axiom-has-explicit-justification", oid, "Explicit axioms must be preserved as assumptions/propositions and cite same-item evidence or proof before being treated as justified.", span_id)
+            support_ids = evidence_by_item.get(item.id, []) + proof_by_item.get(item.id, [])
+            if support_ids:
+                axiom = next(obj for obj in doc.objects if obj.id == oid)
+                for support_id in support_ids:
+                    fact = ("AxiomEvidence", oid, support_id)
+                    if fact not in axiom.facts:
+                        axiom.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, f"linked support: {', '.join(support_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit evidence/proof marker on the same Plain item")
+                qid = stable_id("question", "missing-axiom-justification", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingAxiomJustification", qid, oid), ("QuestionText", qid, "What explicit evidence, proof, or modeling convention justifies this axiom, or should it remain an unresolved assumption?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in PRECONDITION_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("precondition", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.OBLIGATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Precondition", oid, target_id), ("PreconditionText", oid, text), ("PreconditionFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "precondition-has-explicit-evidence", oid, "Explicit preconditions must be preserved as reviewable obligations and cite same-item evidence before being treated as supported.", span_id)
+            evidence_ids = evidence_by_item.get(item.id, [])
+            if evidence_ids:
+                precondition = next(obj for obj in doc.objects if obj.id == oid)
+                for evidence_id in evidence_ids:
+                    fact = ("PreconditionEvidence", oid, evidence_id)
+                    if fact not in precondition.facts:
+                        precondition.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, f"linked evidence: {', '.join(evidence_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit evidence marker on the same Plain item")
+                qid = stable_id("question", "missing-precondition-evidence", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingPreconditionEvidence", qid, oid), ("QuestionText", qid, "What explicit evidence supports this precondition, or should it remain an unresolved obligation?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in POSTCONDITION_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("postcondition", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.PROPOSITION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Postcondition", oid, target_id), ("PostconditionText", oid, text), ("PostconditionFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "postcondition-has-explicit-evidence", oid, "Explicit postconditions must be preserved as reviewable propositions and cite same-item evidence before being treated as supported.", span_id)
+            evidence_ids = evidence_by_item.get(item.id, [])
+            if evidence_ids:
+                postcondition = next(obj for obj in doc.objects if obj.id == oid)
+                for evidence_id in evidence_ids:
+                    fact = ("PostconditionEvidence", oid, evidence_id)
+                    if fact not in postcondition.facts:
+                        postcondition.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, f"linked evidence: {', '.join(evidence_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit evidence marker on the same Plain item")
+                qid = stable_id("question", "missing-postcondition-evidence", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingPostconditionEvidence", qid, oid), ("QuestionText", qid, "What explicit evidence supports this postcondition, or should it remain an unresolved proposition?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in INTERPRETATION_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("interp", item.id, target_id, text)
+            if oid not in existing_ids:
+                facts = [("Interpretation", oid, target_id), ("InterpretationText", oid, text), ("InterpretationOf", oid, target_id), ("SourceItem", oid, item.id)]
+                doc.objects.append(SpecObject(oid, Role.INTERPRETATION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=facts))
+                existing_ids.add(oid)
+            interpretation_by_item.setdefault(item.id, []).append(oid)
+
+        for match in BRIDGE_RE.finditer(raw):
+            ontology = match.group("ontology").lower()
+            target = match.group("target")
+            relation = (match.group("relation") or "corresponds-to").lower()
+            span_id = _raw_match_span(doc, item, match.start(), match.end())
+            oid = stable_id("bridge", item.id, target_id, ontology, target, relation)
+            if oid not in existing_ids:
+                doc.objects.append(SpecObject(oid, Role.BRIDGE_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("Bridge", oid, target_id, relation), ("BridgeOntology", oid, ontology), ("BridgeTarget", oid, target), ("BridgeRelation", oid, relation), ("SourceItem", oid, item.id)]))
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "bridge-profile-supported", oid, "Bridge objects are graded correspondences; only curated ontology profiles are exported without a question.", span_id)
+            if ontology in SUPPORTED_BRIDGE_ONTOLOGIES:
+                add_check(doc, obligation, CheckStatus.PASS, f"supported bridge ontology={ontology}; relation={relation}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"unsupported bridge ontology={ontology}")
+                qid = stable_id("question", "unsupported-bridge-ontology", oid, ontology)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("UnsupportedBridgeOntology", qid, ontology), ("QuestionText", qid, f"Should ontology '{ontology}' be added to the bridge profile or left as an unresolved correspondence?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+            relation_obligation = add_validation_obligation(doc, "bridge-relation-conservative", oid, "Bridge relations must stay conservative graded correspondences; identity/equivalence claims require human review.", span_id)
+            if relation in SUPPORTED_BRIDGE_RELATIONS:
+                add_check(doc, relation_obligation, CheckStatus.PASS, f"conservative bridge relation={relation}")
+            else:
+                add_check(doc, relation_obligation, CheckStatus.UNKNOWN, f"unsupported bridge relation={relation}")
+                qid = stable_id("question", "unsupported-bridge-relation", oid, relation)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("UnsupportedBridgeRelation", qid, relation), ("QuestionText", qid, f"Should bridge relation '{relation}' be weakened to a conservative correspondence or accepted as a reviewed profile extension?"), ("Blocks", qid, relation_obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in REVISION_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("revision", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.REVISION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Revision", oid, target_id), ("RevisionText", oid, text), ("Revises", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "revision-has-source-provenance", oid, "Explicit Revision objects must preserve exact source provenance and name the object being revised.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"revision applies to {target_id}")
+
+        for match in DECISION_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("decision", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.PROPOSITION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Decision", oid, target_id), ("DecisionText", oid, text), ("DecidesFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "decision-has-source-provenance", oid, "Explicit Decision markers must preserve source provenance and name the object whose design choice they record without inferring execution semantics.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"decision applies to {target_id}")
+
+        for match in OUTCOME_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("outcome", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.PROPOSITION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Outcome", oid, target_id), ("OutcomeText", oid, text), ("OutcomeFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "outcome-has-source-provenance", oid, "Explicit Outcome markers must preserve source provenance as observed/reported results without inferring verification or execution semantics.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"outcome applies to {target_id}")
+
+        for match in OBSERVATION_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("observation", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.PROPOSITION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Observation", oid, target_id), ("ObservationText", oid, text), ("ObservationFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "observation-has-source-provenance", oid, "Explicit Observation markers must preserve source provenance as reported observations without inferring executable semantics or validation success.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"observation applies to {target_id}")
+
+        for match in COUNTEREXAMPLE_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("counterexample", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Counterexample", oid, target_id), ("CounterexampleText", oid, text), ("CounterexampleFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "counterexample-has-source-provenance", oid, "Explicit Counterexample markers must preserve source provenance as reviewable falsification examples without automatically rejecting or proving any claim.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"counterexample applies to {target_id}")
+
+        for match in EXAMPLE_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("example", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.EVIDENCE_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Example", oid, target_id), ("ExampleText", oid, text), ("ExampleFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "example-detail-reviewable", oid, "Explicit Example markers must preserve concrete illustrative text; placeholders stay Unknown and do not become executable semantics.", span_id)
+            if not EXAMPLE_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable example: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"placeholder example: {text}")
+                qid = stable_id("question", "missing-example-detail", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingExampleDetail", qid, oid), ("QuestionText", qid, "Replace this placeholder with a concrete illustrative example or keep the example explicitly unresolved."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in CITATION_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("citation", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.EVIDENCE_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Citation", oid, target_id), ("CitationText", oid, text), ("CitationFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "citation-reference-reviewable", oid, "Explicit Citation/Reference markers must preserve concrete source references such as DOI/arXiv/URL/path identifiers; placeholders stay Unknown.", span_id)
+            if CITATION_CONCRETE_RE.search(text) and not CITATION_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable citation/reference: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"placeholder or unsupported citation/reference: {text}")
+                qid = stable_id("question", "missing-citation-reference", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingCitationReference", qid, oid), ("QuestionText", qid, "Replace this placeholder with a DOI, arXiv ID, URL, bibliography path, or other concrete source reference."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in METRIC_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("metric", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Metric", oid, target_id), ("MetricText", oid, text), ("MetricFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "metric-definition-reviewable", oid, "Explicit Metric markers must preserve concrete measurable criteria; placeholders stay Unknown and do not become proof of validation.", span_id)
+            if METRIC_CONCRETE_RE.search(text) and not METRIC_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable metric: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"placeholder or unsupported metric: {text}")
+                qid = stable_id("question", "missing-metric-definition", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingMetricDefinition", qid, oid), ("QuestionText", qid, "Replace this placeholder with a concrete metric, threshold, unit, or named measurable criterion."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in VALIDATION_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("validation-marker", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Validation", oid, target_id), ("ValidationText", oid, text), ("ValidationFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "validation-marker-reviewable", oid, "Explicit Validation/Verification/Check markers must preserve concrete validation procedures or expected comparison evidence; placeholders stay Unknown and do not imply successful validation.", span_id)
+            if VALIDATION_CONCRETE_RE.search(text) and not VALIDATION_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable validation/check procedure: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"placeholder or unsupported validation/check procedure: {text}")
+                qid = stable_id("question", "missing-validation-detail", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingValidationDetail", qid, oid), ("QuestionText", qid, "Replace this placeholder with a concrete validation procedure, expected comparison, test fixture, audit, or diagnostic check."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in WITNESS_RE.finditer(raw):
+            raw_text = match.group("text")
+            text = re.sub(r"\s+", " ", raw_text).strip().rstrip(".")
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("witness", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.BACKEND_ARTIFACT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Witness", oid, target_id), ("WitnessText", oid, text), ("WitnessFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "witness-artifact-reviewable", oid, "Explicit witness/backend-artifact markers must cite a concrete reviewable artifact; TODO/raw-text-only placeholders stay Unknown.", span_id)
+            if WITNESS_CONCRETE_RE.search(text) and not WITNESS_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable witness artifact: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"non-concrete witness artifact: {text}")
+                qid = stable_id("question", "missing-witness-artifact", oid, text)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingWitnessArtifact", qid, oid), ("QuestionText", qid, "Name the concrete file, commit, test log, dataset snapshot, or backend artifact that witnesses this claim, or leave it as an explicit unsupported placeholder."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in PROCESS_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("process", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.PROCESS_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Process", oid, target_id), ("ProcessText", oid, text), ("ProcessFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "process-definition-reviewable", oid, "Explicit process markers must describe a reviewable operational/procedural placeholder; TODO/raw-text-only placeholders stay Unknown.", span_id)
+            if PROCESS_CONCRETE_RE.search(text) and not PROCESS_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable process placeholder: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"non-concrete process placeholder: {text}")
+                qid = stable_id("question", "missing-process-definition", oid, text)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingProcessDefinition", qid, oid), ("QuestionText", qid, "Clarify the concrete operational process, schedule, approval workflow, or execution procedure, or keep it as an explicit unsupported placeholder."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in RESOURCE_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("resource", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.RESOURCE_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Resource", oid, target_id), ("ResourceText", oid, text), ("ResourceFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "resource-requirement-reviewable", oid, "Explicit resource markers must describe concrete reviewable capacity, budget, storage, service, or artifact requirements; TODO/raw-text-only placeholders stay Unknown.", span_id)
+            if RESOURCE_CONCRETE_RE.search(text) and not RESOURCE_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable resource requirement: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"non-concrete resource requirement: {text}")
+                qid = stable_id("question", "missing-resource-requirement", oid, text)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingResourceRequirement", qid, oid), ("QuestionText", qid, "Clarify the concrete capacity, budget, storage, service dependency, artifact, or access resource needed, or keep it as an explicit unsupported placeholder."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in DEPENDENCY_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("dependency", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.RESOURCE_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Dependency", oid, target_id), ("DependencyText", oid, text), ("DependencyFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "dependency-requirement-reviewable", oid, "Explicit dependency markers must name concrete services, files, APIs, packages, datasets, credentials, or artifacts; TODO/raw-text-only placeholders stay Unknown.", span_id)
+            if DEPENDENCY_CONCRETE_RE.search(text) and not DEPENDENCY_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable dependency requirement: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"non-concrete dependency requirement: {text}")
+                qid = stable_id("question", "missing-dependency-detail", oid, text)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingDependencyDetail", qid, oid), ("QuestionText", qid, "Clarify the concrete service, API, file, package, dataset, credential, or artifact dependency, or keep it as an explicit unsupported placeholder."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        risk_mitigation_ids: list[str] = []
+        for match in MITIGATION_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("risk-mitigation", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("RiskMitigation", oid, target_id), ("RiskMitigationText", oid, text), ("MitigatesRiskFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            risk_mitigation_ids.append(oid)
+            obligation = add_validation_obligation(doc, "risk-mitigation-has-source-provenance", oid, "Explicit mitigation markers must preserve source provenance and name the object whose risk they mitigate.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"mitigation applies to {target_id}")
+
+        for match in PRIORITY_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            normalized_priority = text.lower().strip()
+            oid = stable_id("priority", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Priority", oid, target_id), ("PriorityText", oid, text), ("PriorityValue", oid, normalized_priority), ("PriorityFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "priority-value-reviewable", oid, "Explicit Priority markers must use a reviewable value such as blocker, critical, high, medium, low, or P0-P3; placeholders stay Unknown.", span_id)
+            if normalized_priority in SUPPORTED_PRIORITY_VALUES and not PRIORITY_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable priority value: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"unsupported or placeholder priority value: {text}")
+                qid = stable_id("question", "unsupported-priority-value", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("UnsupportedPriorityValue", qid, oid), ("QuestionText", qid, "Choose a reviewable priority value such as blocker, critical, high, medium, low, or P0-P3, or document why this priority remains undecided."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in DEADLINE_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            normalized_deadline = text.lower().strip()
+            oid = stable_id("deadline", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Deadline", oid, target_id), ("DeadlineText", oid, text), ("DeadlineValue", oid, normalized_deadline), ("DeadlineFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "deadline-value-reviewable", oid, "Explicit Deadline/Due markers must cite a concrete date, quarter/half, or bounded relative interval; vague placeholders stay Unknown.", span_id)
+            if DEADLINE_CONCRETE_RE.search(text) and not DEADLINE_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable deadline value: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"unsupported or placeholder deadline value: {text}")
+                qid = stable_id("question", "unsupported-deadline-value", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("UnsupportedDeadlineValue", qid, oid), ("QuestionText", qid, "Choose a concrete deadline such as YYYY-MM-DD, Qn YYYY, Hn YYYY, or a bounded relative interval, or document why timing remains undecided."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in OWNER_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("owner", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Owner", oid, target_id), ("OwnerText", oid, text), ("OwnerFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "owner-assignment-reviewable", oid, "Explicit Owner/Assignee markers must name a concrete accountable person, team, group, or review body; TODO/unassigned placeholders stay Unknown.", span_id)
+            if OWNER_CONCRETE_RE.search(text) and not OWNER_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable owner assignment: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"non-concrete owner assignment: {text}")
+                qid = stable_id("question", "missing-owner-assignment", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingOwnerAssignment", qid, oid), ("QuestionText", qid, "Who is the concrete accountable owner, assignee, team, group, or review body for this item?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in LIMITATION_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("limitation", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Limitation", oid, target_id), ("LimitationText", oid, text), ("LimitationFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "limitation-has-review-disposition", oid, "Explicit limitations must remain reviewable and cite same-item mitigation/workaround/disposition evidence before being treated as handled.", span_id)
+            limitation_obj = next(obj for obj in doc.objects if obj.id == oid)
+            if risk_mitigation_ids or LIMITATION_DISPOSITION_RE.search(text):
+                for mitigation_id in risk_mitigation_ids:
+                    fact = ("LimitationMitigatedBy", oid, mitigation_id)
+                    if fact not in limitation_obj.facts:
+                        limitation_obj.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, "limitation disposition wording found" if not risk_mitigation_ids else f"linked mitigation: {', '.join(risk_mitigation_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit mitigation/workaround/disposition marker on the same Plain item")
+                qid = stable_id("question", "missing-limitation-disposition", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingLimitationDisposition", qid, oid), ("QuestionText", qid, "Is this limitation accepted, deferred, mitigated by a workaround/control, or still blocking the specification?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in NON_GOAL_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("non-goal", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("NonGoal", oid, target_id), ("NonGoalText", oid, text), ("NonGoalFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "non-goal-has-source-provenance", oid, "Explicit non-goals must preserve source provenance and name the object/scope they exclude without being treated as executable behavior.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"non-goal applies to {target_id}")
+
+        replacement_ids: list[str] = []
+        for match in REPLACEMENT_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("replacement", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Replacement", oid, target_id), ("ReplacementText", oid, text), ("Replaces", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            replacement_ids.append(oid)
+            obligation = add_validation_obligation(doc, "replacement-has-source-provenance", oid, "Explicit Replacement markers must preserve source provenance and name the deprecated/replaced object without inferring migration semantics.", span_id)
+            add_check(doc, obligation, CheckStatus.PASS, f"replacement applies to {target_id}")
+
+        for match in DEPRECATED_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("deprecated", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Deprecated", oid, target_id), ("DeprecatedText", oid, text), ("DeprecatedFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "deprecated-item-has-replacement-or-disposition", oid, "Explicit Deprecated/Deprecation markers must remain reviewable and cite a replacement, migration, sunset, or removal disposition before being treated as handled.", span_id)
+            deprecated_obj = next(obj for obj in doc.objects if obj.id == oid)
+            if replacement_ids or DEPRECATION_DISPOSITION_RE.search(text):
+                for replacement_id in replacement_ids:
+                    fact = ("DeprecatedReplacedBy", oid, replacement_id)
+                    if fact not in deprecated_obj.facts:
+                        deprecated_obj.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, "deprecation disposition wording found" if not replacement_ids else f"linked replacement: {', '.join(replacement_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit replacement/migration/sunset/removal disposition on the same Plain item")
+                qid = stable_id("question", "missing-deprecation-disposition", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingDeprecationDisposition", qid, oid), ("QuestionText", qid, "What replacement, migration path, sunset date, removal decision, or accepted disposition handles this deprecation?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in ACCEPTANCE_CRITERION_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("acceptance-criterion", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("AcceptanceCriterion", oid, target_id), ("AcceptanceCriterionText", oid, text), ("AcceptanceCriterionFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "acceptance-criterion-reviewable", oid, "Explicit Acceptance Criterion markers must preserve concrete review criteria; placeholders stay Unknown instead of being treated as tests or executable semantics.", span_id)
+            if not ACCEPTANCE_CRITERION_UNSUPPORTED_RE.search(text):
+                add_check(doc, obligation, CheckStatus.PASS, f"reviewable acceptance criterion: {text}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, f"placeholder acceptance criterion: {text}")
+                qid = stable_id("question", "missing-acceptance-criterion-detail", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingAcceptanceCriterionDetail", qid, oid), ("QuestionText", qid, "Replace this placeholder with concrete acceptance criteria or link it to an explicit acceptance test."), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in RISK_RE.finditer(raw):
+            text = re.sub(r"\s+", " ", match.group("text")).strip().rstrip(".")
+            if not text:
+                continue
+            effective_end = match.end("text")
+            while effective_end > match.start("text") and raw[effective_end - 1].isspace():
+                effective_end -= 1
+            if effective_end > match.start("text") and raw[effective_end - 1] == ".":
+                effective_end -= 1
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            oid = stable_id("risk", item.id, target_id, text)
+            if oid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        oid,
+                        Role.VALIDATION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("Risk", oid, target_id), ("RiskText", oid, text), ("RiskFor", oid, target_id), ("SourceItem", oid, item.id)],
+                    )
+                )
+                existing_ids.add(oid)
+            obligation = add_validation_obligation(doc, "risk-has-explicit-mitigation", oid, "Explicit risks must remain reviewable and cite same-item mitigation/control evidence before being treated as handled.", span_id)
+            risk_obj = next(obj for obj in doc.objects if obj.id == oid)
+            if risk_mitigation_ids or RISK_MITIGATION_TEXT_RE.search(text):
+                for mitigation_id in risk_mitigation_ids:
+                    fact = ("RiskMitigatedBy", oid, mitigation_id)
+                    if fact not in risk_obj.facts:
+                        risk_obj.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, "risk mitigation/control wording found" if not risk_mitigation_ids else f"linked mitigation: {', '.join(risk_mitigation_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit mitigation/control marker on the same Plain item")
+                qid = stable_id("question", "missing-risk-mitigation", oid)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, span_id, facts=[("MissingRiskMitigation", qid, oid), ("QuestionText", qid, "What explicit mitigation, control, rollback, monitoring, or acceptance rationale handles this risk?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+
+        for match in OPEN_ISSUE_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            qid = stable_id("question", "open-issue", item.id, target_id, text)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("OpenIssue", qid, target_id), ("OpenIssueText", qid, text), ("IssueFor", qid, target_id), ("QuestionText", qid, text), ("SourceItem", qid, item.id)],
+                    )
+                )
+                existing_ids.add(qid)
+            obligation = add_validation_obligation(doc, "open-issue-needs-resolution", qid, "Explicit Open issue/Issue markers are preserved as blocking review items until resolved or accepted.", span_id)
+            add_check(doc, obligation, CheckStatus.UNKNOWN, f"open issue awaiting resolution: {text}")
+            question = next(obj for obj in doc.objects if obj.id == qid)
+            block_fact = ("Blocks", qid, obligation.id)
+            if block_fact not in question.facts:
+                question.facts.append(block_fact)
+
+        for match in TODO_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            qid = stable_id("question", "todo", item.id, target_id, text)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("TodoItem", qid, target_id), ("TodoText", qid, text), ("TodoFor", qid, target_id), ("QuestionText", qid, text), ("SourceItem", qid, item.id)],
+                    )
+                )
+                existing_ids.add(qid)
+            obligation = add_validation_obligation(doc, "todo-item-needs-resolution", qid, "Explicit TODO markers are preserved as blocking review items until implemented, resolved, or deliberately deferred.", span_id)
+            add_check(doc, obligation, CheckStatus.UNKNOWN, f"todo item awaiting resolution: {text}")
+            question = next(obj for obj in doc.objects if obj.id == qid)
+            block_fact = ("Blocks", qid, obligation.id)
+            if block_fact not in question.facts:
+                question.facts.append(block_fact)
+
+        for match in QUESTION_RE.finditer(raw):
+            text, effective_end = _trim_marker_text_and_end(raw, match, "text")
+            if not text:
+                continue
+            span_id = _raw_match_span(doc, item, match.start(), effective_end)
+            qid = stable_id("question", "explicit", item.id, target_id, text)
+            if qid not in existing_ids:
+                doc.objects.append(
+                    SpecObject(
+                        qid,
+                        Role.QUESTION_OBJECT,
+                        SemanticLevel.TEMPLATE_PARSED,
+                        span_id,
+                        facts=[("ExplicitQuestion", qid, target_id), ("QuestionText", qid, text), ("QuestionsObject", qid, target_id), ("SourceItem", qid, item.id)],
+                    )
+                )
+                existing_ids.add(qid)
+            obligation = add_validation_obligation(doc, "explicit-question-needs-answer", qid, "Explicit Question markers are preserved as blocking review items until answered or resolved.", span_id)
+            add_check(doc, obligation, CheckStatus.UNKNOWN, f"explicit question awaiting answer: {text}")
+            question = next(obj for obj in doc.objects if obj.id == qid)
+            block_fact = ("Blocks", qid, obligation.id)
+            if block_fact not in question.facts:
+                question.facts.append(block_fact)
+
+    for item_id, interpretation_ids in interpretation_by_item.items():
+        item = next(item for item in doc.items if item.id == item_id)
+        evidence_ids = evidence_by_item.get(item_id, [])
+        for interp_id in interpretation_ids:
+            interp = next(obj for obj in doc.objects if obj.id == interp_id)
+            obligation = add_validation_obligation(doc, "interpretation-has-explicit-evidence", interp_id, "Interpretations must cite explicit evidence before they are treated as supported semantic claims.", interp.source_span_id)
+            if evidence_ids:
+                for evidence_id in evidence_ids:
+                    fact = ("InterpretationEvidence", interp_id, evidence_id)
+                    if fact not in interp.facts:
+                        interp.facts.append(fact)
+                add_check(doc, obligation, CheckStatus.PASS, f"linked evidence: {', '.join(evidence_ids)}")
+            else:
+                add_check(doc, obligation, CheckStatus.UNKNOWN, "no explicit evidence marker on the same Plain item")
+                qid = stable_id("question", "missing-interpretation-evidence", interp_id)
+                if qid not in existing_ids:
+                    doc.objects.append(SpecObject(qid, Role.QUESTION_OBJECT, SemanticLevel.TEMPLATE_PARSED, item.span.id, facts=[("MissingInterpretationEvidence", qid, interp_id), ("QuestionText", qid, "What explicit evidence supports this interpretation?"), ("Blocks", qid, obligation.id)]))
+                    existing_ids.add(qid)
+    return doc
 
 def build_security_privacy_validation(doc: SpecDocument) -> SpecDocument:
     """Add conservative security/privacy obligation scaffolding.
@@ -1018,9 +2548,12 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
 
     def raw_index_to_source_offset(item, raw_index: int) -> int:
         """Map an index in an item's normalized raw text back to source bytes."""
-        segment = file_text[item.file_id][item.span.start_byte:item.span.end_byte]
+        segment = file_text[item.file_id].encode("utf-8")[
+            item.span.start_byte:item.span.end_byte
+        ].decode("utf-8")
         cursor = 0
         at_line_start = True
+        previous_was_cr = False
         for offset, ch in enumerate(segment):
             if at_line_start:
                 if ch.isspace() and ch != "\n":
@@ -1031,18 +2564,28 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                     continue
                 at_line_start = False
             if cursor == raw_index:
-                return item.span.start_byte + offset
+                return item.span.start_byte + len(segment[:offset].encode("utf-8"))
             if cursor < len(item.raw_text) and ch == item.raw_text[cursor]:
                 cursor += 1
-            if ch == "\n":
+            if ch == "\r":
+                if cursor < len(item.raw_text) and item.raw_text[cursor] == "\n":
+                    cursor += 1
                 at_line_start = True
+                previous_was_cr = True
+            elif ch == "\n":
+                if not previous_was_cr and cursor < len(item.raw_text) and item.raw_text[cursor] == "\n":
+                    cursor += 1
+                at_line_start = True
+                previous_was_cr = False
+            else:
+                previous_was_cr = False
         if cursor == raw_index:
             return item.span.end_byte
         raise ValueError(f"could not align raw index {raw_index} for item {item.id}")
 
     def line_for_offset(file_id: str, byte_offset: int) -> int:
         """Return a 1-based line number for a byte offset in the source text."""
-        return file_text[file_id].count("\n", 0, byte_offset) + 1
+        return line_for_byte_offset(file_text[file_id], byte_offset)
 
     def exact_match_span(item, match_start: int, match_end: int) -> str:
         """Create or reuse an exact SourceSpan for a regex match in item.raw_text."""
@@ -1162,10 +2705,15 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
         for match in DATA_PATH_EDGE_RE.finditer(item.raw_text):
             source = match.group("source").strip().lower()
             target = match.group("target").strip().lower()
+            match_end = match.end()
+            target_words = target.split()
+            if len(target_words) > 1 and target_words[-1] in (_EDGE_STOP_WORDS - {"a", "an", "the"}):
+                target = " ".join(target_words[:-1])
+                match_end = match.start("target") + len(target)
             if source in _EDGE_STOP_WORDS or target in _EDGE_STOP_WORDS:
                 continue
             direction = _normalize_direction(match.group("verb"))
-            edges.append((source, target, direction, item.id, exact_match_span(item, match.start(), match.end())))
+            edges.append((source, target, direction, item.id, exact_match_span(item, match.start(), match_end)))
 
     # Emit DataFlowEdge atoms for each extracted edge.
     # Each edge carries the exact source span of the matched edge phrase, not
@@ -1713,19 +3261,17 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                 existing_ids.add(qid)
 
         # --- Isolated component detection ---
-        # Components mentioned with broader data-flow verbs (receives from, feeds
-        # into, flows to, provides to, gets from, pulls from, pushes to) that are
-        # NOT part of the explicit DATA_PATH_EDGE_RE verb set should still appear
-        # in at least one DataFlowEdge.  A component mentioned with these broader
-        # verbs but not connected to any explicit edge may indicate an
-        # underspecified dependency or missing declaration.
+        # Components mentioned with broader data-flow verbs (flows to,
+        # provides to, gets from) that are NOT part of the explicit
+        # DATA_PATH_EDGE_RE verb set should still appear in at least one
+        # DataFlowEdge.  A component mentioned with these broader verbs but not
+        # connected to any explicit edge may indicate an underspecified
+        # dependency or missing declaration.
         ISOLATED_COMPONENT_RE = re.compile(
             r"(?:(?:The|the|A|a|An|an)\s+)?"
             r"(?P<component>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)"
-            r"\s+(?:receives?\s+\w+\s+from|sends?\s+\w+\s+to"
-            r"|feeds?\s+into|flows?\s+(?:from|to|into)"
-            r"|provides?\s+\w+\s+to|gets?\s+\w+\s+from"
-            r"|pulls?\s+\w+\s+from|pushes?\s+\w+\s+to)\b",
+            r"\s+(?:flows?\s+(?:from|to|into)"
+            r"|provides?\s+\w+\s+to|gets?\s+\w+\s+from)\b",
             re.IGNORECASE,
         )
         mentioned_components: set[str] = set()
@@ -1935,7 +3481,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
             r"(?P<target>\b[A-Za-z]+(?:\s+[A-Za-z]+)?\b)",
             re.IGNORECASE,
         )
-        temporal_edges: list[tuple[str, str, str, str]] = []  # (before, after, verb, item_id)
+        temporal_edges: list[tuple[str, str, str, str, str]] = []  # (before, after, verb, item_id, span_id)
         for item in doc.items:
             for match in TEMPORAL_ORDER_RE.finditer(item.raw_text):
                 src = match.group("source").strip().lower()
@@ -1949,11 +3495,11 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                     before, after = tgt, src
                 else:
                     before, after = src, tgt
-                temporal_edges.append((before, after, verb, item.id))
+                temporal_edges.append((before, after, verb, item.id, exact_match_span(item, match.start(), match.end())))
 
         # Build temporal adjacency and detect cycles via DFS.
         temporal_adj: dict[str, set[str]] = {}
-        for before, after, _verb, _item_id in temporal_edges:
+        for before, after, _verb, _item_id, _span_id in temporal_edges:
             temporal_adj.setdefault(before, set()).add(after)
 
         WHITE_T, GRAY_T, BLACK_T = 0, 1, 2
@@ -1986,10 +3532,12 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
                 unique_t_cycles.append(cycle)
 
         # Emit TemporalOrderEdge atoms for each extracted temporal edge.
-        for before, after, verb, item_id in temporal_edges:
+        # Each temporal edge cites the exact matched ordering phrase so temporal
+        # contradictions can be reviewed against the precise source text, not
+        # only the containing Plain item.
+        for before, after, verb, item_id, edge_span_id in temporal_edges:
             edge_id = stable_id("temporal-edge", before, after, "precedes", item_id)
             if edge_id not in existing_ids:
-                edge_span_id = item_by_id[item_id].span.id if item_id in item_by_id else first_span_id
                 doc.objects.append(
                     SpecObject(
                         edge_id,
@@ -2013,7 +3561,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
         if not temporal_edges:
             add_check(doc, temporal_obligation, CheckStatus.PASS, "no explicit temporal ordering statements found")
         elif not unique_t_cycles:
-            edge_summary = "; ".join(f"{b} before {a}" for b, a, _, _ in temporal_edges)
+            edge_summary = "; ".join(f"{b} before {a}" for b, a, _, _, _ in temporal_edges)
             add_check(doc, temporal_obligation, CheckStatus.PASS, f"temporal ordering is consistent (no impossible cycles): {edge_summary}")
         else:
             cycle_summaries = [" → ".join(cycle) for cycle in unique_t_cycles]
@@ -2044,7 +3592,7 @@ def build_information_flow_validation(doc: SpecDocument) -> SpecDocument:
         if edges and temporal_edges:
             # Build a set of (before, after) pairs from temporal edges.
             temporal_pairs: set[tuple[str, str]] = set()
-            for before, after, _verb, _item_id in temporal_edges:
+            for before, after, _verb, _item_id, _span_id in temporal_edges:
                 temporal_pairs.add((before, after))
 
             contradictions: list[tuple[str, str, str, str]] = []  # (data_src, data_tgt, temp_before, temp_after)
@@ -2440,6 +3988,7 @@ PASS_REGISTRY = [
     PassSpec("seed-raw-item-objects", "Wrap indexed Plain items as RawTextOnly source objects.", seed_raw_item_objects),
     PassSpec("build-concept-table", "Extract explicit concept definitions, references, external links, and unresolved-question records.", build_concept_table),
     PassSpec("build-requirement-test-coverage", "Create shallow requirement/test objects and Unknown coverage questions.", build_requirement_test_coverage),
+    PassSpec("build-semantic-objects", "Create explicit Phase 2/3 Scope/Epistemic/Evidence/Proof/Rationale/Interpretation/Bridge/Revision/Decision/Outcome/Observation/Counterexample/Witness/Process/Resource/Dependency/Risk/Question/Assumption/Invariant/Constraint objects.", build_semantic_objects),
     PassSpec("build-security-privacy-validation", "Create conservative security/privacy obligations and questions.", build_security_privacy_validation),
     PassSpec("build-information-flow-validation", "Create conservative information-flow and temporal-availability obligations and questions.", build_information_flow_validation),
     PassSpec("build-ml-methodology-validation", "Create conservative ML/time-series methodology obligations and questions.", build_ml_methodology_validation),

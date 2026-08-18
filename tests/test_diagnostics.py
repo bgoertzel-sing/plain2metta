@@ -5,6 +5,8 @@ from pathlib import Path
 from specatom_hs.backends.diagnostics import diagnostics_summary, format_diagnostics_report
 from specatom_hs.backends.petta import emit_metta_file, emit_reified_atoms, emit_reified_atoms_grouped
 from specatom_hs.passes import compile_path
+from specatom_hs.schema import CheckRecord, CheckStatus, Role, SemanticLevel, SourceSpan, SpecDocument, SpecObject, ValidationObligation
+from specatom_hs.validators import validate_document
 
 
 EXAMPLE = Path(__file__).resolve().parents[1] / "examples" / "task_manager.plain"
@@ -76,6 +78,1037 @@ class DiagnosticsTests(unittest.TestCase):
         self.assertIn("AUTH-2", report)
         self.assertIn("AUTH-99", report)
         self.assertIn("AuditSink", report)
+
+    def test_diagnostics_fail_closed_on_malformed_records_and_facts(self):
+        valid = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[None, ("QuestionText", "question-valid", "Review this."), 7],
+        )
+        malformed_facts = SpecObject(
+            "question-malformed-facts",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        malformed_facts.facts = None
+        doc = SpecDocument(objects=[None, valid, malformed_facts])
+        validate_document(doc)
+        doc.checks.insert(0, None)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["questions"], 1)
+        self.assertGreater(summary["fail"], 0)
+        self.assertIn("Review this.", report)
+        self.assertIn("unsupported-spec-object-record-type:NoneType", report)
+        self.assertIn("unsupported-check-record-type:NoneType", report)
+        self.assertIn("unsupported-object-facts-container-type:NoneType", report)
+
+    def test_diagnostics_fail_closed_on_malformed_check_fields(self):
+        obligation = ValidationObligation(
+            "obligation-valid", "review", "target-valid", "Review target."
+        )
+        malformed = CheckRecord(
+            "check-malformed",
+            obligation.id,
+            ["review"],
+            obligation.target_id,
+            ["Pass"],
+            "invalid structured fields",
+        )
+        malformed_string_status = CheckRecord(
+            "check-malformed-string-status",
+            obligation.id,
+            obligation.property,
+            obligation.target_id,
+            "Pass",
+            "invalid string status",
+        )
+        valid = CheckRecord(
+            "check-valid",
+            obligation.id,
+            obligation.property,
+            obligation.target_id,
+            CheckStatus.PASS,
+            "reviewed",
+        )
+        doc = SpecDocument(
+            validation_obligations=[obligation],
+            checks=[malformed, malformed_string_status, valid],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["pass"], 1)
+        self.assertEqual(summary["unknown"], 0)
+        self.assertNotIn("<invalid list: ['review']>", summary["by_property"])
+        self.assertEqual(summary["by_property"]["review"]["pass"], 1)
+        self.assertNotIn("invalid structured fields", report)
+        self.assertNotIn("invalid string status", report)
+        self.assertIn("unsupported-check-property-type:list", report)
+        self.assertIn("unsupported-check-status-type:str", report)
+
+    def test_diagnostics_fail_closed_on_refused_check_scalar_fields(self):
+        obligation = ValidationObligation(
+            "obligation-valid", "review", "target-valid", "Review target."
+        )
+
+        def check(check_id, obligation_id, property_name, target_id, evidence):
+            return CheckRecord(
+                check_id,
+                obligation_id,
+                property_name,
+                target_id,
+                CheckStatus.FAIL,
+                evidence,
+            )
+
+        doc = SpecDocument(
+            validation_obligations=[obligation],
+            checks=[
+                check(
+                    "check-obligation",
+                    ["obligation-valid"],
+                    obligation.property,
+                    obligation.target_id,
+                    "Do not report structured obligation.",
+                ),
+                check(
+                    "check-property",
+                    obligation.id,
+                    " ",
+                    obligation.target_id,
+                    "Do not report blank property.",
+                ),
+                check(
+                    "check-target",
+                    obligation.id,
+                    obligation.property,
+                    None,
+                    "Do not report missing target.",
+                ),
+                check(
+                    "check-evidence",
+                    obligation.id,
+                    obligation.property,
+                    obligation.target_id,
+                    " ",
+                ),
+                CheckRecord(
+                    "check-valid",
+                    obligation.id,
+                    obligation.property,
+                    obligation.target_id,
+                    CheckStatus.PASS,
+                    "Report valid.",
+                ),
+            ],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["pass"], 1)
+        self.assertEqual(summary["fail"], 0)
+        self.assertNotIn("Do not report", report)
+        self.assertIn("unsupported-check-obligation-id-type:list", report)
+        self.assertIn("missing-check-property", report)
+        self.assertIn("unsupported-check-target-id-type:NoneType", report)
+        self.assertIn("missing-check-evidence", report)
+
+    def test_diagnostics_fail_closed_on_refused_check_obligation_links(self):
+        refused_obligation = ValidationObligation(
+            "obligation-refused", " ", "target-refused", "Do not admit."
+        )
+        valid_obligation = ValidationObligation(
+            "obligation-valid", "review", "target-valid", "Review target."
+        )
+
+        def check(check_id, obligation_id, property_name, target_id, evidence):
+            return CheckRecord(
+                check_id,
+                obligation_id,
+                property_name,
+                target_id,
+                CheckStatus.FAIL,
+                evidence,
+            )
+
+        doc = SpecDocument(
+            validation_obligations=[refused_obligation, valid_obligation],
+            checks=[
+                check(
+                    "check-missing-obligation",
+                    "obligation-missing",
+                    "review",
+                    "target-valid",
+                    "Do not report missing obligation.",
+                ),
+                check(
+                    "check-refused-obligation",
+                    refused_obligation.id,
+                    "review",
+                    refused_obligation.target_id,
+                    "Do not report refused obligation.",
+                ),
+                check(
+                    "check-property-mismatch",
+                    valid_obligation.id,
+                    "different-property",
+                    valid_obligation.target_id,
+                    "Do not report property mismatch.",
+                ),
+                check(
+                    "check-target-mismatch",
+                    valid_obligation.id,
+                    valid_obligation.property,
+                    "different-target",
+                    "Do not report target mismatch.",
+                ),
+                CheckRecord(
+                    "check-valid",
+                    valid_obligation.id,
+                    valid_obligation.property,
+                    valid_obligation.target_id,
+                    CheckStatus.PASS,
+                    "Report valid.",
+                ),
+            ],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["pass"], 1)
+        self.assertEqual(summary["fail"], 0)
+        self.assertEqual(summary["by_property"], {"review": {"pass": 1, "fail": 0, "unknown": 0}})
+        self.assertNotIn("Do not report", report)
+        self.assertIn("check-obligation-not-emitted:obligation-missing", report)
+        self.assertIn("check-obligation-not-emitted:obligation-refused", report)
+        self.assertIn("check-property-mismatch-with-obligation", report)
+        self.assertIn("check-target-mismatch-with-obligation", report)
+
+    def test_diagnostics_fail_closed_on_refused_check_identities(self):
+        obligation = ValidationObligation(
+            "obligation", "property", "target", "Review target."
+        )
+
+        def check(check_id, status, evidence):
+            return CheckRecord(
+                check_id,
+                "obligation",
+                "property",
+                "target",
+                status,
+                evidence,
+            )
+
+        doc = SpecDocument(
+            validation_obligations=[obligation],
+            checks=[
+                check(" ", CheckStatus.FAIL, "Do not report blank."),
+                check(["check-structured"], CheckStatus.FAIL, "Do not report structured."),
+                check("check-duplicate", CheckStatus.FAIL, "Do not report duplicate A."),
+                check("check-duplicate", CheckStatus.FAIL, "Do not report duplicate B."),
+                check("check-valid", CheckStatus.PASS, "Report valid."),
+            ]
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["pass"], 1)
+        self.assertEqual(summary["fail"], 0)
+        self.assertNotIn("Do not report blank.", report)
+        self.assertNotIn("Do not report structured.", report)
+        self.assertNotIn("Do not report duplicate", report)
+        self.assertIn("missing-check-id", report)
+        self.assertIn("unsupported-check-id-type:list", report)
+        self.assertIn("duplicate-check-id", report)
+
+    def test_diagnostics_fail_closed_on_structured_concept_status(self):
+        malformed = SpecObject(
+            "concept-malformed",
+            Role.CONCEPT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("ConceptStatus", "concept-malformed", ["defined"])],
+        )
+        valid = SpecObject(
+            "concept-valid",
+            Role.CONCEPT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("ConceptStatus", "concept-valid", "defined")],
+        )
+        doc = SpecDocument(objects=[malformed, valid])
+        validate_document(doc)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(
+            summary["concepts"],
+            {"defined": 1, "external": 0, "unresolved": 0},
+        )
+        self.assertGreater(summary["fail"], 0)
+        self.assertIn(
+            "unsupported-fact-argument-type:ConceptStatus:position-2:list",
+            report,
+        )
+
+    def test_diagnostics_fail_closed_on_string_object_roles(self):
+        malformed_question = SpecObject(
+            "question-malformed-role",
+            "QuestionObject",
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-malformed-role", "Do not report this.")],
+        )
+        malformed_requirement = SpecObject(
+            "requirement-malformed-role",
+            "RequirementObject",
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        malformed_validation = SpecObject(
+            "validation-malformed-role",
+            "ValidationObject",
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("TestKind", "validation-malformed-role", "Acceptance")],
+        )
+        malformed_concept = SpecObject(
+            "concept-malformed-role",
+            "ConceptObject",
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("ConceptStatus", "concept-malformed-role", "defined")],
+        )
+        valid_question = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-valid", "Review this.")],
+        )
+        doc = SpecDocument(
+            objects=[
+                malformed_question,
+                malformed_requirement,
+                malformed_validation,
+                malformed_concept,
+                valid_question,
+            ]
+        )
+        validate_document(doc)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        atoms, _ = emit_reified_atoms(doc)
+
+        self.assertEqual(summary["questions"], 1)
+        self.assertEqual(summary["requirements"], 0)
+        self.assertEqual(summary["acceptance_tests"], 0)
+        self.assertEqual(
+            summary["concepts"],
+            {"defined": 0, "external": 0, "unresolved": 0},
+        )
+        self.assertIn("Review this.", report)
+        self.assertNotIn("Do not report this.", report)
+        self.assertFalse(
+            any(atom.startswith("(spec-object concept-malformed-role ") for atom in atoms)
+        )
+        self.assertNotIn(
+            "(ConceptStatus concept-malformed-role defined)",
+            atoms,
+        )
+        self.assertIn("unsupported-object-role-type-for-reified-emission:str", report)
+
+    def test_diagnostics_fail_closed_on_structured_question_facts(self):
+        obligation = ValidationObligation(
+            "obligation-valid", "review", "target-valid", "Review target."
+        )
+        malformed = SpecObject(
+            "question-malformed",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[
+                ("QuestionText", "question-malformed", ["Do not report this."]),
+                ("Blocks", "question-malformed", [obligation.id]),
+            ],
+        )
+        valid = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[
+                ("QuestionText", "question-valid", "Review this."),
+                ("Blocks", "question-valid", obligation.id),
+            ],
+        )
+        doc = SpecDocument(
+            objects=[malformed, valid],
+            validation_obligations=[obligation],
+        )
+        validate_document(doc)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        checks = {
+            (check.property, check.target_id): check
+            for check in doc.checks
+            if isinstance(check, CheckRecord)
+        }
+
+        self.assertEqual(summary["questions"], 2)
+        self.assertEqual(
+            checks[("question-has-review-text", malformed.id)].status,
+            CheckStatus.FAIL,
+        )
+        self.assertEqual(
+            checks[("question-blocks-validation-obligation", malformed.id)].status,
+            CheckStatus.FAIL,
+        )
+        self.assertEqual(
+            checks[("question-has-review-text", valid.id)].status,
+            CheckStatus.PASS,
+        )
+        self.assertEqual(
+            checks[("question-blocks-validation-obligation", valid.id)].status,
+            CheckStatus.PASS,
+        )
+        self.assertIn("Review this.", report)
+        self.assertNotIn("Do not report this.", report)
+        self.assertIn(
+            "unsupported-fact-argument-type:QuestionText:position-2:list",
+            report,
+        )
+        self.assertIn(
+            "unsupported-fact-argument-type:Blocks:position-2:list",
+            report,
+        )
+
+    def test_diagnostics_fail_closed_on_mismatched_fact_subjects(self):
+        malformed_concept = SpecObject(
+            "concept-malformed",
+            Role.CONCEPT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("ConceptStatus", "different-object", "defined")],
+        )
+        malformed_validation = SpecObject(
+            "validation-malformed",
+            Role.VALIDATION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("TestKind", "different-object", "Acceptance")],
+        )
+        malformed_question = SpecObject(
+            "question-malformed",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "different-object", "Do not report this.")],
+        )
+        valid_question = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-valid", "Review this.")],
+        )
+        doc = SpecDocument(
+            objects=[
+                malformed_concept,
+                malformed_validation,
+                malformed_question,
+                valid_question,
+            ]
+        )
+        validate_document(doc)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(
+            summary["concepts"],
+            {"defined": 0, "external": 0, "unresolved": 0},
+        )
+        self.assertEqual(summary["acceptance_tests"], 0)
+        self.assertIn("Review this.", report)
+        self.assertNotIn("Do not report this.", report)
+        self.assertIn("fact-subject-matches-object", report)
+        self.assertIn("fact-subject-mismatch:TestKind", report)
+        self.assertIn("fact-subject-mismatch:QuestionText", report)
+
+    def test_diagnostics_fail_closed_on_extra_fact_arguments(self):
+        malformed_concept = SpecObject(
+            "concept-malformed",
+            Role.CONCEPT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("ConceptStatus", "concept-malformed", "defined", "extra")],
+        )
+        malformed_validation = SpecObject(
+            "validation-malformed",
+            Role.VALIDATION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("TestKind", "validation-malformed", "Acceptance", "extra")],
+        )
+        malformed_question = SpecObject(
+            "question-malformed",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[
+                (
+                    "QuestionText",
+                    "question-malformed",
+                    "Do not report this.",
+                    "extra",
+                )
+            ],
+        )
+        valid_question = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-valid", "Review this.")],
+        )
+        doc = SpecDocument(
+            objects=[
+                malformed_concept,
+                malformed_validation,
+                malformed_question,
+                valid_question,
+            ]
+        )
+        validate_document(doc)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(
+            summary["concepts"],
+            {"defined": 0, "external": 0, "unresolved": 0},
+        )
+        self.assertEqual(summary["acceptance_tests"], 0)
+        self.assertIn("Review this.", report)
+        self.assertNotIn("Do not report this.", report)
+        self.assertIn("fact-has-supported-arity", report)
+        self.assertIn("unsupported-fact-arity:ConceptStatus:expected-3:got-4", report)
+        self.assertIn("unsupported-fact-arity:TestKind:expected-3:got-4", report)
+        self.assertIn("unsupported-fact-arity:QuestionText:expected-3:got-4", report)
+
+    def test_diagnostics_fail_closed_on_refused_object_identities(self):
+        blank = SpecObject(
+            " ",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", " ", "Do not report blank.")],
+        )
+        structured = SpecObject(
+            ["question-structured"],
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", ["question-structured"], "Do not report structured.")],
+        )
+        duplicate_a = SpecObject(
+            "question-duplicate",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-duplicate", "Do not report duplicate A.")],
+        )
+        duplicate_b = SpecObject(
+            "question-duplicate",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-duplicate", "Do not report duplicate B.")],
+        )
+        valid = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-valid", "Review this.")],
+        )
+        doc = SpecDocument(
+            objects=[blank, structured, duplicate_a, duplicate_b, valid]
+        )
+        validate_document(doc)
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["questions"], 1)
+        self.assertIn("Review this.", report)
+        self.assertNotIn("Do not report blank.", report)
+        self.assertNotIn("Do not report structured.", report)
+        self.assertNotIn("Do not report duplicate", report)
+        self.assertIn("missing-object-id-for-reified-emission", report)
+        self.assertIn("duplicate-object-id-for-reified-emission", report)
+
+    def test_diagnostics_fail_closed_on_refused_semantic_levels(self):
+        raw_question = SpecObject(
+            "question-raw",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.RAW_TEXT_ONLY,
+            facts=[("QuestionText", "question-raw", "Do not report raw text.")],
+        )
+        malformed_question = SpecObject(
+            "question-malformed-level",
+            Role.QUESTION_OBJECT,
+            "TemplateParsed",
+            facts=[
+                (
+                    "QuestionText",
+                    "question-malformed-level",
+                    "Do not report malformed level.",
+                )
+            ],
+        )
+        raw_concept = SpecObject(
+            "concept-raw",
+            Role.CONCEPT_OBJECT,
+            SemanticLevel.RAW_TEXT_ONLY,
+            facts=[("ConceptStatus", "concept-raw", "defined")],
+        )
+        raw_validation = SpecObject(
+            "validation-raw",
+            Role.VALIDATION_OBJECT,
+            SemanticLevel.RAW_TEXT_ONLY,
+            facts=[("TestKind", "validation-raw", "Acceptance")],
+        )
+        valid = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[("QuestionText", "question-valid", "Review this.")],
+        )
+        doc = SpecDocument(
+            objects=[
+                raw_question,
+                malformed_question,
+                raw_concept,
+                raw_validation,
+                valid,
+            ]
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["questions"], 1)
+        self.assertEqual(
+            summary["concepts"],
+            {"defined": 0, "external": 0, "unresolved": 0},
+        )
+        self.assertEqual(summary["acceptance_tests"], 0)
+        self.assertIn("Review this.", report)
+        self.assertNotIn("Do not report raw text.", report)
+        self.assertNotIn("Do not report malformed level.", report)
+        self.assertIn("unsupported-semantic-level-for-reified-emission", report)
+        self.assertIn(
+            "unsupported-semantic-level-type-for-reified-emission:str",
+            report,
+        )
+
+    def test_diagnostics_fail_closed_on_unsafe_obligation_source_span(self):
+        malformed_obligation = ValidationObligation(
+            "obligation-malformed",
+            "property-malformed",
+            "target-malformed",
+            "Malformed obligation must not admit its linked check.",
+            source_span_id=["span-malformed"],
+        )
+        valid_obligation = ValidationObligation(
+            "obligation-valid",
+            "property-valid",
+            "target-valid",
+            "Valid neighboring obligation remains admitted.",
+        )
+        malformed_check = CheckRecord(
+            "check-malformed",
+            "obligation-malformed",
+            "property-malformed",
+            "target-malformed",
+            CheckStatus.FAIL,
+            "Do not report this failure.",
+        )
+        valid_check = CheckRecord(
+            "check-valid",
+            "obligation-valid",
+            "property-valid",
+            "target-valid",
+            CheckStatus.PASS,
+            "Valid neighboring pass.",
+        )
+        doc = SpecDocument(
+            validation_obligations=[malformed_obligation, valid_obligation],
+            checks=[malformed_check, valid_check],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        atoms, _ = emit_reified_atoms(doc)
+
+        self.assertEqual(summary["pass"], 1)
+        self.assertEqual(summary["fail"], 0)
+        self.assertNotIn("Do not report this failure.", report)
+        self.assertNotIn(
+            "(validation-obligation obligation-malformed property-malformed target-malformed)",
+            atoms,
+        )
+        self.assertFalse(
+            any(atom.startswith("(check check-malformed ") for atom in atoms)
+        )
+        self.assertIn(
+            "unsupported-source-span-id-type:list-for-validation-obligation",
+            report,
+        )
+
+    def test_diagnostics_fail_closed_on_obligation_source_span_not_emitted(self):
+        malformed_obligation = ValidationObligation(
+            "obligation-malformed",
+            "property-malformed",
+            "target-malformed",
+            "Missing provenance must not admit its linked check.",
+            source_span_id="span-missing",
+        )
+        valid_obligation = ValidationObligation(
+            "obligation-valid",
+            "property-valid",
+            "target-valid",
+            "Valid neighboring obligation remains admitted.",
+        )
+        doc = SpecDocument(
+            files=[],
+            spans=[
+                SourceSpan(
+                    "span-refused",
+                    "file-missing",
+                    0,
+                    1,
+                    1,
+                    1,
+                )
+            ],
+            validation_obligations=[malformed_obligation, valid_obligation],
+            checks=[
+                CheckRecord(
+                    "check-malformed",
+                    "obligation-malformed",
+                    "property-malformed",
+                    "target-malformed",
+                    CheckStatus.FAIL,
+                    "Do not report this failure.",
+                ),
+                CheckRecord(
+                    "check-valid",
+                    "obligation-valid",
+                    "property-valid",
+                    "target-valid",
+                    CheckStatus.PASS,
+                    "Valid neighboring pass.",
+                ),
+            ],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        atoms, _ = emit_reified_atoms(doc)
+
+        self.assertEqual(summary["pass"], 1)
+        self.assertEqual(summary["fail"], 0)
+        self.assertNotIn("Do not report this failure.", report)
+        self.assertNotIn(
+            "(validation-obligation obligation-malformed property-malformed target-malformed)",
+            atoms,
+        )
+        self.assertFalse(
+            any(atom.startswith("(check check-malformed ") for atom in atoms)
+        )
+        self.assertIn(
+            "validation-obligation-source-span-not-emitted",
+            report,
+        )
+
+
+    def test_diagnostics_and_export_fail_closed_on_refused_object_source_span(self):
+        refused = SpecObject(
+            "question-refused",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[(
+                "QuestionText",
+                "question-refused",
+                "Do not report or emit this question.",
+            )],
+            source_span_id="span-refused",
+        )
+        valid = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[(
+                "QuestionText",
+                "question-valid",
+                "Report the valid neighboring question.",
+            )],
+        )
+        doc = SpecDocument(
+            spans=[SourceSpan("span-refused", "file-missing", 0, 1, 1, 1)],
+            objects=[refused, valid],
+        )
+
+        atoms, refusals = emit_reified_atoms(doc)
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["questions"], 1)
+        self.assertNotIn("Do not report or emit this question.", report)
+        self.assertIn("Report the valid neighboring question.", report)
+        self.assertFalse(any("question-refused" in atom for atom in atoms))
+        self.assertTrue(any("question-valid" in atom for atom in atoms))
+        self.assertIn(
+            "object-source-span-not-emitted",
+            {refusal.reason for refusal in refusals},
+        )
+
+    def test_diagnostics_and_export_fail_closed_on_structured_object_source_span(self):
+        refused = SpecObject(
+            "question-refused",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[(
+                "QuestionText",
+                "question-refused",
+                "Do not report or emit structured provenance.",
+            )],
+            source_span_id=["span-structured"],
+        )
+        valid = SpecObject(
+            "question-valid",
+            Role.QUESTION_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+            facts=[(
+                "QuestionText",
+                "question-valid",
+                "Report the valid neighboring question.",
+            )],
+        )
+        doc = SpecDocument(objects=[refused, valid])
+
+        atoms, refusals = emit_reified_atoms(doc)
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+
+        self.assertEqual(summary["questions"], 1)
+        self.assertFalse(any("question-refused" in atom for atom in atoms))
+        self.assertTrue(any("question-valid" in atom for atom in atoms))
+        self.assertNotIn("Do not report or emit structured provenance.", report)
+        self.assertIn("Report the valid neighboring question.", report)
+        self.assertIn(
+            "unsupported-source-span-id-type:list-for-reified-emission",
+            {refusal.reason for refusal in refusals},
+        )
+
+    def test_diagnostics_exclude_checks_for_refused_object_targets(self):
+        refused = SpecObject(
+            "object-refused",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.RAW_TEXT_ONLY,
+        )
+        valid = SpecObject(
+            "object-valid",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        obligations = [
+            ValidationObligation(
+                "obligation-refused", "reviewed", "object-refused:fact:0",
+                "Refused target.",
+            ),
+            ValidationObligation(
+                "obligation-valid", "reviewed", "object-valid:fact:0",
+                "Valid target.",
+            ),
+        ]
+        checks = [
+            CheckRecord(
+                "check-refused", "obligation-refused", "reviewed",
+                "object-refused:fact:0", CheckStatus.FAIL, "must not leak",
+            ),
+            CheckRecord(
+                "check-valid", "obligation-valid", "reviewed",
+                "object-valid:fact:0", CheckStatus.PASS, "reviewed",
+            ),
+        ]
+        doc = SpecDocument(
+            objects=[refused, valid],
+            validation_obligations=obligations,
+            checks=checks,
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        atoms, refusals = emit_reified_atoms(doc)
+
+        self.assertEqual(
+            (summary["pass"], summary["fail"], summary["unknown"]),
+            (1, 0, 0),
+        )
+        self.assertNotIn("must not leak", report)
+        self.assertFalse(any(atom.startswith("(check check-refused ") for atom in atoms))
+        self.assertTrue(any(atom.startswith("(check check-valid ") for atom in atoms))
+        self.assertIn(
+            "validation-obligation-target-object-not-emitted",
+            {refusal.reason for refusal in refusals},
+        )
+
+    def test_diagnostics_use_most_specific_colon_bearing_target_owner(self):
+        parent = SpecObject(
+            "object",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        refused_child = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.RAW_TEXT_ONLY,
+        )
+        obligation = ValidationObligation(
+            "obligation-child", "reviewed", "object:child:fact:0",
+            "Refused child target.",
+        )
+        check = CheckRecord(
+            "check-child", "obligation-child", "reviewed",
+            "object:child:fact:0", CheckStatus.FAIL, "must not leak",
+        )
+        doc = SpecDocument(
+            objects=[parent, refused_child],
+            validation_obligations=[obligation],
+            checks=[check],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        atoms, _ = emit_reified_atoms(doc)
+
+        self.assertEqual(
+            (summary["pass"], summary["fail"], summary["unknown"]),
+            (0, 0, 0),
+        )
+        self.assertNotIn("must not leak", report)
+        self.assertFalse(any(atom.startswith("(check check-child ") for atom in atoms))
+
+    def test_diagnostics_exclude_empty_object_subtargets(self):
+        obj = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        obligation = ValidationObligation(
+            "obligation-empty", "reviewed", "object:child:",
+            "A trailing separator has no subtarget.",
+        )
+        check = CheckRecord(
+            "check-empty", "obligation-empty", "reviewed",
+            "object:child:", CheckStatus.FAIL, "must not leak",
+        )
+        doc = SpecDocument(
+            objects=[obj],
+            validation_obligations=[obligation],
+            checks=[check],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        atoms, refusals = emit_reified_atoms(doc)
+
+        self.assertEqual(
+            (summary["pass"], summary["fail"], summary["unknown"]),
+            (0, 0, 0),
+        )
+        self.assertNotIn("must not leak", report)
+        self.assertFalse(any(atom.startswith("(check check-empty ") for atom in atoms))
+        self.assertIn(
+            "validation-obligation-target-has-empty-object-subtarget",
+            {refusal.reason for refusal in refusals},
+        )
+
+    def test_diagnostics_exclude_whitespace_only_object_subtargets(self):
+        obj = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        obligation = ValidationObligation(
+            "obligation-empty", "reviewed", "object:child: \t ",
+            "Whitespace is not a subtarget.",
+        )
+        check = CheckRecord(
+            "check-empty", "obligation-empty", "reviewed",
+            "object:child: \t ", CheckStatus.FAIL, "must not leak",
+        )
+        doc = SpecDocument(
+            objects=[obj],
+            validation_obligations=[obligation],
+            checks=[check],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        atoms, refusals = emit_reified_atoms(doc)
+
+        self.assertEqual(
+            (summary["pass"], summary["fail"], summary["unknown"]),
+            (0, 0, 0),
+        )
+        self.assertNotIn("must not leak", report)
+        self.assertFalse(any(atom.startswith("(check check-empty ") for atom in atoms))
+        self.assertIn(
+            "validation-obligation-target-has-empty-object-subtarget",
+            {refusal.reason for refusal in refusals},
+        )
+
+    def test_diagnostics_exclude_padded_object_subtargets(self):
+        obj = SpecObject(
+            "object:child",
+            Role.REQUIREMENT_OBJECT,
+            SemanticLevel.TEMPLATE_PARSED,
+        )
+        obligation = ValidationObligation(
+            "obligation-padded", "reviewed", "object:child: fact:0 ",
+            "Outer whitespace is ambiguous.",
+        )
+        check = CheckRecord(
+            "check-padded", "obligation-padded", "reviewed",
+            "object:child: fact:0 ", CheckStatus.FAIL, "must not leak",
+        )
+        leading_obligation = ValidationObligation(
+            "obligation-leading-padded", "reviewed", " object:child:fact:0",
+            "Leading whitespace is ambiguous.",
+        )
+        leading_check = CheckRecord(
+            "check-leading-padded", "obligation-leading-padded", "reviewed",
+            " object:child:fact:0", CheckStatus.FAIL,
+            "leading padding must not leak",
+        )
+        doc = SpecDocument(
+            objects=[obj],
+            validation_obligations=[obligation, leading_obligation],
+            checks=[check, leading_check],
+        )
+
+        summary = diagnostics_summary(doc)
+        report = format_diagnostics_report(doc)
+        atoms, refusals = emit_reified_atoms(doc)
+
+        self.assertEqual(
+            (summary["pass"], summary["fail"], summary["unknown"]),
+            (0, 0, 0),
+        )
+        self.assertNotIn("must not leak", report)
+        self.assertNotIn("leading padding must not leak", report)
+        self.assertFalse(any(
+            atom.startswith(("(check check-padded ", "(check check-leading-padded "))
+            for atom in atoms
+        ))
+        self.assertIn(
+            "validation-obligation-target-has-padded-object-subtarget",
+            {refusal.reason for refusal in refusals},
+        )
 
 
 if __name__ == "__main__":

@@ -72,6 +72,28 @@ class CliTests(unittest.TestCase):
         self.assertIn("## Per-property Breakdown", report)
         self.assertIn("## Backend Refusals", report)
 
+    def test_minimal_default_outputs_stay_interactive_in_size(self):
+        input_path = Path("examples/minimal.plain")
+        output_paths = [
+            input_path.with_suffix(".json"),
+            input_path.with_suffix(".metta"),
+            input_path.with_suffix(".diag"),
+        ]
+        try:
+            stderr = io.StringIO()
+            with redirect_stderr(stderr):
+                code = cli.main(["--all", str(input_path)])
+
+            self.assertEqual(0, code, stderr.getvalue())
+            payload = json.loads(output_paths[0].read_text(encoding="utf-8"))
+            self.assertLessEqual(len(payload["checks"]), 1000)
+            self.assertLessEqual(output_paths[0].stat().st_size, 1_000_000)
+            self.assertLessEqual(output_paths[1].stat().st_size, 500_000)
+            self.assertLessEqual(output_paths[2].stat().st_size, 50_000)
+        finally:
+            for path in output_paths:
+                path.unlink(missing_ok=True)
+
 
 if __name__ == "__main__":
     unittest.main()

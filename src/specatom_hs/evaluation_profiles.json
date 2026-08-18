@@ -1,0 +1,59 @@
+{
+  "schema": "plain2metta-evaluation-profiles/v1",
+  "profiles": [
+    {
+      "name": "greeting-trace-v1",
+      "requirements": {
+        "GREET-1": "- [id:GREET-1] The service shall return a :Greeting: for each request.",
+        "GREET-2": "- [id:GREET-2] The :Greeting: shall retain the request trace identifier."
+      },
+      "shape": "pure",
+      "metta": "(= (make-greeting $text $trace) (Greeting $text $trace))\n!(make-greeting \"hello\" \"trace-123\")\n",
+      "metta_expected": "[(Greeting \"hello\" \"trace-123\")]\n",
+      "python": "def make_greeting(text, trace):\n    return {'text': text, 'trace': trace}\ndef main():\n    value = make_greeting('hello', 'trace-123')\n    print(f\"Greeting(text={value['text']},trace={value['trace']})\")\n",
+      "python_expected": "Greeting(text=hello,trace=trace-123)\n",
+      "assertions": [
+        {"requirement_id":"GREET-1","assertion":"response text equals hello"},
+        {"requirement_id":"GREET-2","assertion":"response retains trace-123"}
+      ]
+    },
+    {
+      "name": "task-validation-owner-v1",
+      "requirements": {
+        "TASK-1": "- [id:TASK-1] A :User: shall add a valid :Task: to the task list.",
+        "TASK-2": "- [id:TASK-2] The service shall reject a :Task: without a name.",
+        "TASK-3": "- [id:TASK-3] The service shall preserve the owner of every stored :Task:."
+      },
+      "shape": "stateful",
+      "metta": "(= (add-task $name $owner) (if (== $name \"\") (Rejected \"missing-name\") (StoredTask $name $owner)))\n!(add-task \"Write report\" \"alice\")\n!(add-task \"\" \"alice\")\n",
+      "metta_expected": "[(StoredTask \"Write report\" \"alice\")]\n[(Rejected \"missing-name\")]\n",
+      "python": "def add_task(name, owner):\n    return {'status':'rejected','reason':'missing-name'} if not name else {'status':'stored','name':name,'owner':owner}\ndef main():\n    valid=add_task('Write report','alice'); invalid=add_task('','alice')\n    print(f\"stored={valid['name']} owner={valid['owner']}\")\n    print(f\"rejected={invalid['reason']}\")\n",
+      "python_expected": "stored=Write report owner=alice\nrejected=missing-name\n",
+      "assertions": [
+        {"requirement_id":"TASK-1","assertion":"valid named task is stored"},
+        {"requirement_id":"TASK-2","assertion":"blank task name is rejected"},
+        {"requirement_id":"TASK-3","assertion":"stored task owner equals alice"}
+      ]
+    },
+    {
+      "name": "forecast-split-horizon-baseline-v1",
+      "requirements": {
+        "FORECAST-1": "- [id:FORECAST-1] The pipeline shall train only on :Observation: records earlier than the evaluation window.",
+        "FORECAST-2": "- [id:FORECAST-2] The pipeline shall emit one :Forecast: for the declared horizon.",
+        "FORECAST-3": "- [id:FORECAST-3] The evaluation shall compare each :Forecast: with a named baseline.",
+        "FORECAST-4": "- [id:FORECAST-4] The evaluation shall report the split timestamps used for each result."
+      },
+      "shape": "temporal-lineage",
+      "metta": "(= (eligible-train $time $start) (< $time $start))\n!(eligible-train 10 20)\n!(eligible-train 30 20)\n",
+      "metta_expected": "[True]\n[False]\n",
+      "python": "def main():\n    train=[x for x in [10,19,30] if x < 20]\n    print(f'train={train} evaluation_start=20')\n    print('forecast=42 horizon=24h')\n    print('baseline=seasonal-naive delta=2')\n",
+      "python_expected": "train=[10, 19] evaluation_start=20\nforecast=42 horizon=24h\nbaseline=seasonal-naive delta=2\n",
+      "assertions": [
+        {"requirement_id":"FORECAST-1","assertion":"future timestamp 30 is excluded"},
+        {"requirement_id":"FORECAST-2","assertion":"one 24h forecast is emitted"},
+        {"requirement_id":"FORECAST-3","assertion":"named baseline is compared"},
+        {"requirement_id":"FORECAST-4","assertion":"split timestamp is reported"}
+      ]
+    }
+  ]
+}
