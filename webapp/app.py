@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import subprocess
 import sys
 from pathlib import Path
 
@@ -69,6 +70,8 @@ def evaluate():
         payload = evaluate_plain(text)
         payload.update(vertical)
         return jsonify(payload)
+    except subprocess.TimeoutExpired:
+        return jsonify(error="evaluation backend timed out"), 422
     except (TypeError, ValueError) as error:
         return jsonify(error=str(error)), 422
 

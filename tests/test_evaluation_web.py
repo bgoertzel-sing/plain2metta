@@ -1,3 +1,4 @@
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -223,6 +224,27 @@ class EvaluationWebTests(unittest.TestCase):
         self.assertEqual(422, response.status_code)
         self.assertEqual({"error"}, set(response.get_json()))
         self.assertIn("misattributed", response.get_json()["error"].lower())
+        stage4.assert_called_once()
+        stage5.assert_not_called()
+        stage6.assert_not_called()
+        stage7.assert_not_called()
+        legacy.assert_not_called()
+
+    def test_stage_4_timeout_fails_atomically_before_later_execution(self):
+        source = (Path(__file__).resolve().parents[1] / "examples/evaluation/01_greeting.plain").read_text()
+
+        with patch(
+            "specatom_hs.evaluation_vertical.execute_hypothesis_request",
+            side_effect=subprocess.TimeoutExpired(("python", "generated_hypothesis.py"), 3),
+        ) as stage4, \
+             patch("specatom_hs.evaluation_vertical.TLCCoordinator.run") as stage5, \
+             patch("specatom_hs.evaluation_vertical.SMTCoordinator.run") as stage6, \
+             patch("specatom_hs.evaluation_vertical.LeanCoordinator.run") as stage7, \
+             patch("webapp.app.evaluate_plain") as legacy:
+            response = self.client.post("/api/evaluate", json={"text": source})
+
+        self.assertEqual(422, response.status_code)
+        self.assertEqual({"error": "evaluation backend timed out"}, response.get_json())
         stage4.assert_called_once()
         stage5.assert_not_called()
         stage6.assert_not_called()
