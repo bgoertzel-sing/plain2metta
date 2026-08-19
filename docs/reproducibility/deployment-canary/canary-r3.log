@@ -1,0 +1,4 @@
+topology=pass commit=5ce102cb02e72f377314205b28f102e5fc39911f listener=127.0.0.1:8081 workers=1
+{"example":"01_greeting","status":"unknown","grades":{"G0":true,"G1":true,"G2":false,"G3":false,"G4":true,"G5":false,"G6":false},"stages":[1,2,3,4,5,6,7,8],"release":"plain2metta-r02-stage10-20260817"}
+{"example":"02_task_list","status":"unknown","grades":{"G0":true,"G1":true,"G2":false,"G3":false,"G4":true,"G5":false,"G6":false},"stages":[1,2,3,4,5,6,7,8],"release":"plain2metta-r02-stage10-20260817"}
+{"example":"03_forecast","status":"unknown","grades":{"G0":true,"G1":true,"G2":false,"G3":false,"G4":true,"G5":false,"G6":false},"stages":[1,2,3,4,5,6,7,8],"release":"plain2metta-r02-stage10-20260817"}

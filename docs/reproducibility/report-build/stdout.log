@@ -1,0 +1,38 @@
+note: Running TeX ...
+note: Rerunning TeX because "plain2metta-architecture-and-worked-examples-expanded.toc" changed ...
+note: Rerunning TeX because "plain2metta-architecture-and-worked-examples-expanded.toc" changed ...
+note: Running xdvipdfmx ...
+note: Writing `projects/specatom-hs/docs/plain2metta-architecture-and-worked-examples-expanded.pdf` (136.087890625 KiB)
+note: Skipped writing 3 intermediate files (use --keep-intermediates to keep them)
+Creator:         LaTeX with hyperref
+Producer:        xdvipdfmx (0.1)
+CreationDate:    Wed Aug 19 08:36:26 2026 PDT
+Custom Metadata: no
+Metadata Stream: no
+Tagged:          no
+UserProperties:  no
+Suspects:        no
+Form:            none
+JavaScript:      no
+Pages:           30
+Encrypted:       no
+Page size:       612 x 792 pts (letter)
+Page rot:        0
+File size:       139354 bytes
+Optimized:       no
+PDF version:     1.5
+ 1624 12802 /tmp/plain2metta-expanded-r2.txt
+20:1 Introduction: purpose, design rationale, and lessons so far
+206:A Guidance for authoring the next realistic benchmark tasks
+211:A.2 Benchmark A: transactional reservation and payment saga . . . . . . . . . . . . . . . . . . 22
+214:A.5 Benchmark D: evidence-based policy decision under conﬂict and ignorance . . . . . . . . . 25
+220:B.1 Plan S: one coding agent . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 27
+221:B.2 Plan P: six parallel coding agents . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . 28
+228:Introduction: purpose, design rationale, and lessons so far
+1172:Guidance for authoring the next realistic benchmark tasks
+1215:Benchmark A: transactional reservation and payment saga
+1341:Benchmark D: evidence-based policy decision under conﬂict and ignorance
+1410:Plan S: one coding agent
+1500:Plan P: six parallel coding agents
+f085e0392ba21bb0e64fce9239c49a0eb6d14f9d5aa7b3e8e03443551addfe6c  projects/specatom-hs/docs/plain2metta-architecture-and-worked-examples-expanded.tex
+1c9d6a564bb3c73f84acea92dbcd34a8ad7244fc8ac387c02f9cf0ed4c34da88  projects/specatom-hs/docs/plain2metta-architecture-and-worked-examples-expanded.pdf
